@@ -1,0 +1,8 @@
+# dsh-study bundle patch: inserts the study-desk row into the web profile
+# roster. The row is a bare plugin by package name: the node half (exports ".")
+# runs in the Host process (ledger, scheduler, agent tools, API routes); the
+# `dsh.client` declaration in package.json makes the browser half (exports
+# "./client", served at /plugins/dsh-study/client.js) load in the Web GUI.
+- insert:
+    - id: study-desk
+      name: dsh-study
