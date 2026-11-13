@@ -140,6 +140,15 @@ export function apply(ctx: HostContext, config: Config = {}): void {
     }
   }, 'study-desk: routes')
 
+  // Publish the freshly built client bundle when the row restarts. Without
+  // this, a normal page refresh can keep serving the bundle revision captured
+  // at boot, which makes CSS/UI fixes look like they had no effect.
+  try {
+    face<{ rebuilt(id: string): string | undefined }>(ctx, 'clientModules')?.rebuilt(PLUGIN_ID)
+  } catch {
+    // A profile without the client module table simply has no browser half.
+  }
+
   // Guidance is optional too: a profile without a system-prompt service is fine.
   let promptFeed: { dispose(): void } | undefined
   try {

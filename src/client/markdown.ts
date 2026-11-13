@@ -27,7 +27,9 @@ function renderTex(tex: string, display: boolean): string {
     // A display formula must have a block-level scroll container; otherwise a
     // wide formula is clipped by KaTeX's inline-block wrapper. A span with
     // display:block also stays valid inside marked's paragraph output.
-    return display ? `<span class="study-display-math">${html}</span>` : html
+    return display
+      ? `<span class="study-display-math" style="display:flex;justify-content:flex-start;width:100%;max-width:100%;overflow-x:auto;overflow-y:visible;margin:1.05em 0;padding:2px 0 7px"><span style="display:block;flex:0 0 auto;max-width:none;margin:0 auto">${html}</span></span>`
+      : html
   } catch {
     return `<code>${tex.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code>`
   }
