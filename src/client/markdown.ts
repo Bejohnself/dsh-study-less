@@ -110,7 +110,7 @@ function extractMath(segment: string, math: string[]): string {
   value = value.replace(/\$\$([\s\S]+?)\$\$/g, (_match, tex: string) => protect(tex, true))
   value = value.replace(/\\\[([\s\S]+?)\\\]/g, (_match, tex: string) => protect(tex, true))
   value = value.replace(
-    /\\begin\{(equation\*?|align\*?|aligned|gather\*?|multline\*?|eqnarray\*?|displaymath)\}([\s\S]*?)\\end\{\1\}/g,
+    /\\begin\{(equation\*?|align\*?|aligned|gather\*?|multline\*?|eqnarray\*?|displaymath|cases|split)\}([\s\S]*?)\\end\{\1\}/g,
     (_match, _env: string, tex: string) => protect(tex, true),
   )
   // Inline math: a small scanner so `$ \alpha $` works and `$5 and $10` does not.
