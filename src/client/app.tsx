@@ -120,7 +120,6 @@ export function StudyApp(): ReactElement {
             onOpenConcept={openConcept}
             onOpenInsight={openInsight}
             onOpenPlan={pid => setView({ kind: 'plan', pid })}
-            onNewGoal={() => setDialog('goal')}
             onOpenLibrary={() => setView({ kind: 'library' })}
             refreshToken={refreshToken}
             onChanged={bump}

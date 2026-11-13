@@ -88,6 +88,12 @@ const node = imported.manifest.structure.find(candidate => candidate.kind === 's
 uid = node.uid
 page = node.pageStart
 
+const plan = await service.createPlan({
+  goal: '删除检查',
+  steps: [{ kind: 'unit', target: `${mid}:${uid}`, why: '检查删除路径' }],
+})
+const planId = plan.plan.id
+
 const routes = makeStudyRoutes(service, { settings, insights, generation, jobs })
 const server = createServer((req, res) => {
   void routes[0].handler(req, res)
@@ -154,6 +160,18 @@ try {
   console.log('shelf excludes archived:', shelf.body.value.length)
   const all = await call('/library?archived=1')
   console.log('shelf includes archived:', all.body.value.length)
+
+  await postJson('/plan/delete', { pid: planId })
+  const plans = await call('/plans')
+  console.log('plans after delete:', plans.body.value.length)
+
+  const deleted = await postJson('/material/delete', { mid })
+  console.log('material delete:', deleted.status)
+  const afterDelete = await call('/library?archived=1')
+  console.log('shelf after delete:', afterDelete.body.value.length)
+  const conceptsAfter = await call('/concepts')
+  const insightsAfter = await call('/insights')
+  console.log('concepts/insights after delete:', conceptsAfter.body.value.length, insightsAfter.body.value.length)
 } finally {
   server.close()
 }

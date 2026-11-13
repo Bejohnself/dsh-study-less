@@ -44,11 +44,11 @@ library root/
 所有接口在 `/study-api` 下，仅接受本机回环且同源：
 
 - 读：`/library`、`/material`、`/unit`、`/today`、`/due`、`/concepts`、`/concept`、`/plans`、`/plan`、`/quiz`、`/insights`、`/insight`、`/jobs`、`/settings`
-- 写：`/unit/complete`、`/unit/uncomplete`、`/review`、`/quiz/submit`、`/goal/create`、`/plan/create`、`/plan/update`、`/insight/create|update|delete|pin`、`/material/archive`
+- 写：`/unit/complete`、`/unit/uncomplete`、`/review`、`/quiz/submit`、`/goal/create`、`/plan/create`、`/plan/update`、`/plan/delete`、`/insight/create|update|delete|pin`、`/material/archive`、`/material/delete`
 - 生成：`/generate/plan|unit|quiz|insight`、`/jobs/:id/cancel`、`/settings/test`
 - 资产：`/asset?mid&uid&name`（HTML/SVG 带 sandbox CSP）
 
-Agent 工具与 HTTP 共用同一 service 方法；新增工具：`study_generate`、`study_jobs`、`study_insight`。
+Agent 工具与 HTTP 共用同一 service 方法；新增工具：`study_generate`、`study_jobs`、`study_insight`、`study_delete`（删除路径/资料，不可恢复）。
 
 ## 开发
 

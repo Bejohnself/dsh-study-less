@@ -242,6 +242,18 @@ export function MaterialPage({
     [mid, onChanged, reload, state],
   )
 
+  const removeMaterial = async (): Promise<void> => {
+    if (state === null) return
+    if (!window.confirm('删除这份资料及它的精读、练习、进度？此操作不可恢复。')) return
+    try {
+      await post('/material/delete', { mid })
+      onChanged?.()
+      onBack()
+    } catch (reason) {
+      setToast({ message: errorText(reason), tone: 'error' })
+    }
+  }
+
   const archive = async (): Promise<void> => {
     if (state === null) return
     const archived = state.material.archived !== true
@@ -285,6 +297,9 @@ export function MaterialPage({
           ) : null}
           <button type="button" className="study-ghost" onClick={() => void archive()}>
             {state.material.archived === true ? '恢复' : '归档'}
+          </button>
+          <button type="button" className="study-ghost study-danger-text" onClick={() => void removeMaterial()}>
+            删除
           </button>
         </div>
       </div>

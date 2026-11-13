@@ -5,7 +5,7 @@
  * Steps point at real units, real concepts and real materials; the Host refuses
  * a plan whose targets do not exist, so a recommendation can always be opened.
  */
-import { readdir } from 'node:fs/promises'
+import { readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { assertSegment, splitUnitKey } from './ids.ts'
 import type { LibraryPaths } from './paths.ts'
@@ -23,6 +23,17 @@ export async function writePlan(paths: LibraryPaths, plan: PlanRecord): Promise<
   plan.steps = plan.steps.map((step, index) => ({ ...step, n: index + 1 }))
   plan.updatedAt = new Date().toISOString()
   await writeJsonAtomic(paths.planFile(plan.id), plan)
+}
+
+/** Delete one plan; missing files are ignored. */
+export async function deletePlan(paths: LibraryPaths, planId: string): Promise<boolean> {
+  try {
+    await unlink(paths.planFile(planId))
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
 }
 
 /** List every plan. */

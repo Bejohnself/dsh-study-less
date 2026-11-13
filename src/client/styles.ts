@@ -959,6 +959,8 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
 [data-dsh-study] .study-due-row { display: flex; flex-direction: column; gap: 1px; text-align: left; padding: 8px 10px; border-radius: 8px; font-size: 13px; }
 [data-dsh-study] .study-due-row:hover { background: var(--s-hover); }
 [data-dsh-study] .study-step-actions { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+[data-dsh-study] .study-danger-text { color: var(--s-danger); }
+[data-dsh-study] .study-danger-text:hover { border-color: var(--s-danger); background: var(--s-danger-soft); }
 
 @media (prefers-reduced-motion: reduce) {
   [data-dsh-study] button,

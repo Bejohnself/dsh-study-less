@@ -30,7 +30,6 @@ export function LearnPage({
   onOpenConcept,
   onOpenInsight,
   onOpenPlan,
-  onNewGoal,
   onOpenLibrary,
   refreshToken,
   onChanged,
@@ -41,7 +40,6 @@ export function LearnPage({
   onOpenConcept: (cid: string) => void
   onOpenInsight: (iid: string) => void
   onOpenPlan: (pid: string) => void
-  onNewGoal: () => void
   onOpenLibrary: () => void
   refreshToken: number
   onChanged: () => void
@@ -58,9 +56,6 @@ export function LearnPage({
           active={tab}
           onSelect={onTab}
         />
-        <button type="button" className="study-primary study-primary-tight" onClick={onNewGoal}>
-          ＋ 新建目标
-        </button>
       </div>
 
       {tab === 'today' ? (
@@ -70,12 +65,11 @@ export function LearnPage({
           onOpenInsight={onOpenInsight}
           onOpenPlan={onOpenPlan}
           onOpenLibrary={onOpenLibrary}
-          onNewGoal={onNewGoal}
           refreshToken={refreshToken}
         />
       ) : null}
       {tab === 'paths' ? (
-        <PlansPanel onOpenPlan={onOpenPlan} onNewGoal={onNewGoal} refreshToken={refreshToken} onOpenLibrary={onOpenLibrary} />
+        <PlansPanel onOpenPlan={onOpenPlan} refreshToken={refreshToken} onOpenLibrary={onOpenLibrary} />
       ) : null}
       {tab === 'review' ? <ReviewPanel onOpenUnit={onOpenUnit} onOpenConcept={onOpenConcept} onChange={onChanged} refreshToken={refreshToken} /> : null}
     </div>
@@ -88,7 +82,6 @@ function TodayPanel({
   onOpenInsight,
   onOpenPlan,
   onOpenLibrary,
-  onNewGoal,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
@@ -96,7 +89,6 @@ function TodayPanel({
   onOpenInsight: (iid: string) => void
   onOpenPlan: (pid: string) => void
   onOpenLibrary: () => void
-  onNewGoal: () => void
   refreshToken: number
 }): ReactElement {
   const [data, setData] = useState<TodayView | null>(null)
@@ -132,9 +124,6 @@ function TodayPanel({
           {data.due.length > 0 ? `${data.due.length} 节待复习` : '没有到期复习'}
         </span>
         <span className="study-today-spacer" />
-        <button type="button" className="study-link" onClick={onNewGoal}>
-          新建目标
-        </button>
       </div>
 
       {nothing ? (
@@ -231,12 +220,10 @@ function TodayPanel({
 /** The path list. */
 function PlansPanel({
   onOpenPlan,
-  onNewGoal,
   onOpenLibrary,
   refreshToken,
 }: {
   onOpenPlan: (pid: string) => void
-  onNewGoal: () => void
   onOpenLibrary: () => void
   refreshToken: number
 }): ReactElement {
@@ -263,8 +250,7 @@ function PlansPanel({
     return (
       <EmptyState
         title="还没有学习路径。"
-        hint="一个目标可以串起多份资料；新建后 Host 会在页面内直接编排，不需要再复制 prompt 到聊天。"
-        action={{ label: '新建目标', onClick: onNewGoal }}
+        hint="用右上角「＋ 新建目标」选资料并说清目标；Host 会在页面内直接编排，不需要再复制 prompt 到聊天。"
       />
     )
   }
@@ -295,9 +281,6 @@ function PlansPanel({
         )
       })}
       <div className="study-plans-footer">
-        <button type="button" className="study-ghost" onClick={onNewGoal}>
-          ＋ 新建目标
-        </button>
         <button type="button" className="study-link" onClick={onOpenLibrary}>
           去清单选资料
         </button>
@@ -370,6 +353,17 @@ export function PlanDetailPage({
     }
   }, [generation?.jobId, generation?.status, onChanged, reload])
 
+  const removePlan = async (): Promise<void> => {
+    if (!window.confirm('删除这条学习路径？单元内容与进度不会被删除。')) return
+    try {
+      await post('/plan/delete', { pid })
+      onChanged()
+      onBack()
+    } catch (reason) {
+      setToast({ message: errorText(reason), tone: 'error' })
+    }
+  }
+
   const toggle = async (n: number, done: boolean): Promise<void> => {
     setBusy(n)
     try {
@@ -420,6 +414,9 @@ export function PlanDetailPage({
             {data.plan.hoursPerWeek === undefined ? '' : ` · 每周约 ${data.plan.hoursPerWeek} 小时`}
           </span>
         </div>
+        <button type="button" className="study-ghost study-danger-text" onClick={() => void removePlan()}>
+          删除路径
+        </button>
       </div>
 
       {data.plan.status === 'draft' ? (

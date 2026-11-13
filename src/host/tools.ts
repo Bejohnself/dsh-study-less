@@ -644,5 +644,25 @@ export function buildStudyTools(
     })
   }
 
+  tools.push({
+    name: 'study_delete',
+    description:
+      '删除一条学习路径或一份资料。target=plan 只删路径，不动单元和进度；target=material 会删掉资料目录、精读、练习、相关进度，并清理指向它的概念/洞察来源。不可恢复，调用前必须让用户明确确认。',
+    parameters: objectSchema({
+      target: { type: 'string', enum: ['plan', 'material'] },
+      id: { type: 'string', description: '计划 id 或资料 id' },
+    }, ['target', 'id']),
+    output: { schema: {}, render: renderJson },
+    async execute(args) {
+      const input = args as { target: 'plan' | 'material'; id: string }
+      try {
+        if (input.target === 'plan') return { ok: true, ...(await service.deletePlan(input.id)) }
+        return { ok: true, ...(await service.deleteMaterial(input.id)) }
+      } catch (error) {
+        return refusal(error)
+      }
+    },
+  })
+
   return tools
 }

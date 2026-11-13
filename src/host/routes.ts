@@ -446,6 +446,14 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         })
         return
       }
+      if (path === '/material/delete') {
+        send(res, 200, { ok: true, value: await service.deleteMaterial(requiredString(body, 'mid')) })
+        return
+      }
+      if (path === '/plan/delete') {
+        send(res, 200, { ok: true, value: await service.deletePlan(requiredString(body, 'pid')) })
+        return
+      }
       if (path === '/insight/create') {
         const serviceInsights = requireService(insights, '洞察')
         send(res, 200, {

@@ -5,23 +5,23 @@
  * the browser and a tool call from the assistant change exactly the same state.
  */
 import { createWriteStream } from 'node:fs'
-import { readFile, unlink } from 'node:fs/promises'
+import { readFile, rm, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { assertConceptId, assertSegment, slugify, splitUnitKey, uniqueSlug, unitKey } from '../core/ids.ts'
-import { insightCard, listInsights, readInsight } from '../core/insights.ts'
+import { deleteInsight, insightCard, listInsights, readInsight, writeInsight } from '../core/insights.ts'
 import { listManifests, readManifest, structureNodeOf, unitMetaOf, writeManifest } from '../core/library.ts'
 import type { LibraryPaths } from '../core/paths.ts'
-import { upsertConcept } from '../core/concepts.ts'
-import { dueUnits, isWeak, markLearned, readProgress, recordAttempts, recordReview, unmarkLearned } from '../core/progress.ts'
+import { upsertConcept, writeConcept } from '../core/concepts.ts'
+import { dueUnits, emptyProgress, isWeak, markLearned, readProgress, recordAttempts, recordReview, unmarkLearned } from '../core/progress.ts'
 import { listConcepts, readConcept } from '../core/concepts.ts'
-import { listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../core/plans.ts'
+import { deletePlan as removePlanFile, listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../core/plans.ts'
 import { gradeQuizItem } from '../core/quiz.ts'
 import { normalizeSettings } from '../core/settings.ts'
 import { hash32 } from '../core/srs.ts'
 import { ratingFromScore } from '../core/srs.ts'
-import { ensureDir, readJson, writeJsonAtomic, writeTextAtomic } from '../core/store.ts'
+import { ensureDir, readJson, updateJson, writeJsonAtomic, writeTextAtomic } from '../core/store.ts'
 import { addDays, localDate } from '../core/time.ts'
 import type {
   MaterialManifest,
@@ -990,6 +990,71 @@ export class StudyService {
     manifest.archived = archived
     await writeManifest(this.paths, manifest)
     return manifest
+  }
+
+  /** Delete one plan file. */
+  async deletePlan(planId: string): Promise<{ deleted: boolean }> {
+    const plan = await readPlan(this.paths, planId)
+    if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
+    return { deleted: await removePlanFile(this.paths, planId) }
+  }
+
+  /**
+   * Delete one material and its derived data.
+   *
+   * The material directory is removed first, then concept occurrences,
+   * insights and progress entries that point at it are cleaned so the library
+   * does not keep phantom cards or broken source links.
+   */
+  async deleteMaterial(materialId: string): Promise<{ deleted: boolean }> {
+    await this.manifest(materialId)
+    await rm(this.paths.materialDir(materialId), { recursive: true, force: true })
+
+    const removedConcepts = new Set<string>()
+    for (const concept of await listConcepts(this.paths)) {
+      const next = concept.occurrences.filter(occurrence => occurrence.material !== materialId)
+      if (next.length === concept.occurrences.length) continue
+      if (next.length === 0) {
+        removedConcepts.add(concept.id)
+        await unlink(this.paths.conceptFile(concept.id)).catch(() => undefined)
+      } else {
+        concept.occurrences = next
+        await writeConcept(this.paths, concept)
+      }
+    }
+
+    for (const insight of await listInsights(this.paths)) {
+      const next = insight.sources.filter(source => source.material !== materialId)
+      if (next.length === insight.sources.length) continue
+      if (next.length === 0) {
+        await deleteInsight(this.paths, insight.id)
+      } else {
+        insight.sources = next
+        await writeInsight(this.paths, insight)
+      }
+    }
+
+    await updateJson<ProgressFile>(this.paths.progressFile, emptyProgress(), current => {
+      let changed = false
+      for (const key of Object.keys(current.units)) {
+        if (key.startsWith(`${materialId}:`)) {
+          delete current.units[key]
+          changed = true
+        }
+      }
+      for (const conceptId of removedConcepts) {
+        if (current.concepts[conceptId] !== undefined) {
+          delete current.concepts[conceptId]
+          changed = true
+        }
+      }
+      if (!changed) return current
+      current.revision += 1
+      current.updatedAt = new Date().toISOString()
+      return current
+    })
+
+    return { deleted: true }
   }
 
   /** Read a manifest or throw a typed refusal. */
