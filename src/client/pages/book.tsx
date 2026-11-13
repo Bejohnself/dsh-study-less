@@ -13,6 +13,43 @@ import { QuizRunner } from '../components/quiz.tsx'
 import { EmptyState, JobBanner, Markdown, Toast } from '../components/ui.tsx'
 
 /** The book cover and chapter reader. */
+
+/** Compact chapter navigation used beside the chapter body. */
+function BookSideToc({
+  book,
+  current,
+  onOpen,
+}: {
+  book: BookView
+  current: string
+  onOpen: (cid: string) => void
+}): ReactElement {
+  return (
+    <nav className="study-book-side-toc" aria-label="书目录">
+      {book.book.parts.map(part => (
+        <div key={part.id} className="study-book-side-part">
+          <span className="study-book-side-part-title">{part.title}</span>
+          {part.chapterIds.map(chapterId => {
+            const card = book.chapters.find(candidate => candidate.id === chapterId)
+            if (card === undefined) return null
+            return (
+              <button
+                key={card.id}
+                type="button"
+                className={`study-book-side-link${card.id === current ? ' is-current' : ''}`}
+                onClick={() => onOpen(card.id)}
+              >
+                <span>{card.order}. {card.title}</span>
+                {card.status === 'done' ? null : <span className="study-book-side-dot">未生成</span>}
+              </button>
+            )
+          })}
+        </div>
+      ))}
+    </nav>
+  )
+}
+
 export function BookPage({
   bid,
   cid,
@@ -36,6 +73,7 @@ export function BookPage({
   const [job, setJob] = useState<JobView | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
+  const [focus, setFocus] = useState(false)
 
   const load = useCallback(async () => {
     const value = await api<BookView>(`/book?bid=${encodeURIComponent(bid)}`)
@@ -63,6 +101,15 @@ export function BookPage({
     const timer = window.setTimeout(() => setToast(null), 3600)
     return () => window.clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    if (!focus) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setFocus(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [focus])
 
   const runJob = async (key: string, path: string, body: Record<string, unknown>, message: string): Promise<void> => {
     setBusy(key)
@@ -121,7 +168,7 @@ export function BookPage({
 
   if (cid !== undefined && chapter !== null) {
     return (
-      <div className="study-book">
+      <div className={`study-book${focus ? ' is-focus' : ''}`}>
         <div className="study-material-head">
           <button type="button" className="study-back" onClick={onBack}>
             ← {book.book.title}
@@ -140,8 +187,18 @@ export function BookPage({
             <button type="button" className="study-ghost" onClick={() => void markRead()}>
               标记已读
             </button>
+            <button type="button" className="study-ghost" onClick={() => setFocus(value => !value)}>
+              {focus ? '退出全屏' : '全屏'}
+            </button>
           </div>
         </div>
+
+        <div className="study-book-body">
+          <aside className="study-book-side">
+            <div className="study-book-side-head">目录</div>
+            <BookSideToc book={book} current={chapter.chapter.id} onOpen={onOpenChapter} />
+          </aside>
+          <div className="study-book-main">
 
         {chapter.content.trim().length === 0 ? (
           <EmptyState
@@ -198,6 +255,8 @@ export function BookPage({
             </li>
           ))}
         </ul>
+          </div>
+        </div>
 
         {toast === null ? null : <Toast message={toast.message} tone={toast.tone} />}
       </div>
