@@ -18,12 +18,16 @@ function renderTex(tex: string, display: boolean): string {
     // turns that into one <mi> per letter, which reads badly in MathML; an
     // operator name keeps the word together.
     const normalized = tex.replace(/\\mathrm\{([A-Za-z][A-Za-z0-9]*)\}(?=\s*(?:\\left\s*)?\()/g, '\\operatorname{$1}')
-    return katex.renderToString(normalized.trim(), {
+    const html = katex.renderToString(normalized.trim(), {
       displayMode: display,
       output: 'mathml',
       throwOnError: false,
       strict: false,
     })
+    // A display formula must have a block-level scroll container; otherwise a
+    // wide formula is clipped by KaTeX's inline-block wrapper. A span with
+    // display:block also stays valid inside marked's paragraph output.
+    return display ? `<span class="study-display-math">${html}</span>` : html
   } catch {
     return `<code>${tex.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code>`
   }

@@ -542,6 +542,9 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
 [data-dsh-study] .study-notes img { max-width: 100%; border-radius: 10px; }
 [data-dsh-study] .study-notes hr { border: 0; border-top: 1px solid var(--s-border); margin: 1.6em 0; }
 [data-dsh-study] .study-notes .katex { display: inline-block; max-width: 100%; }
+[data-dsh-study] .study-display-math { display: block; width: 100%; max-width: 100%; margin: 1.05em 0; overflow-x: auto; overflow-y: visible; text-align: center; }
+[data-dsh-study] .study-display-math .katex { display: block; max-width: none; }
+[data-dsh-study] .study-display-math math { display: block; margin: 0 auto; }
 [data-dsh-study] .study-notes math,
 [data-dsh-study] .study-notes math * { font-family: var(--s-math-font); }
 [data-dsh-study] .study-notes math { font-size: 1.08em; }
@@ -550,7 +553,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
   margin: 1em 0;
   text-align: center;
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
 }
 [data-dsh-study] .study-notes .katex-display { overflow-x: auto; }
 
@@ -1058,7 +1061,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
 [data-dsh-study] .study-book-content math,
 [data-dsh-study] .study-book-content math * { font-family: var(--s-math-font); }
 [data-dsh-study] .study-book-content math { font-size: 1.08em; }
-[data-dsh-study] .study-book-content math[display="block"] { display: block; margin: 1em 0; text-align: center; overflow-x: auto; }
+[data-dsh-study] .study-book-content math[display="block"] { display: block; margin: 1em 0; text-align: center; }
 [data-dsh-study] .study-book-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 18px; }
 [data-dsh-study] .study-book-body { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px; align-items: start; }
 [data-dsh-study] .study-book-side { position: sticky; top: 16px; max-height: calc(100vh - 120px); overflow: auto; padding: 14px 12px; border: 1px solid var(--s-border); border-radius: 13px; background: var(--s-surface-2); }

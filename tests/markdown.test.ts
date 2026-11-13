@@ -16,7 +16,9 @@ test('currency is not mistaken for math', () => {
 })
 
 test('display math and latex environments render', () => {
-  assert.equal(mathCount(renderMarkdown('$$\\frac{a}{b}$$')), 1)
+  const display = renderMarkdown('$$\\frac{a}{b}$$')
+  assert.equal(mathCount(display), 1)
+  assert.ok(display.includes('study-display-math'))
   assert.equal(mathCount(renderMarkdown('\\[x=1\\]')), 1)
   assert.equal(mathCount(renderMarkdown('\\begin{equation}x=1\\end{equation}')), 1)
 })
