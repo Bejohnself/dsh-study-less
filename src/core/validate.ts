@@ -71,6 +71,8 @@ export function validateNotes(input: NotesValidationInput): ValidationResult {
 
   if (input.concepts.length === 0) issues.push('没有登记任何概念（concepts 不能为空）')
 
+  if (input.pageRefs.length === 0) issues.push('没有引用任何原书页码（pageRefs 不能为空）')
+
   for (const page of input.pageRefs) {
     if (!Number.isInteger(page) || page < input.range.pageStart || page > input.range.pageEnd) {
       issues.push(`页码越界：p${page} 不在 ${input.range.pageStart}-${input.range.pageEnd} 之内`)

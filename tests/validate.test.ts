@@ -44,6 +44,12 @@ test('out-of-range page refs and missing headings are refused', () => {
   assert.ok(result.issues.some(issue => issue.includes('缺少小节')))
 })
 
+test('notes without page refs are refused', () => {
+  const result = validateNotes({ markdown: notes, pageRefs: [], concepts: ['topic/concept'], range: { pageStart: 3, pageEnd: 3 } })
+  assert.equal(result.ok, false)
+  assert.ok(result.issues.some(issue => issue.includes('pageRefs')))
+})
+
 test('quiz bank catches bad choices', () => {
   const item: QuizItem = {
     id: 'q1',

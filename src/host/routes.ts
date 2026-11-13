@@ -257,7 +257,11 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         }
         if (path === '/settings') {
           const serviceSettings = requireService(settings, '设置')
-          send(res, 200, { ok: true, value: settingsView(await serviceSettings.current()) })
+          const view = settingsView(await serviceSettings.current())
+          send(res, 200, {
+            ok: true,
+            value: { ...view, textReady: generation === undefined ? view.textReady : await generation.textReady() },
+          })
           return
         }
         if (path === '/insights') {
@@ -342,7 +346,11 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
       if (path === '/settings') {
         const serviceSettings = requireService(settings, '设置')
         const next = await serviceSettings.patch(body as SettingsUpdate)
-        send(res, 200, { ok: true, value: settingsView(next) })
+        const view = settingsView(next)
+        send(res, 200, {
+          ok: true,
+          value: { ...view, textReady: generation === undefined ? view.textReady : await generation.textReady() },
+        })
         return
       }
       if (path === '/settings/test') {
