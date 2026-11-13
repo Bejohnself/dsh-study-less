@@ -7,8 +7,17 @@
  * never a public API.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { readFile, stat } from 'node:fs/promises'
+import { extname } from 'node:path'
+import { settingsView } from '../core/settings.ts'
 import type { Rating } from '../core/types.ts'
+import { PLUGIN_VERSION } from '../core/version.ts'
+import type { SettingsUpdate } from '../core/views.ts'
+import type { GenerationService } from './generation.ts'
+import type { InsightService } from './insights.ts'
+import type { JobQueue } from './jobs.ts'
 import { StudyError, type StudyService } from './service.ts'
+import type { SettingsService } from './settings.ts'
 
 /** One Host route registration. */
 export interface StudyRoute {
@@ -48,6 +57,52 @@ function send(res: ServerResponse, status: number, value: unknown): void {
     'x-content-type-options': 'nosniff',
   })
   res.end(body)
+}
+
+/** Content types for unit extras. */
+const ASSET_TYPES: Record<string, string> = {  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.html': 'text/html; charset=utf-8',
+  '.htm': 'text/html; charset=utf-8',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
+  '.json': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+}
+
+/** Serve one generated asset with a sandboxed CSP for active formats. */
+async function sendAsset(res: ServerResponse, file: string, name: string): Promise<void> {
+  const info = await stat(file)
+  if (info.size > 64 * 1024 * 1024) throw new StudyError('invalid', '资源超过 64 MiB，无法在面板内预览')
+  const bytes = await readFile(file)
+  const type = ASSET_TYPES[extname(name).toLowerCase()] ?? 'application/octet-stream'
+  res.writeHead(200, {
+    'content-type': type,
+    'content-length': bytes.byteLength,
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+    ...(type.startsWith('text/html') || type === 'image/svg+xml'
+      ? {
+          'content-security-policy':
+            "sandbox allow-scripts; default-src 'none'; img-src data: blob:; media-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+        }
+      : {}),
+  })
+  res.end(bytes)
+}
+
+/** Require an optional service, or refuse with a stable code. */
+function requireService<T>(value: T | undefined, label: string): T {
+  if (value === undefined) throw new StudyError('unsupported', `${label}未启用`)
+  return value
 }
 
 /** Read and parse a JSON body. */
@@ -114,11 +169,21 @@ function statusOf(error: StudyError): number {
   }
 }
 
+/** Optional services; a deployment without them still serves the read model. */
+export interface StudyRouteExtras {
+  settings?: SettingsService
+  insights?: InsightService
+  generation?: GenerationService
+  jobs?: JobQueue
+}
+
 /**
  * Build the study API route.
  * @param service - the study service.
+ * @param extras - settings, insights, generation and job queue when enabled.
  */
-export function makeStudyRoutes(service: StudyService): StudyRoute[] {
+export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras = {}): StudyRoute[] {
+  const { settings, insights, generation, jobs } = extras
   const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       if (!isLoopback(req.socket.remoteAddress)) {
@@ -139,13 +204,13 @@ export function makeStudyRoutes(service: StudyService): StudyRoute[] {
           send(res, 200, {
             ok: true,
             plugin: 'dsh-study',
-            version: '0.1.0',
+            version: PLUGIN_VERSION,
             hostTime: new Date().toISOString(),
           })
           return
         }
         if (path === '/library') {
-          send(res, 200, { ok: true, value: await service.library() })
+          send(res, 200, { ok: true, value: await service.library(query.get('archived') === '1') })
           return
         }
         if (path === '/material') {
@@ -190,6 +255,52 @@ export function makeStudyRoutes(service: StudyService): StudyRoute[] {
           })
           return
         }
+        if (path === '/settings') {
+          const serviceSettings = requireService(settings, '设置')
+          send(res, 200, { ok: true, value: settingsView(await serviceSettings.current()) })
+          return
+        }
+        if (path === '/insights') {
+          const serviceInsights = requireService(insights, '洞察')
+          send(res, 200, { ok: true, value: await serviceInsights.cards() })
+          return
+        }
+        if (path === '/insight') {
+          const serviceInsights = requireService(insights, '洞察')
+          send(res, 200, { ok: true, value: await serviceInsights.view(query.get('iid') ?? '') })
+          return
+        }
+        if (path === '/jobs') {
+          const queue = requireService(jobs, '生成任务')
+          send(res, 200, { ok: true, value: await queue.list(30) })
+          return
+        }
+        if (path.startsWith('/jobs/')) {
+          const queue = requireService(jobs, '生成任务')
+          const jobId = decodeURIComponent(path.slice('/jobs/'.length))
+          send(res, 200, { ok: true, value: await queue.get(jobId) })
+          return
+        }
+        if (path === '/asset') {
+          const mid = query.get('mid') ?? ''
+          const uid = query.get('uid') ?? ''
+          const name = query.get('name') ?? ''
+          let file: string
+          try {
+            file = service.paths.extraFile(mid, uid, name)
+          } catch {
+            throw new StudyError('invalid', '非法的资源路径')
+          }
+          try {
+            await sendAsset(res, file, name)
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+              throw new StudyError('not-found', `资源不存在：${name}`)
+            }
+            throw error
+          }
+          return
+        }
         send(res, 404, { ok: false, error: { code: 'not-found', message: `未知接口：${path}` } })
         return
       }
@@ -226,6 +337,154 @@ export function makeStudyRoutes(service: StudyService): StudyRoute[] {
       }
       if (path === '/import/url') {
         send(res, 200, { ok: true, value: await service.importFromUrl(requiredString(body, 'url')) })
+        return
+      }
+      if (path === '/settings') {
+        const serviceSettings = requireService(settings, '设置')
+        const next = await serviceSettings.patch(body as SettingsUpdate)
+        send(res, 200, { ok: true, value: settingsView(next) })
+        return
+      }
+      if (path === '/settings/test') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        const kind = body.kind === 'image' || body.kind === 'animation' || body.kind === 'embedding' ? body.kind : 'text'
+        send(res, 200, { ok: true, value: await serviceGeneration.testEngine(kind) })
+        return
+      }
+      if (path === '/generate/plan') {
+        const goal = requiredString(body, 'goal')
+        const materials = body.materials
+        if (!Array.isArray(materials) || materials.length === 0) throw new StudyError('invalid', '至少选择一份资料')
+        const serviceGeneration = requireService(generation, '生成引擎')
+        try {
+          const value = await serviceGeneration.generatePlan({
+            goal,
+            materials: materials.filter((item): item is string => typeof item === 'string'),
+            ...(typeof body.brief === 'string' ? { brief: body.brief } : {}),
+            ...(typeof body.hoursPerWeek === 'number' ? { hoursPerWeek: body.hoursPerWeek } : {}),
+            ...(body.depth === 'deep' || body.depth === 'overview' ? { depth: body.depth } : {}),
+          })
+          send(res, 200, { ok: true, value: { ...value, fallback: false } })
+        } catch (error) {
+          if (!(error instanceof StudyError) || error.code !== 'unsupported') throw error
+          // No inline engine: keep the old "hand to the conversation" path so
+          // creating a goal never dead-ends.
+          const fallback = await service.createGoal({
+            goal,
+            materials: materials.filter((item): item is string => typeof item === 'string'),
+            ...(typeof body.brief === 'string' ? { brief: body.brief } : {}),
+            ...(typeof body.hoursPerWeek === 'number' ? { hoursPerWeek: body.hoursPerWeek } : {}),
+            ...(body.depth === 'deep' || body.depth === 'overview' ? { depth: body.depth } : {}),
+            ...(typeof body.sessionId === 'string' ? { sessionId: body.sessionId } : {}),
+          })
+          send(res, 200, { ok: true, value: { planId: fallback.planId, jobId: null, fallback: true, prompted: fallback.prompted, error: fallback.error, prompt: fallback.prompt } })
+        }
+        return
+      }
+      if (path === '/generate/unit') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, {
+          ok: true,
+          value: await serviceGeneration.generateUnit({
+            material: requiredString(body, 'mid'),
+            unit: requiredString(body, 'uid'),
+            ...(typeof body.planId === 'string' ? { planId: body.planId } : {}),
+          }),
+        })
+        return
+      }
+      if (path === '/generate/quiz') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, {
+          ok: true,
+          value: await serviceGeneration.generateQuiz({
+            material: requiredString(body, 'mid'),
+            unit: requiredString(body, 'uid'),
+          }),
+        })
+        return
+      }
+      if (path === '/generate/insight') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, {
+          ok: true,
+          value: await serviceGeneration.generateInsights({
+            ...(typeof body.mid === 'string' ? { material: body.mid } : {}),
+            ...(typeof body.uid === 'string' ? { unit: body.uid } : {}),
+            ...(typeof body.concept === 'string' ? { concept: body.concept } : {}),
+          }),
+        })
+        return
+      }
+      if (path.startsWith('/jobs/') && path.endsWith('/cancel')) {
+        const queue = requireService(jobs, '生成任务')
+        const jobId = decodeURIComponent(path.slice('/jobs/'.length, -'/cancel'.length))
+        send(res, 200, { ok: true, value: await queue.cancel(jobId) })
+        return
+      }
+      if (path === '/quiz/submit') {
+        const answers = body.answers
+        if (!Array.isArray(answers)) throw new StudyError('invalid', 'answers 必须是数组')
+        send(res, 200, {
+          ok: true,
+          value: await service.submitQuiz(requiredString(body, 'mid'), requiredString(body, 'uid'), answers as Array<{ itemId: string; answer: unknown }>),
+        })
+        return
+      }
+      if (path === '/material/archive') {
+        send(res, 200, {
+          ok: true,
+          value: await service.archiveMaterial(requiredString(body, 'mid'), body.archived === true),
+        })
+        return
+      }
+      if (path === '/insight/create') {
+        const serviceInsights = requireService(insights, '洞察')
+        send(res, 200, {
+          ok: true,
+          value: await serviceInsights.create({
+            title: requiredString(body, 'title'),
+            oneLiner: requiredString(body, 'oneLiner'),
+            body: requiredString(body, 'body'),
+            concepts: Array.isArray(body.concepts) ? body.concepts.map(String) : [],
+            sources: Array.isArray(body.sources) ? (body.sources as Array<{ material: string; unit: string; page: number; quote?: string }>) : [],
+            ...(typeof body.formula === 'string' ? { formula: body.formula } : {}),
+            ...(Array.isArray(body.tags) ? { tags: body.tags.map(String) } : {}),
+            ...(typeof body.kind === 'string' ? { kind: body.kind as 'principle' | 'formula' | 'contrast' | 'pitfall' | 'analogy' | 'method' } : {}),
+            ...(body.pinned === true ? { pinned: true } : {}),
+          }),
+        })
+        return
+      }
+      if (path === '/insight/update') {
+        const serviceInsights = requireService(insights, '洞察')
+        send(res, 200, {
+          ok: true,
+          value: await serviceInsights.update(requiredString(body, 'iid'), {
+            ...(typeof body.title === 'string' ? { title: body.title } : {}),
+            ...(typeof body.oneLiner === 'string' ? { oneLiner: body.oneLiner } : {}),
+            ...(typeof body.body === 'string' ? { body: body.body } : {}),
+            ...(typeof body.formula === 'string' ? { formula: body.formula } : {}),
+            ...(Array.isArray(body.concepts) ? { concepts: body.concepts.map(String) } : {}),
+            ...(Array.isArray(body.sources) ? { sources: body.sources as Array<{ material: string; unit: string; page: number; quote?: string }> } : {}),
+            ...(Array.isArray(body.tags) ? { tags: body.tags.map(String) } : {}),
+            ...(typeof body.kind === 'string' ? { kind: body.kind as 'principle' | 'formula' | 'contrast' | 'pitfall' | 'analogy' | 'method' } : {}),
+            ...(typeof body.pinned === 'boolean' ? { pinned: body.pinned } : {}),
+          }),
+        })
+        return
+      }
+      if (path === '/insight/pin') {
+        const serviceInsights = requireService(insights, '洞察')
+        send(res, 200, {
+          ok: true,
+          value: await serviceInsights.pin(requiredString(body, 'iid'), body.pinned === true),
+        })
+        return
+      }
+      if (path === '/insight/delete') {
+        const serviceInsights = requireService(insights, '洞察')
+        send(res, 200, { ok: true, value: await serviceInsights.remove(requiredString(body, 'iid')) })
         return
       }
       if (path === '/unit/complete') {

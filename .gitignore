@@ -1,6 +1,8 @@
 node_modules/
 lib/
 .test-study/
+.test-generation/
+.test-api/
 .pnpm-store/
 .npm-cache/
 *.log

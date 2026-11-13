@@ -32,6 +32,7 @@ run([
   '--external:@deepseek-ai/*',
   '--external:react',
   '--external:react-dom',
+  `--define:__STUDY_VERSION__=${JSON.stringify(pkg.version)}`,
   '--sourcemap',
   '--log-level=warning',
   '--outfile=lib/index.js',

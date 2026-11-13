@@ -10,36 +10,43 @@ import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { assertConceptId, assertSegment, slugify, splitUnitKey, uniqueSlug, unitKey } from '../core/ids.ts'
+import { insightCard, listInsights, readInsight } from '../core/insights.ts'
 import { listManifests, readManifest, structureNodeOf, unitMetaOf, writeManifest } from '../core/library.ts'
 import type { LibraryPaths } from '../core/paths.ts'
 import { upsertConcept } from '../core/concepts.ts'
-import { dueUnits, isWeak, markLearned, readProgress, recordReview, unmarkLearned } from '../core/progress.ts'
+import { dueUnits, isWeak, markLearned, readProgress, recordAttempts, recordReview, unmarkLearned } from '../core/progress.ts'
 import { listConcepts, readConcept } from '../core/concepts.ts'
 import { listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../core/plans.ts'
+import { gradeQuizItem } from '../core/quiz.ts'
 import { hash32 } from '../core/srs.ts'
+import { ratingFromScore } from '../core/srs.ts'
 import { ensureDir, readJson, writeJsonAtomic, writeTextAtomic } from '../core/store.ts'
 import { addDays, localDate } from '../core/time.ts'
 import type {
   MaterialManifest,
+  PlanGeneration,
   PlanRecord,
   PlanStep,
   PlanStepKind,
   ProgressFile,
   QuizBank,
+  QuizItem,
   Rating,
   StructureNode,
   UnitMetaFile,
   UnitProgress,
 } from '../core/types.ts'
-import { mathStyleWarnings, validateNotes } from '../core/validate.ts'
+import { mathStyleWarnings, validateNotes, validateQuizBank } from '../core/validate.ts'
 import type {
   ConceptCard,
   ConceptDetailView,
+  ExtraAsset,
   NextStepView,
   PlanBrief,
   PlanDetailView,
   PlanStepView,
   PlanSummary,
+  QuizSubmitView,
   TodayView,
 } from '../core/views.ts'
 import { ORIGINAL_PAGE_CAP, type CompleteOptions, type CompleteResult, type DueItem, type MaterialCard, type MaterialStateView, type PageSlice, type TocRow, type UnitView } from '../core/views.ts'
@@ -107,10 +114,12 @@ export class StudyService {
     return this.deps.today?.() ?? localDate()
   }
 
-  /** The shelf. */
-  async library(): Promise<MaterialCard[]> {
+  /** The shelf. Archived materials stay readable by id but are hidden here. */
+  async library(includeArchived = false): Promise<MaterialCard[]> {
     const [manifests, progress] = await Promise.all([listManifests(this.paths), readProgress(this.paths)])
-    return manifests.map(manifest => this.cardOf(manifest, progress))
+    return manifests
+      .filter(manifest => includeArchived || manifest.archived !== true)
+      .map(manifest => this.cardOf(manifest, progress))
   }
 
   /** One material with its table of contents and due list. */
@@ -142,13 +151,51 @@ export class StudyService {
     const row = this.rowOf(materialId, node, manifest, progress, false)
     const original = await this.readPages(materialId, node.pageStart, node.pageEnd)
     const meta = await readJson<UnitMetaFile | null>(this.paths.unitMetaFile(materialId, unitId), null)
+    const quiz = await readJson<QuizBank | null>(this.paths.quizFile(materialId, unitId), null)
+    const insights: UnitView['insights'] = []
+    for (const insightIdValue of meta?.insights ?? []) {
+      const record = await readInsight(this.paths, insightIdValue)
+      if (record !== null) insights.push(insightCard(record))
+    }
     return {
       material: this.cardOf(manifest, progress),
       unit: { ...row, concepts: meta?.concepts ?? row.concepts },
       notes,
       original: original.pages,
       truncated: original.truncated,
+      quiz,
+      extras: this.extrasOf(materialId, unitId, meta),
+      insights,
     }
+  }
+
+  /** Build the media list of one unit from its metadata. */
+  private extrasOf(materialId: string, unitId: string, meta: UnitMetaFile | null): ExtraAsset[] {
+    const extras = meta?.extras
+    if (extras === undefined) return []
+    const names = [...(extras.image ?? []), ...(extras.anim ?? []), ...(extras.media ?? []), ...(extras.code ?? [])]
+    const assets: ExtraAsset[] = []
+    const seen = new Set<string>()
+    for (const name of names) {
+      if (seen.has(name) || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name) || name.includes('..')) continue
+      seen.add(name)
+      const lower = name.toLowerCase()
+      const kind: ExtraAsset['kind'] = /\.(png|jpe?g|webp|gif|svg)$/.test(lower)
+        ? 'image'
+        : /\.(html?|svg)$/.test(lower)
+          ? 'animation'
+          : /\.(mp4|webm|mov)$/.test(lower)
+            ? 'video'
+            : /\.(js|ts|py|json|txt|md|css)$/.test(lower)
+              ? 'code'
+              : 'other'
+      assets.push({
+        name,
+        kind,
+        url: `/study-api/asset?mid=${encodeURIComponent(materialId)}&uid=${encodeURIComponent(unitId)}&name=${encodeURIComponent(name)}`,
+      })
+    }
+    return assets
   }
 
   /** Everything an authoring agent needs to write one unit. */
@@ -352,6 +399,8 @@ export class StudyService {
       return first === date || last === date
     }).length
 
+    const pinned = (await listInsights(this.paths)).find(record => record.pinned)
+
     return {
       date,
       due,
@@ -359,6 +408,7 @@ export class StudyService {
       next,
       plans: planBriefs,
       learnedToday,
+      ...(pinned === undefined ? {} : { pinnedInsight: insightCard(pinned) }),
     }
   }
 
@@ -422,6 +472,7 @@ export class StudyService {
       materials: [...input.materials],
       ...(input.hoursPerWeek === undefined ? {} : { budget: { hoursPerWeek: input.hoursPerWeek } }),
       steps: [],
+      generation: { status: 'queued' },
       createdAt: now,
       updatedAt: now,
     }
@@ -563,6 +614,15 @@ export class StudyService {
         status: plan.status,
         ...(plan.budget?.hoursPerWeek === undefined ? {} : { hoursPerWeek: plan.budget.hoursPerWeek }),
         ...(plan.brief === undefined ? {} : { brief: plan.brief }),
+        ...(plan.generation === undefined
+          ? {}
+          : {
+              generation: {
+                status: plan.generation.status,
+                ...(plan.generation.jobId === undefined ? {} : { jobId: plan.generation.jobId }),
+                ...(plan.generation.error === undefined ? {} : { error: plan.generation.error }),
+              },
+            }),
       },
       steps,
       done: steps.filter(step => step.done).length,
@@ -640,6 +700,7 @@ export class StudyService {
         why: step.why,
         done: false,
       }))
+      plan.generation = { status: 'done', updatedAt: new Date().toISOString() }
     }
 
     const [manifests, concepts] = await Promise.all([listManifests(this.paths), listConcepts(this.paths)])
@@ -647,6 +708,14 @@ export class StudyService {
     if (issues.length > 0) throw new StudyError('invalid', '计划未通过校验', { issues })
     await writePlan(this.paths, plan)
     return this.planView(planId)
+  }
+
+  /** Patch the generation status shown while a plan is still a draft. */
+  async setPlanGeneration(planId: string, generation: PlanGeneration): Promise<void> {
+    const plan = await readPlan(this.paths, planId)
+    if (plan === null) return
+    plan.generation = { ...generation, updatedAt: new Date().toISOString() }
+    await writePlan(this.paths, plan)
   }
 
   /** Resolve one plan step into human labels. */
@@ -758,6 +827,7 @@ export class StudyService {
     }
 
     const now = new Date().toISOString()
+    const previous = await readJson<UnitMetaFile | null>(this.paths.unitMetaFile(materialId, unitId), null)
     const meta: UnitMetaFile = {
       version: 1,
       material: materialId,
@@ -766,6 +836,8 @@ export class StudyService {
       concepts: input.concepts.map(concept => concept.id),
       pageRefs: [...new Set(input.pageRefs)].sort((a, b) => a - b),
       generatedBy: { at: now, promptVersion: 'v1' },
+      ...(previous?.insights === undefined ? {} : { insights: previous.insights }),
+      ...(previous?.extras === undefined ? {} : { extras: previous.extras }),
     }
     await writeTextAtomic(this.paths.notesFile(materialId, unitId), input.notes.trimEnd() + '\n')
     await writeJsonAtomic(this.paths.unitMetaFile(materialId, unitId), meta)
@@ -828,11 +900,86 @@ export class StudyService {
     return { status: verification }
   }
 
+  /** Record one insight id on a unit's metadata. */
+  async attachInsights(materialId: string, unitId: string, insightIds: readonly string[]): Promise<void> {
+    const manifest = await this.manifest(materialId)
+    structureNodeOf(manifest, unitId)
+    const meta = await readJson<UnitMetaFile | null>(this.paths.unitMetaFile(materialId, unitId), null)
+    if (meta === null) return
+    meta.insights = [...new Set([...(meta.insights ?? []), ...insightIds])]
+    await writeJsonAtomic(this.paths.unitMetaFile(materialId, unitId), meta)
+  }
+
   /** The quiz bank of one unit, when it exists. */
   async quiz(materialId: string, unitId: string): Promise<QuizBank | null> {
     const manifest = await this.manifest(materialId)
     structureNodeOf(manifest, unitId)
     return readJson<QuizBank | null>(this.paths.quizFile(materialId, unitId), null)
+  }
+
+  /** Validate and write a generated quiz bank. */
+  async writeQuiz(materialId: string, unitId: string, items: readonly QuizItem[]): Promise<QuizBank> {
+    const manifest = await this.manifest(materialId)
+    const node = structureNodeOf(manifest, unitId)
+    const issues = validateQuizBank(items, { pageStart: node.pageStart, pageEnd: node.pageEnd })
+    if (issues.length > 0) throw new StudyError('invalid', '练习题未通过校验', { issues })
+    const bank: QuizBank = {
+      version: 1,
+      unit: unitId,
+      items: items.map(item => ({ ...item })),
+      updatedAt: new Date().toISOString(),
+    }
+    await writeJsonAtomic(this.paths.quizFile(materialId, unitId), bank)
+    return bank
+  }
+
+  /** Grade a quiz submission and fold the objective results into concept mastery. */
+  async submitQuiz(
+    materialId: string,
+    unitId: string,
+    answers: ReadonlyArray<{ itemId: string; answer: unknown }>,
+  ): Promise<QuizSubmitView> {
+    const bank = await this.quiz(materialId, unitId)
+    if (bank === null) throw new StudyError('not-found', '这一节还没有练习题，先让 AI 生成一组')
+    const byId = new Map(bank.items.map(item => [item.id, item]))
+    const attempts: Array<{ conceptId: string; correct: boolean }> = []
+    const rows: QuizSubmitView['attempts'] = []
+    let objective = 0
+    let correct = 0
+    for (const answer of answers) {
+      const item = byId.get(answer.itemId)
+      if (item === undefined) continue
+      const verdict = gradeQuizItem(item, answer.answer)
+      const expected =
+        item.type === 'choice' && item.answerIndex !== undefined
+          ? item.choices?.[item.answerIndex]
+          : item.type === 'cloze'
+            ? item.answer
+            : item.type === 'evidence' && item.page !== undefined
+              ? `p${item.page}`
+              : undefined
+      rows.push({
+        itemId: item.id,
+        correct: verdict.correct,
+        ...(expected === undefined ? {} : { expected }),
+      })
+      if (verdict.correct !== null) {
+        objective += 1
+        if (verdict.correct) correct += 1
+        for (const conceptId of item.concepts) attempts.push({ conceptId, correct: verdict.correct })
+      }
+    }
+    if (attempts.length > 0) await recordAttempts(this.paths, attempts)
+    const score = objective === 0 ? 0.5 : correct / objective
+    return { score, ratingSuggestion: ratingFromScore(score), attempts: rows }
+  }
+
+  /** Hide or restore a material on the shelf. */
+  async archiveMaterial(materialId: string, archived: boolean): Promise<MaterialManifest> {
+    const manifest = await this.manifest(materialId)
+    manifest.archived = archived
+    await writeManifest(this.paths, manifest)
+    return manifest
   }
 
   /** Read a manifest or throw a typed refusal. */
@@ -878,6 +1025,7 @@ export class StudyService {
       dueCount: due,
       status: learned === 0 ? 'new' : learned >= manifest.units.length ? 'done' : 'learning',
       tags: manifest.tags,
+      ...(manifest.archived === true ? { archived: true } : {}),
     }
   }
 

@@ -22,23 +22,27 @@ export function resolveDataRoot(configRoot?: string, env: NodeJS.ProcessEnv = pr
 
 /** Paths of one library root. */
 export class LibraryPaths {
-  readonly libraryFile: string
   readonly materialsDir: string
   readonly conceptsDir: string
   readonly plansDir: string
+  readonly insightsDir: string
+  readonly jobsDir: string
+  readonly indexDir: string
   readonly progressFile: string
-  readonly exportDir: string
+  readonly settingsFile: string
 
   readonly root: string
 
   constructor(root: string) {
     this.root = root
-    this.libraryFile = join(root, 'library.json')
     this.materialsDir = join(root, 'materials')
     this.conceptsDir = join(root, 'concepts')
     this.plansDir = join(root, 'plans')
+    this.insightsDir = join(root, 'insights')
+    this.jobsDir = join(root, 'jobs')
+    this.indexDir = join(root, 'index')
     this.progressFile = join(root, 'progress.json')
-    this.exportDir = join(root, 'export')
+    this.settingsFile = join(root, 'settings.json')
   }
 
   /** Directory of one material. */
@@ -99,14 +103,12 @@ export class LibraryPaths {
     return join(this.unitDir(materialId, unitId), 'extras')
   }
 
-  /** Paper-only files of one material. */
-  paperDir(materialId: string): string {
-    return join(this.materialDir(materialId), 'paper')
-  }
-
-  /** Claims of a paper. */
-  claimsFile(materialId: string): string {
-    return join(this.paperDir(materialId), 'claims.json')
+  /** One extra asset of a unit; `name` is a flat, validated file name. */
+  extraFile(materialId: string, unitId: string, name: string): string {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name) || name.includes('..')) {
+      throw new Error(`invalid asset name: ${name}`)
+    }
+    return join(this.extrasDir(materialId, unitId), name)
   }
 
   /** Concept file (ids may contain one slash, producing a nested directory). */
@@ -119,5 +121,23 @@ export class LibraryPaths {
   planFile(planId: string): string {
     assertSegment(planId, 'plan id')
     return join(this.plansDir, `${planId}.json`)
+  }
+
+  /** Insight file. */
+  insightFile(insightId: string): string {
+    assertSegment(insightId, 'insight id')
+    return join(this.insightsDir, `${insightId}.json`)
+  }
+
+  /** Generation job file. */
+  jobFile(jobId: string): string {
+    assertSegment(jobId, 'job id')
+    return join(this.jobsDir, `${jobId}.json`)
+  }
+
+  /** Embedding index file. */
+  indexFile(name: string): string {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(name)) throw new Error(`invalid index name: ${name}`)
+    return join(this.indexDir, name)
   }
 }

@@ -4,7 +4,22 @@
  * These are wire shapes, not files: they are computed from manifests, progress
  * and content on demand.
  */
-import type { MaterialType, Rating, UnitKind, UnitState, UnitStatus } from './types.ts'
+import type {
+  AnimationSettings,
+  CapabilitySettings,
+  GenerationJob,
+  InsightKind,
+  InsightRecord,
+  JobStatus,
+  MaterialType,
+  QuizBank,
+  Rating,
+  StudyPreferences,
+  TextEngineSettings,
+  UnitKind,
+  UnitState,
+  UnitStatus,
+} from './types.ts'
 
 /** One card on the library shelf. */
 export interface MaterialCard {
@@ -28,6 +43,8 @@ export interface MaterialCard {
   /** Overall state derived from learnedUnits. */
   status: 'new' | 'learning' | 'done'
   tags: string[]
+  /** Hidden from the shelf but still readable by id. */
+  archived?: boolean
 }
 
 /** One row of the table of contents. */
@@ -60,6 +77,13 @@ export interface MaterialStateView {
   next?: string
 }
 
+/** One extra asset attached to a unit. */
+export interface ExtraAsset {
+  name: string
+  kind: 'image' | 'animation' | 'video' | 'code' | 'other'
+  url: string
+}
+
 /** Reader payload for one unit. */
 export interface UnitView {
   material: MaterialCard
@@ -68,6 +92,12 @@ export interface UnitView {
   original: PageSlice[]
   /** True when the page range was clipped by the server cap. */
   truncated: boolean
+  /** Quiz bank, when one has been generated. */
+  quiz: QuizBank | null
+  /** Media extras generated for this unit. */
+  extras: ExtraAsset[]
+  /** Insights distilled from this unit. */
+  insights: InsightCard[]
 }
 
 /** One item of the "ready to review" list. */
@@ -161,6 +191,8 @@ export interface TodayView {
   plans: PlanBrief[]
   /** Units completed today, for the streak line. */
   learnedToday: number
+  /** One pinned insight to keep the distilled layer in the daily loop. */
+  pinnedInsight?: InsightCard
 }
 
 /** One plan step resolved for the UI. */
@@ -176,7 +208,14 @@ export interface PlanStepView {
 
 /** One plan in full. */
 export interface PlanDetailView {
-  plan: { id: string; goal: string; status: 'draft' | 'active' | 'paused' | 'done'; hoursPerWeek?: number; brief?: string }
+  plan: {
+    id: string
+    goal: string
+    status: 'draft' | 'active' | 'paused' | 'done'
+    hoursPerWeek?: number
+    brief?: string
+    generation?: { status: string; jobId?: string; error?: string }
+  }
   steps: PlanStepView[]
   done: number
   total: number
@@ -191,6 +230,90 @@ export interface PlanSummary {
   total: number
   next?: string
 }
+
+/** One insight on a list. */
+export interface InsightCard {
+  id: string
+  title: string
+  oneLiner: string
+  kind: InsightKind
+  concepts: string[]
+  tags: string[]
+  pinned: boolean
+  origin: 'manual' | 'generated'
+  sourceCount: number
+  updatedAt: string
+}
+
+/** One insight with its sources and concepts resolved for the UI. */
+export interface InsightDetailView {
+  insight: InsightRecord
+  sources: Array<{
+    materialId: string
+    materialTitle: string
+    unitId: string
+    unitTitle: string
+    page: number
+    quote?: string
+  }>
+  concepts: Array<{ id: string; name: string }>
+}
+
+/** One engine as the settings form sees it: a stored key is never returned. */
+export interface TextEngineView {
+  kind: TextEngineSettings['kind']
+  baseURL?: string
+  apiKeySet: boolean
+  apiKeyEnv?: string
+  model?: string
+  temperature?: number
+  maxTokens?: number
+  timeoutMs?: number
+}
+
+/** One optional capability as the settings form sees it. */
+export interface CapabilityView {
+  enabled: boolean
+  baseURL?: string
+  apiKeySet: boolean
+  apiKeyEnv?: string
+  model?: string
+  timeoutMs?: number
+}
+
+/** Settings payload; secrets are reduced to `apiKeySet`. */
+export interface SettingsView {
+  text: TextEngineView
+  image: CapabilityView
+  animation: CapabilityView & { mode: AnimationSettings['mode'] }
+  embedding: CapabilityView
+  study: StudyPreferences
+  /** True when the text engine can run without the chat fallback. */
+  textReady: boolean
+  updatedAt: string
+}
+
+/** One generation job as the browser polls it. */
+export type JobView = GenerationJob
+
+/** Result of submitting a quiz. */
+export interface QuizSubmitView {
+  score: number
+  ratingSuggestion: Rating
+  attempts: Array<{ itemId: string; correct: boolean | null; expected?: string }>
+}
+
+/** Settings update body. */
+export interface SettingsUpdate {
+  text?: Partial<TextEngineSettings>
+  image?: Partial<CapabilitySettings>
+  animation?: Partial<AnimationSettings>
+  embedding?: Partial<CapabilitySettings>
+  study?: Partial<StudyPreferences>
+}
+
+/** Generation job statuses in display order. */
+export const JOB_STATUS_ORDER: JobStatus[] = ['queued', 'running', 'done', 'failed', 'cancelled']
 
 /** Server cap for one original-page read. */
 export const ORIGINAL_PAGE_CAP = 30

@@ -67,22 +67,7 @@ export interface UnitMeta {
   issues?: string[]
 }
 
-/** A paper claim with its evidence pointer. */
-export interface Claim {
-  id: string
-  claim: string
-  /** Structural section title or uid the claim lives in. */
-  section: string
-  evidence: {
-    kind: 'figure' | 'table' | 'equation' | 'section'
-    page: number
-    label?: string
-  }
-  strength?: '核心' | '支撑'
-}
-
-/** One material manifest (`materials/<mid>/manifest.json`). */
-export interface MaterialManifest {
+/** One material manifest (`materials/<mid>/manifest.json`). */export interface MaterialManifest {
   version: 1
   id: string
   type: MaterialType
@@ -98,8 +83,8 @@ export interface MaterialManifest {
   structure: StructureNode[]
   /** Per-unit pipeline status, keyed by uid. */
   units: UnitMeta[]
-  /** Paper claims (papers only). */
-  claims?: Claim[]
+  /** Hidden from the shelf but still readable and referenced by plans. */
+  archived?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -180,6 +165,138 @@ export interface ConceptRecord {
   updatedAt: string
 }
 
+/** One distilled insight (`insights/<iid>.json`). */
+export type InsightKind = 'principle' | 'formula' | 'contrast' | 'pitfall' | 'analogy' | 'method'
+
+/** Where an insight came from. Page ranges are validated against that unit. */
+export interface InsightSource {
+  material: string
+  unit: string
+  page: number
+  quote?: string
+}
+
+/** One "read the book down to one page" card. */
+export interface InsightRecord {
+  version: 1
+  id: string
+  title: string
+  /** The one-sentence essence shown on cards. */
+  oneLiner: string
+  /** Markdown body; formulas use LaTeX. */
+  body: string
+  /** Optional display formula. */
+  formula?: string
+  concepts: string[]
+  sources: InsightSource[]
+  tags: string[]
+  kind: InsightKind
+  origin: 'manual' | 'generated'
+  pinned: boolean
+  generatedBy?: { engine: string; model?: string; promptVersion: string; at: string }
+  createdAt: string
+  updatedAt: string
+}
+
+/** Which backend a capability uses. */
+export type EngineKind = 'dsh' | 'openai-compatible'
+
+/** Text generation engine configuration. */
+export interface TextEngineSettings {
+  kind: EngineKind
+  /** OpenAI-compatible base URL, e.g. https://api.openai.com/v1. */
+  baseURL?: string
+  /** Stored key; never returned to the browser. Prefer apiKeyEnv. */
+  apiKey?: string
+  /** Environment variable that holds the key. */
+  apiKeyEnv?: string
+  model?: string
+  temperature?: number
+  maxTokens?: number
+  timeoutMs?: number
+}
+
+/** Optional media/embedding capability configuration. */
+export interface CapabilitySettings {
+  enabled: boolean
+  baseURL?: string
+  apiKey?: string
+  apiKeyEnv?: string
+  model?: string
+  timeoutMs?: number
+}
+
+/** Animation backend: a generated self-contained page, or an async video job. */
+export interface AnimationSettings extends CapabilitySettings {
+  mode: 'svg-html' | 'video'
+}
+
+/** How units are generated and reviewed. */
+export interface StudyPreferences {
+  targetRetention: number
+  maxIntervalDays: number
+  /** Soft cap for new units per day; 0 means no cap. */
+  dailyNewUnits: number
+  autoQuiz: boolean
+  autoInsight: boolean
+  verifyNotes: boolean
+  concurrency: number
+  requestTimeoutMs: number
+}
+
+/** The single settings document (`settings.json`). */
+export interface StudySettings {
+  version: 1
+  text: TextEngineSettings
+  image: CapabilitySettings
+  animation: AnimationSettings
+  embedding: CapabilitySettings
+  study: StudyPreferences
+  updatedAt: string
+}
+
+/** A long-running generation job. */
+export type JobKind = 'plan' | 'unit' | 'quiz' | 'insight' | 'image' | 'animation' | 'index'
+
+/** Lifecycle of a generation job. */
+export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
+
+/** The target a job operates on. */
+export interface JobTarget {
+  material?: string
+  unit?: string
+  planId?: string
+  concept?: string
+}
+
+/** One durable generation job (`jobs/<id>.json`). */
+export interface GenerationJob {
+  version: 1
+  id: string
+  kind: JobKind
+  status: JobStatus
+  target: JobTarget
+  /** Progress in [0, 1]. */
+  progress: number
+  message?: string
+  /** Small JSON result; large content stays in the library. */
+  result?: unknown
+  error?: string
+  issues?: string[]
+  usage?: { inputTokens?: number; outputTokens?: number }
+  createdAt: string
+  startedAt?: string
+  endedAt?: string
+}
+
+/** A plan can remember which job last tried to fill it. */
+export interface PlanGeneration {
+  status: 'idle' | 'queued' | 'running' | 'done' | 'failed'
+  jobId?: string
+  error?: string
+  updatedAt?: string
+}
+
 /** Kinds of steps a learning plan can hold. */
 export type PlanStepKind = 'unit' | 'paper-pass' | 'drill' | 'compare'
 
@@ -208,6 +325,8 @@ export interface PlanRecord {
   materials?: string[]
   budget?: { hoursPerWeek?: number }
   steps: PlanStep[]
+  /** Last inline-orchestration attempt, shown while the plan is a draft. */
+  generation?: PlanGeneration
   createdAt: string
   updatedAt: string
 }
@@ -258,5 +377,7 @@ export interface UnitMetaFile {
   generatedBy?: { model?: string; promptVersion?: string; at: string }
   /** Verification result once a second agent checked the notes. */
   verification?: { verdict: 'pass' | 'fail'; issues: string[]; at: string }
-  extras?: { anim?: string[]; code?: string[]; media?: string[] }
+  /** Insight ids distilled from this unit. */
+  insights?: string[]
+  extras?: { anim?: string[]; code?: string[]; media?: string[]; image?: string[] }
 }
