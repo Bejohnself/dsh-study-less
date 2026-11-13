@@ -8,7 +8,7 @@ import { useEffect } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import type { JobView } from '../../core/views.ts'
 import { jobStatusLabel } from '../labels.ts'
-import { renderMarkdown } from '../markdown.ts'
+import { renderInlineMarkdown, renderMarkdown } from '../markdown.ts'
 
 /** A small toast that disappears on its own. */
 export function Toast({ message, tone }: { message: string; tone: 'ok' | 'error' }): ReactElement {
@@ -215,4 +215,10 @@ export function EmptyState({
 /** Inline error line. */
 export function ErrorNote({ message }: { message: string }): ReactElement {
   return <p className="study-form-error">{message}</p>
+}
+
+
+/** Render one short Markdown fragment inline (quiz choices, labels). */
+export function InlineMarkdown({ source }: { source: string }): ReactElement {
+  return <span dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(source) }} />
 }

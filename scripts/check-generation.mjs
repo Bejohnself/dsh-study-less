@@ -9,9 +9,11 @@ import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { LibraryPaths } from '../src/core/paths.ts'
 import { settingsView } from '../src/core/settings.ts'
+import { BookService } from '../src/host/books.ts'
 import { GenerationService } from '../src/host/generation.ts'
 import { InsightService } from '../src/host/insights.ts'
 import { JobQueue } from '../src/host/jobs.ts'
+import { QuizSessionService } from '../src/host/quizSessions.ts'
 import { StudyService } from '../src/host/service.ts'
 import { SettingsService } from '../src/host/settings.ts'
 
@@ -87,6 +89,47 @@ const fake = {
         }),
       }
     }
+    if (text.includes('编译成一本自编书的大纲')) {
+      return {
+        text: JSON.stringify({
+          title: '测试自编书',
+          subtitle: '从生成到阅读',
+          audience: '测试读者',
+          parts: [
+            {
+              title: '第一部分',
+              chapters: [
+                {
+                  title: '第一章：基本机制',
+                  summary: '建立基本机制，并说明为什么下一步需要它。',
+                  objectives: ['能复述机制'],
+                  prerequisites: ['基础'],
+                  narrativeRole: '全书起点',
+                  sourceUnits: [`${materialId}:${unitId}`],
+                },
+              ],
+            },
+          ],
+        }),
+      }
+    }
+    if (text.includes('正在写《')) {
+      return {
+        text: JSON.stringify({
+          summary: '本章建立了基本机制，并给下一章留下问题。',
+          body: '## 从一个问题开始\n\n为什么要先学这个？因为下一步需要它。\n\n## 逐步推导\n\n' + '推导过程。'.repeat(200) + '\n\n## 本章小结\n\n- 机制一\n- 机制二\n- 机制三',
+          transition: '下一章我们把机制用到具体例子上。',
+          sourceRefs: [{ material: materialId, unit: unitId, page: pageStart }],
+          concepts: [{ id: 'book/check', name: '书稿检查', definition: '用于测试自编书' }],
+          exercises: [
+            { type: 'choice', question: '机制的核心是？', choices: ['A', 'B'], answerIndex: 0, concepts: ['book/check'], page: pageStart, difficulty: 2, explanation: 'A 正确。' },
+          ],
+        }),
+      }
+    }
+    if (text.includes('统稿检查')) {
+      return { text: JSON.stringify({ verdict: 'pass', issues: [], bridges: [] }) }
+    }
     if (text.includes('大道至简')) {
       return {
         text: JSON.stringify({
@@ -109,7 +152,9 @@ const fake = {
 }
 
 await settings.patch({ text: { kind: 'dsh', model: 'fake' }, study: { autoQuiz: true, autoInsight: true } })
-const generation = new GenerationService(paths, { service, insights, settings, jobs, textProvider: () => fake })
+const books = new BookService(paths, service)
+const quizSessions = new QuizSessionService(paths, service, books)
+const generation = new GenerationService(paths, { service, insights, settings, jobs, books, textProvider: () => fake })
 
 const imported = await service.import({ filePath: fileURLToPath(new URL('../samples/attention.pdf', import.meta.url)) })
 materialId = imported.manifest.id
@@ -132,6 +177,25 @@ const planJob = await wait(plan.jobId)
 console.log('plan job:', planJob.status, planJob.error ?? planJob.message)
 const planView = await service.planView(plan.planId)
 console.log('plan steps:', planView.steps.length, planView.steps.map(step => step.kind).join(','))
+
+const outline = await generation.generateBookOutline(plan.planId)
+const outlineDone = await wait(outline.jobId)
+console.log('book outline:', outlineDone.status, outlineDone.error ?? 'ok')
+const bookView = await books.list(plan.planId)
+const bookId = bookView[0]?.id
+console.log('book list:', bookView.length, bookId)
+const chapterJob = await generation.generateBookChapter(bookId, 'ch-1')
+const chapterDone = await wait(chapterJob.jobId)
+console.log('book chapter:', chapterDone.status, chapterDone.error ?? 'ok')
+const chapterView = await books.chapter(bookId, 'ch-1')
+console.log('chapter content:', chapterView.content.length, 'quiz', chapterView.quiz?.items.length ?? 0)
+console.log('book export:', (await books.exportMarkdown(bookId)).length)
+const bookQuiz = await quizSessions.start({ book: bookId, chapter: 'ch-1' })
+console.log('book quiz start:', Boolean(bookQuiz.item), bookQuiz.session.limit)
+if (bookQuiz.item !== undefined) {
+  const answered = await quizSessions.answer(bookQuiz.session.id, bookQuiz.item.id, 0)
+  console.log('book quiz answer:', Boolean(answered.feedback), Boolean(answered.summary))
+}
 
 const unitJob = await generation.generateUnit({ material: materialId, unit: unitId })
 const unitDone = await wait(unitJob.jobId)

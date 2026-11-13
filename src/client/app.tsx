@@ -12,6 +12,7 @@ import { ConceptDetailPage, InsightDetailPage, InsightsPage } from './pages/insi
 import type { LearnTab } from './pages/learn.tsx'
 import { LearnPage, NewGoalDialog, PlanDetailPage } from './pages/learn.tsx'
 import { LibraryPage, MaterialPage } from './pages/library.tsx'
+import { BookPage } from './pages/book.tsx'
 import { SettingsDialog } from './pages/settings.tsx'
 import { ImportDialog } from './components/import.tsx'
 import { Toast, TopNav, type TopTab } from './components/ui.tsx'
@@ -21,6 +22,7 @@ type View =
   | { kind: 'material'; mid: string; uid?: string; planId?: string }
   | { kind: 'learn'; tab: LearnTab }
   | { kind: 'plan'; pid: string }
+  | { kind: 'book'; bid: string; cid?: string; pid?: string }
   | { kind: 'insights'; tab: InsightTab }
   | { kind: 'insight'; iid: string }
   | { kind: 'concept'; cid: string }
@@ -43,7 +45,7 @@ export function StudyApp(): ReactElement {
   const top: TopTab =
     view.kind === 'library' || (view.kind === 'material' && view.planId === undefined)
       ? 'library'
-      : view.kind === 'learn' || view.kind === 'plan' || view.kind === 'material'
+      : view.kind === 'learn' || view.kind === 'plan' || view.kind === 'book' || view.kind === 'material'
         ? 'learn'
         : 'insights'
 
@@ -54,6 +56,7 @@ export function StudyApp(): ReactElement {
     if (view.kind === 'learn' && view.tab === 'paths') return '一个目标串起多份资料；页面内直接编排'
     if (view.kind === 'learn' && view.tab === 'review') return '先复述，再看最小对照，最后评级'
     if (view.kind === 'plan') return '每一步都指向真实单元；勾掉即推进'
+    if (view.kind === 'book') return '自编书：有目录、有过渡、可连续阅读的独立书稿'
     if (view.kind === 'insights' && view.tab === 'insights') return '把书读薄：一句话本质、公式、对比与误区'
     if (view.kind === 'insights' && view.tab === 'concepts') return '跨资料共享掌握度；点开概念跳到所有出现位置'
     if (view.kind === 'insight') return '一条洞察的全部来源与相关概念'
@@ -65,6 +68,7 @@ export function StudyApp(): ReactElement {
   }
   const openConcept = (cid: string): void => setView({ kind: 'concept', cid })
   const openInsight = (iid: string): void => setView({ kind: 'insight', iid })
+  const openBook = (bid: string, planId?: string): void => setView({ kind: 'book', bid, ...(planId === undefined ? {} : { pid: planId }) })
 
   return (
     <div data-dsh-study="" className="study-page">
@@ -96,7 +100,12 @@ export function StudyApp(): ReactElement {
         </div>
 
         {view.kind === 'library' ? (
-          <LibraryPage refreshToken={refreshToken} onOpen={mid => setView({ kind: 'material', mid })} onImport={() => setDialog('import')} />
+          <LibraryPage
+            refreshToken={refreshToken}
+            onOpen={mid => setView({ kind: 'material', mid })}
+            onImport={() => setDialog('import')}
+            onOpenBook={bid => openBook(bid)}
+          />
         ) : null}
 
         {view.kind === 'material' ? (
@@ -133,12 +142,26 @@ export function StudyApp(): ReactElement {
             onOpenUnit={openUnit}
             onOpenConcept={openConcept}
             onOpenInsight={openInsight}
+            onOpenBook={openBook}
             refreshToken={refreshToken}
             onChanged={bump}
           />
         ) : null}
 
+        {view.kind === 'book' ? (
+          <BookPage
+            bid={view.bid}
+            {...(view.cid === undefined ? {} : { cid: view.cid })}
+            onBack={() => setView(view.pid === undefined ? { kind: 'learn', tab: 'paths' } : { kind: 'plan', pid: view.pid })}
+            onOpenChapter={chapterId => setView({ kind: 'book', bid: view.bid, cid: chapterId, ...(view.pid === undefined ? {} : { pid: view.pid }) })}
+            onOpenUnit={(mid, uid) => openUnit(mid, uid)}
+            onChanged={bump}
+            refreshToken={refreshToken}
+          />
+        ) : null}
+
         {view.kind === 'insights' ? (
+
           <InsightsPage
             tab={view.tab}
             onTab={tab => setView({ kind: 'insights', tab })}

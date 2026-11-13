@@ -17,6 +17,8 @@ library root/
 ├─ materials/<mid>/        # manifest.json / pages / source / units/<uid>/{notes.md,meta.json,quiz.json,extras}
 ├─ concepts/<cid>.json     # 全局概念，跨资料共享
 ├─ plans/<pid>.json        # 目标与步骤
+├─ books/<bid>/            # 自编书：book.json + chapters/*.md + 章节练习 + book.md
+├─ quiz-sessions/<sid>.json # 自适应练习会话
 ├─ progress.json           # 单元 FSRS + 概念掌握度
 ├─ insights/<iid>.json     # 大道至简洞察卡
 ├─ jobs/<jobId>.json       # 页面内生成任务
@@ -35,6 +37,8 @@ library root/
 | 动画 | 关闭 | 先做文生 SVG/HTML，视频 API 预留 |
 | 嵌入 | 关闭 | 语义检索/相关推荐，不是导入加速 |
 
+练习使用 `quiz-sessions` 单题会话；书籍章节练习存在 `books/<bid>/chapters/<cid>.quiz.json`。
+
 任务生命周期：`queued → running → done/failed/cancelled`。同 kind + target 去重；Host 重启后未完成任务标记为中断。浏览器轮询 `GET /study-api/jobs/:id`。
 
 没有可用文本引擎时，新建目标会回退到「复制 prompt / 打开对话」，不会把创建目标卡死。
@@ -43,12 +47,14 @@ library root/
 
 所有接口在 `/study-api` 下，仅接受本机回环且同源：
 
-- 读：`/library`、`/material`、`/unit`、`/today`、`/due`、`/concepts`、`/concept`、`/plans`、`/plan`、`/quiz`、`/insights`、`/insight`、`/jobs`、`/settings`
+- 读：`/library`、`/material`、`/unit`、`/today`、`/due`、`/concepts`、`/concept`、`/plans`、`/plan`、`/books`、`/book`、`/book/chapter`、`/quiz`、`/quiz/session`、`/insights`、`/insight`、`/jobs`、`/settings`
 - 写：`/unit/complete`、`/unit/uncomplete`、`/review`、`/quiz/submit`、`/goal/create`、`/plan/create`、`/plan/update`、`/plan/delete`、`/insight/create|update|delete|pin`、`/material/archive`、`/material/delete`
-- 生成：`/generate/plan|unit|quiz|insight`、`/jobs/:id/cancel`、`/settings/test`
+- 生成：`/generate/plan|unit|quiz|insight`、`/generate/book/outline|chapter|continuity`、`/jobs/:id/cancel`、`/settings/test`
+- 练习：`/quiz/session/start|answer|finish`
+- 书：`/book/export`、`/book/progress`、`/book/delete`
 - 资产：`/asset?mid&uid&name`（HTML/SVG 带 sandbox CSP）
 
-Agent 工具与 HTTP 共用同一 service 方法；新增工具：`study_generate`、`study_jobs`、`study_insight`、`study_delete`（删除路径/资料，不可恢复）。
+Agent 工具与 HTTP 共用同一 service 方法；新增工具：`study_generate`、`study_jobs`、`study_insight`、`study_delete`（删除路径/资料，不可恢复）、`study_quiz`（自适应练习）、`study_book`（自编书）。
 
 ## 开发
 

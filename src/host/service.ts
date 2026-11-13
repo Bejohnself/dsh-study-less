@@ -655,6 +655,7 @@ export class StudyService {
         status: plan.status,
         ...(plan.budget?.hoursPerWeek === undefined ? {} : { hoursPerWeek: plan.budget.hoursPerWeek }),
         ...(plan.brief === undefined ? {} : { brief: plan.brief }),
+        ...(plan.bookId === undefined ? {} : { bookId: plan.bookId }),
         ...(plan.generation === undefined
           ? {}
           : {

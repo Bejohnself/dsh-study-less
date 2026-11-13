@@ -11,6 +11,7 @@ import type {
   JobView,
   MaterialCard,
   PlanDetailView,
+  BookSummary,
   PlanSummary,
   TodayView,
   UnitView,
@@ -296,6 +297,7 @@ export function PlanDetailPage({
   onOpenUnit,
   onOpenConcept,
   onOpenInsight,
+  onOpenBook,
   refreshToken,
   onChanged,
 }: {
@@ -304,6 +306,7 @@ export function PlanDetailPage({
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenConcept: (cid: string) => void
   onOpenInsight: (iid: string) => void
+  onOpenBook: (bid: string, planId?: string) => void
   refreshToken: number
   onChanged: () => void
 }): ReactElement {
@@ -315,9 +318,13 @@ export function PlanDetailPage({
   const [chatPrompt, setChatPrompt] = useState<string | null>(null)
   const [chatBusy, setChatBusy] = useState(false)
   const [inlineBusy, setInlineBusy] = useState(false)
+  const [book, setBook] = useState<BookSummary | null>(null)
 
   const reload = useCallback(async () => {
-    setData(await api<PlanDetailView>(`/plan?pid=${encodeURIComponent(pid)}`))
+    const plan = await api<PlanDetailView>(`/plan?pid=${encodeURIComponent(pid)}`)
+    const books = await api<BookSummary[]>(`/books?pid=${encodeURIComponent(pid)}`).catch(() => [])
+    setData(plan)
+    setBook(books[0] ?? null)
   }, [pid])
 
   useEffect(() => {
@@ -397,6 +404,27 @@ export function PlanDetailPage({
       setToast({ message: errorText(reason), tone: 'error' })
     } finally {
       setChatBusy(false)
+    }
+  }
+
+  const compileBook = async (): Promise<void> => {
+    setInlineBusy(true)
+    setJob(null)
+    try {
+      const { jobId } = await post<{ jobId: string }>('/generate/book/outline', { pid })
+      const finished = await waitForJob(jobId, setJob)
+      if (finished.status === 'done') {
+        await reload()
+        onChanged()
+        setToast({ message: '自编书大纲已生成', tone: 'ok' })
+      } else if (finished.status === 'failed') {
+        setToast({ message: finished.error ?? '大纲生成失败', tone: 'error' })
+      }
+    } catch (reason) {
+      setToast({ message: errorText(reason), tone: 'error' })
+    } finally {
+      setInlineBusy(false)
+      setJob(null)
     }
   }
 
@@ -507,6 +535,30 @@ export function PlanDetailPage({
 
       {job !== null && data.plan.status !== 'draft' ? <JobBanner job={job} /> : null}
       {data.plan.brief === undefined ? null : <p className="study-definition">{data.plan.brief}</p>}
+
+      <section className={`study-book-card${book === null ? ' is-empty' : ''}`}>
+        <div className="study-book-card-head">
+          <span className="study-insight-kind">自编书</span>
+          {book === null ? (
+            <span className="study-muted">把这条路径编译成一本有目录、有过渡、可连续阅读的独立书稿。</span>
+          ) : (
+            <span className="study-item-meta">
+              {book.title} · {book.done}/{book.chapters} 章已生成
+            </span>
+          )}
+        </div>
+        {book === null ? (
+          <button type="button" className="study-primary study-primary-tight" disabled={inlineBusy || data.steps.length === 0} onClick={() => void compileBook()}>
+            {inlineBusy ? '正在编译…' : '编译成自编书'}
+          </button>
+        ) : (
+          <div className="study-inline">
+            <button type="button" className="study-primary study-primary-tight" onClick={() => onOpenBook(book.id, pid)}>
+              打开自编书
+            </button>
+          </div>
+        )}
+      </section>
 
       <ol className="study-steps">
         {data.steps.map(step => {

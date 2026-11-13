@@ -1,6 +1,6 @@
 {
   "name": "dsh-study",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "DSH study desk: knowledge base, learning paths with inline generation, spaced review and distilled insights",
   "icon": "icon.svg",

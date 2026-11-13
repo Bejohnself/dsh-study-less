@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { MaterialCard, MaterialStateView, TocRow } from '../../core/views.ts'
+import type { BookSummary, MaterialCard, MaterialStateView, TocRow } from '../../core/views.ts'
 import { api, errorText, post } from '../api.ts'
 import { isDone, typeLabel } from '../labels.ts'
 import { UnitReader } from '../components/reader.tsx'
@@ -16,13 +16,16 @@ import { EmptyState, Toast } from '../components/ui.tsx'
 export function LibraryPage({
   onOpen,
   onImport,
+  onOpenBook,
   refreshToken,
 }: {
   onOpen: (id: string) => void
   onImport: () => void
+  onOpenBook: (bid: string) => void
   refreshToken: number
 }): ReactElement {
   const [cards, setCards] = useState<MaterialCard[] | null>(null)
+  const [books, setBooks] = useState<BookSummary[]>([])
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'new' | 'learning' | 'done'>('all')
@@ -43,6 +46,20 @@ export function LibraryPage({
       alive = false
     }
   }, [refreshToken, showArchived])
+
+  useEffect(() => {
+    let alive = true
+    api<BookSummary[]>('/books')
+      .then(value => {
+        if (alive) setBooks(value)
+      })
+      .catch(() => {
+        if (alive) setBooks([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [refreshToken])
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -89,6 +106,23 @@ export function LibraryPage({
           ＋ 导入
         </button>
       </div>
+
+      {books.length === 0 ? null : (
+        <section className="study-book-shelf">
+          <h3>自编书</h3>
+          <div className="study-book-shelf-grid">
+            {books.map(book => (
+              <button key={book.id} type="button" className="study-book-mini" onClick={() => onOpenBook(book.id)}>
+                <span className="study-insight-kind">自编书</span>
+                <span className="study-book-title">{book.title}</span>
+                <span className="study-item-meta">
+                  {book.done}/{book.chapters} 章已生成 · {book.status === 'ready' ? '可读' : '编排中'}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {filtered.length === 0 ? (
         <div className="study-empty">没有符合筛选的资料。</div>

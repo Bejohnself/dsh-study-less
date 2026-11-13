@@ -141,6 +141,8 @@ export interface ProgressFile {
   concepts: Record<string, ConceptProgress>
   /** Local date of the last review push, for idempotency. */
   lastPushedDate?: string
+  /** Reading progress for generated books, keyed by book id. */
+  books?: Record<string, BookProgress>
   updatedAt: string
 }
 
@@ -256,7 +258,7 @@ export interface StudySettings {
 }
 
 /** A long-running generation job. */
-export type JobKind = 'plan' | 'unit' | 'quiz' | 'insight' | 'image' | 'animation' | 'index'
+export type JobKind = 'plan' | 'unit' | 'quiz' | 'insight' | 'image' | 'animation' | 'index' | 'book-outline' | 'book-chapter' | 'book-continuity'
 
 /** Lifecycle of a generation job. */
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -267,6 +269,8 @@ export interface JobTarget {
   unit?: string
   planId?: string
   concept?: string
+  book?: string
+  chapter?: string
 }
 
 /** One durable generation job (`jobs/<id>.json`). */
@@ -329,6 +333,8 @@ export interface PlanRecord {
   steps: PlanStep[]
   /** Last inline-orchestration attempt, shown while the plan is a draft. */
   generation?: PlanGeneration
+  /** Generated book compiled from this path, when one exists. */
+  bookId?: string
   createdAt: string
   updatedAt: string
 }
@@ -355,6 +361,10 @@ export interface QuizItem {
   origin: 'book-exercise' | 'paper-claim' | 'generated' | 'weakness'
   /** Page anchor inside the material. */
   page?: number
+  /** 1 = easy, 2 = normal, 3 = hard; absent means normal. */
+  difficulty?: 1 | 2 | 3
+  /** Optional explanation shown after answering. */
+  explanation?: string
 }
 
 /** Quiz bank file (`units/<uid>/quiz.json`). */
@@ -363,6 +373,102 @@ export interface QuizBank {
   unit: string
   items: QuizItem[]
   updatedAt: string
+}
+
+/** A source unit and page range a generated chapter is built from. */
+export interface BookSourceRef {
+  material: string
+  unit: string
+  pageStart: number
+  pageEnd: number
+}
+
+/** One chapter of a generated book. */
+export interface BookChapterMeta {
+  id: string
+  order: number
+  title: string
+  /** Two-sentence summary used as context by the next chapter. */
+  summary: string
+  objectives: string[]
+  prerequisites: string[]
+  /** Why this chapter sits here in the narrative. */
+  narrativeRole: string
+  sourceRefs: BookSourceRef[]
+  concepts: string[]
+  status: 'outline' | 'draft' | 'done'
+  wordCount?: number
+  generatedAt?: string
+}
+
+/** One part of a generated book. */
+export interface BookPart {
+  id: string
+  title: string
+  chapterIds: string[]
+}
+
+/** A generated book (`books/<bid>/book.json`). */
+export interface BookRecord {
+  version: 1
+  id: string
+  planId?: string
+  title: string
+  subtitle?: string
+  goal: string
+  audience?: string
+  status: 'outline' | 'drafting' | 'ready' | 'failed'
+  sourceMaterials: string[]
+  parts: BookPart[]
+  chapters: BookChapterMeta[]
+  createdAt: string
+  updatedAt: string
+  generatedBy?: { engine: string; model?: string; promptVersion: string; at: string }
+}
+
+/** Reading progress of one book chapter. */
+export interface BookChapterProgress {
+  readAt?: string
+  lastQuizScore?: number
+}
+
+/** Reading progress of one book. */
+export interface BookProgress {
+  chapters: Record<string, BookChapterProgress>
+}
+
+/** Which question bank a practice session draws from. */
+export type QuizSessionScope =
+  | { kind: 'unit'; material: string; unit: string }
+  | { kind: 'book'; book: string; chapter?: string }
+
+/** A user's self-grade for a subjective question. */
+export type QuizSelfGrade = 'correct' | 'partial' | 'wrong'
+
+/** One answered question in a session. */
+export interface QuizSessionEntry {
+  itemId: string
+  answer?: unknown
+  /** null means subjective / not objectively graded. */
+  correct: boolean | null
+  selfGrade?: QuizSelfGrade
+  at: string
+}
+
+/** One adaptive practice session (`quiz-sessions/<id>.json`). */
+export interface QuizSession {
+  version: 1
+  id: string
+  scope: QuizSessionScope
+  status: 'active' | 'done'
+  limit: number
+  /** Item ids already answered and advanced past. */
+  asked: string[]
+  currentId?: string
+  history: QuizSessionEntry[]
+  startedAt: string
+  updatedAt: string
+  endedAt?: string
 }
 
 /** Generated notes metadata (`units/<uid>/meta.json`). */

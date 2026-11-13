@@ -137,3 +137,13 @@ export function renderMarkdown(markdown: string): string {
   const text = typeof html === 'string' ? html : ''
   return text.replace(new RegExp(`${TOKEN}(\\d+)\u0000`, 'g'), (_match, index: string) => math[Number(index)] ?? '')
 }
+
+
+/**
+ * Render a short fragment (a quiz choice, a label) without the wrapping `<p>`.
+ */
+export function renderInlineMarkdown(markdown: string): string {
+  const html = renderMarkdown(markdown).trim()
+  const single = /^<p>([\s\S]*)<\/p>$/.exec(html)
+  return single?.[1] ?? html
+}

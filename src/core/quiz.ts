@@ -88,3 +88,59 @@ export function gradeQuizItem(item: QuizItem, answer: unknown): GradeVerdict {
       return { correct: null, reason: 'manual' }
   }
 }
+
+
+/** The effective difficulty of an item (older banks default to normal). */
+export function difficultyOf(item: QuizItem): 1 | 2 | 3 {
+  return item.difficulty ?? 2
+}
+
+/** Whether two items train at least one shared concept. */
+export function sharesConcept(a: QuizItem, b: QuizItem): boolean {
+  const concepts = new Set(b.concepts)
+  return a.concepts.some(concept => concepts.has(concept))
+}
+
+/**
+ * Pick the next adaptive item.
+ *
+ * Wrong answers retreat to the same concept at an equal-or-easier difficulty;
+ * right answers move to the same concept at an equal-or-harder difficulty; if
+ * neither exists, any unattempted item is used. Selection is deterministic for
+ * a seed so a refresh cannot reshuffle a session unpredictably.
+ */
+export function pickAdaptiveNext(
+  items: readonly QuizItem[],
+  options: {
+    asked: ReadonlySet<string>
+    current: QuizItem
+    correct: boolean | null
+    seed?: string
+  },
+): QuizItem | undefined {
+  const candidates = items.filter(item => item.id !== options.current.id && !options.asked.has(item.id))
+  if (candidates.length === 0) return undefined
+  const seed = options.seed ?? options.current.id
+  const currentDifficulty = difficultyOf(options.current)
+  const objective = (item: QuizItem): boolean => item.type !== 'recall' && item.type !== 'apply'
+
+  const score = (item: QuizItem): number => {
+    let value = 0
+    if (objective(item)) value += 1
+    if (sharesConcept(item, options.current)) value += 4
+    const difficulty = difficultyOf(item)
+    if (options.correct === false) {
+      if (difficulty < currentDifficulty) value += 3
+      else if (difficulty === currentDifficulty) value += 2
+    } else if (options.correct === true) {
+      if (difficulty > currentDifficulty) value += 3
+      else if (difficulty === currentDifficulty) value += 2
+    }
+    return value
+  }
+
+  const ranked = candidates
+    .map(item => ({ item, score: score(item), order: hash32(`${seed}:${item.id}`) }))
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+  return ranked[0]?.item
+}

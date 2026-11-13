@@ -6,6 +6,8 @@
  */
 import type {
   AnimationSettings,
+  BookChapterMeta,
+  BookRecord,
   CapabilitySettings,
   GenerationJob,
   InsightKind,
@@ -214,6 +216,7 @@ export interface PlanDetailView {
     status: 'draft' | 'active' | 'paused' | 'done'
     hoursPerWeek?: number
     brief?: string
+    bookId?: string
     generation?: { status: string; mode?: 'inline' | 'chat'; jobId?: string; error?: string }
   }
   steps: PlanStepView[]
@@ -281,6 +284,54 @@ export interface CapabilityView {
   timeoutMs?: number
 }
 
+/** One generated-book card. */
+export interface BookSummary {
+  id: string
+  planId?: string
+  title: string
+  subtitle?: string
+  status: 'outline' | 'drafting' | 'ready' | 'failed'
+  chapters: number
+  done: number
+}
+
+/** One chapter card on the book cover. */
+export interface BookChapterCard {
+  id: string
+  order: number
+  title: string
+  summary: string
+  objectives: string[]
+  sourceCount: number
+  status: 'outline' | 'draft' | 'done'
+  wordCount?: number
+  read: boolean
+}
+
+/** The book cover payload. */
+export interface BookView {
+  book: BookRecord
+  chapters: BookChapterCard[]
+}
+
+/** One chapter with its rendered content and neighbours. */
+export interface BookChapterView {
+  book: { id: string; title: string }
+  chapter: BookChapterMeta
+  content: string
+  prev?: { id: string; title: string }
+  next?: { id: string; title: string }
+  sources: Array<{
+    materialId: string
+    materialTitle: string
+    unitId: string
+    unitTitle: string
+    pageStart: number
+    pageEnd: number
+  }>
+  quiz: QuizBank | null
+}
+
 /** Settings payload; secrets are reduced to `apiKeySet`. */
 export interface SettingsView {
   text: TextEngineView
@@ -301,6 +352,60 @@ export interface QuizSubmitView {
   score: number
   ratingSuggestion: Rating
   attempts: Array<{ itemId: string; correct: boolean | null; expected?: string }>
+}
+
+/** A question safe to send before the answer is revealed. */
+export interface QuizItemView {
+  id: string
+  type: 'recall' | 'choice' | 'cloze' | 'apply' | 'evidence'
+  question: string
+  choices?: string[]
+  concepts: string[]
+  page?: number
+  difficulty?: 1 | 2 | 3
+}
+
+/** Feedback revealed after one answer. */
+export interface QuizFeedbackView {
+  itemId: string
+  correct: boolean | null
+  expected?: string
+  rubric?: string[]
+  explanation?: string
+  /** True when a subjective answer needs a self-grade before advancing. */
+  needsSelfGrade?: boolean
+}
+
+/** Progress and current item of one session. */
+export interface QuizSessionView {
+  session: {
+    id: string
+    status: 'active' | 'done'
+    asked: number
+    limit: number
+    correct: number
+    objective: number
+  }
+  item?: QuizItemView
+  summary?: QuizSessionSummary
+}
+
+/** The result of one answer, including the next item when available. */
+export interface QuizAnswerView {
+  session: QuizSessionView['session']
+  feedback: QuizFeedbackView
+  next?: QuizItemView
+  summary?: QuizSessionSummary
+}
+
+/** Final summary of one practice session. */
+export interface QuizSessionSummary {
+  asked: number
+  correct: number
+  objective: number
+  score: number
+  ratingSuggestion: Rating
+  weakConcepts: Array<{ id: string; name: string }>
 }
 
 /** Settings update body. */

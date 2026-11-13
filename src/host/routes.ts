@@ -13,7 +13,9 @@ import { settingsView } from '../core/settings.ts'
 import type { Rating } from '../core/types.ts'
 import { PLUGIN_VERSION } from '../core/version.ts'
 import type { SettingsUpdate } from '../core/views.ts'
+import type { BookService } from './books.ts'
 import type { GenerationService } from './generation.ts'
+import type { QuizSessionService } from './quizSessions.ts'
 import type { InsightService } from './insights.ts'
 import type { JobQueue } from './jobs.ts'
 import { StudyError, type StudyService } from './service.ts'
@@ -172,6 +174,8 @@ function statusOf(error: StudyError): number {
 /** Optional services; a deployment without them still serves the read model. */
 export interface StudyRouteExtras {
   settings?: SettingsService
+  quizSessions?: QuizSessionService
+  books?: BookService
   insights?: InsightService
   generation?: GenerationService
   jobs?: JobQueue
@@ -183,7 +187,7 @@ export interface StudyRouteExtras {
  * @param extras - settings, insights, generation and job queue when enabled.
  */
 export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras = {}): StudyRoute[] {
-  const { settings, insights, generation, jobs } = extras
+  const { settings, insights, generation, jobs, quizSessions, books } = extras
   const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     try {
       if (!isLoopback(req.socket.remoteAddress)) {
@@ -253,6 +257,39 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
             ok: true,
             value: await service.quiz(query.get('mid') ?? '', query.get('uid') ?? ''),
           })
+          return
+        }
+        if (path === '/quiz/session') {
+          const sessions = requireService(quizSessions, '练习会话')
+          send(res, 200, { ok: true, value: await sessions.get(query.get('sid') ?? '') })
+          return
+        }
+        if (path === '/books') {
+          const serviceBooks = requireService(books, '自编书')
+          send(res, 200, { ok: true, value: await serviceBooks.list(query.get('pid') ?? undefined) })
+          return
+        }
+        if (path === '/book') {
+          const serviceBooks = requireService(books, '自编书')
+          send(res, 200, { ok: true, value: await serviceBooks.get(query.get('bid') ?? '') })
+          return
+        }
+        if (path === '/book/chapter') {
+          const serviceBooks = requireService(books, '自编书')
+          send(res, 200, { ok: true, value: await serviceBooks.chapter(query.get('bid') ?? '', query.get('cid') ?? '') })
+          return
+        }
+        if (path === '/book/export') {
+          const serviceBooks = requireService(books, '自编书')
+          const markdown = await serviceBooks.exportMarkdown(query.get('bid') ?? '')
+          res.writeHead(200, {
+            'content-type': 'text/markdown; charset=utf-8',
+            'content-length': Buffer.byteLength(markdown),
+            'content-disposition': `attachment; filename="${encodeURIComponent(query.get('bid') ?? 'book')}.md"`,
+            'cache-control': 'no-store',
+            'x-content-type-options': 'nosniff',
+          })
+          res.end(markdown)
           return
         }
         if (path === '/settings') {
@@ -394,6 +431,35 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         send(res, 200, { ok: true, value: await serviceGeneration.retryPlan(requiredString(body, 'pid')) })
         return
       }
+      if (path === '/generate/book/outline') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, { ok: true, value: await serviceGeneration.generateBookOutline(requiredString(body, 'pid')) })
+        return
+      }
+      if (path === '/generate/book/chapter') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, {
+          ok: true,
+          value: await serviceGeneration.generateBookChapter(requiredString(body, 'bid'), requiredString(body, 'cid')),
+        })
+        return
+      }
+      if (path === '/generate/book/continuity') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, { ok: true, value: await serviceGeneration.generateBookContinuity(requiredString(body, 'bid')) })
+        return
+      }
+      if (path === '/book/progress') {
+        const serviceBooks = requireService(books, '自编书')
+        await serviceBooks.markRead(requiredString(body, 'bid'), requiredString(body, 'cid'))
+        send(res, 200, { ok: true, value: { read: true } })
+        return
+      }
+      if (path === '/book/delete') {
+        const serviceBooks = requireService(books, '自编书')
+        send(res, 200, { ok: true, value: await serviceBooks.delete(requiredString(body, 'bid')) })
+        return
+      }
       if (path === '/generate/unit') {
         const serviceGeneration = requireService(generation, '生成引擎')
         send(res, 200, {
@@ -433,6 +499,39 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         const queue = requireService(jobs, '生成任务')
         const jobId = decodeURIComponent(path.slice('/jobs/'.length, -'/cancel'.length))
         send(res, 200, { ok: true, value: await queue.cancel(jobId) })
+        return
+      }
+      if (path === '/quiz/session/start') {
+        const sessions = requireService(quizSessions, '练习会话')
+        send(res, 200, {
+          ok: true,
+          value: await sessions.start({
+            ...(typeof body.mid === 'string' ? { material: body.mid } : {}),
+            ...(typeof body.uid === 'string' ? { unit: body.uid } : {}),
+            ...(typeof body.bid === 'string' ? { book: body.bid } : {}),
+            ...(typeof body.cid === 'string' ? { chapter: body.cid } : {}),
+            ...(typeof body.limit === 'number' ? { limit: body.limit } : {}),
+          }),
+        })
+        return
+      }
+      if (path === '/quiz/session/answer') {
+        const sessions = requireService(quizSessions, '练习会话')
+        const selfGrade = body.selfGrade
+        send(res, 200, {
+          ok: true,
+          value: await sessions.answer(
+            requiredString(body, 'sid'),
+            requiredString(body, 'itemId'),
+            body.answer,
+            selfGrade === 'correct' || selfGrade === 'partial' || selfGrade === 'wrong' ? selfGrade : undefined,
+          ),
+        })
+        return
+      }
+      if (path === '/quiz/session/finish') {
+        const sessions = requireService(quizSessions, '练习会话')
+        send(res, 200, { ok: true, value: await sessions.finish(requiredString(body, 'sid')) })
         return
       }
       if (path === '/quiz/submit') {

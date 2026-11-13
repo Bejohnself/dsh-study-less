@@ -65,5 +65,5 @@ export async function listJobs(paths: LibraryPaths, limit = 50): Promise<Generat
 
 /** A compact identity for deduplicating jobs of the same kind and target. */
 export function jobKey(kind: JobKind, target: JobTarget): string {
-  return [kind, target.planId ?? '', target.material ?? '', target.unit ?? '', target.concept ?? ''].join('|')
+  return [kind, target.planId ?? '', target.material ?? '', target.unit ?? '', target.concept ?? '', target.book ?? '', target.chapter ?? ''].join('|')
 }

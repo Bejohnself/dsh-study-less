@@ -7,9 +7,11 @@
  * the model can read and fix, not thrown as opaque errors.
  */
 import type { Rating, StructureNode } from '../core/types.ts'
+import type { BookService } from './books.ts'
 import type { GenerationService } from './generation.ts'
 import type { InsightService } from './insights.ts'
 import type { JobQueue } from './jobs.ts'
+import type { QuizSessionService } from './quizSessions.ts'
 import { StudyError, type StudyService } from './service.ts'
 
 /** Minimal ToolDefinition shape the Host registry accepts. */
@@ -52,7 +54,7 @@ function objectSchema(
  */
 export function buildStudyTools(
   service: StudyService,
-  extras: { generation?: GenerationService; insights?: InsightService; jobs?: JobQueue } = {},
+  extras: { generation?: GenerationService; insights?: InsightService; jobs?: JobQueue; quizSessions?: QuizSessionService; books?: BookService } = {},
 ): StudyToolDefinition[] {
   const tools: StudyToolDefinition[] = []
 
@@ -663,6 +665,107 @@ export function buildStudyTools(
       }
     },
   })
+
+  if (extras.quizSessions !== undefined) {
+    const sessions = extras.quizSessions
+    tools.push({
+      name: 'study_quiz',
+      description:
+        '自适应练习：start 开始一节的一组题（默认 8 题），answer 提交当前题并拿下一题，finish 提前结束，get 查看会话。题目提交前不会暴露答案；主观题需要 selfGrade=correct|partial|wrong。',
+      parameters: objectSchema({
+        action: { type: 'string', enum: ['start', 'answer', 'finish', 'get'] },
+        mid: { type: 'string' },
+        uid: { type: 'string' },
+        bid: { type: 'string', description: '自编书 id（与 cid 一起）' },
+        cid: { type: 'string', description: '自编书章节 id' },
+        sid: { type: 'string' },
+        itemId: { type: 'string' },
+        answer: {},
+        selfGrade: { type: 'string', enum: ['correct', 'partial', 'wrong'] },
+        limit: { type: 'number' },
+      }, ['action']),
+      output: { schema: {}, render: renderJson },
+      async execute(args) {
+        const input = args as {
+          action: 'start' | 'answer' | 'finish' | 'get'
+          mid?: string
+          uid?: string
+          bid?: string
+          cid?: string
+          sid?: string
+          itemId?: string
+          answer?: unknown
+          selfGrade?: 'correct' | 'partial' | 'wrong'
+          limit?: number
+        }
+        try {
+          if (input.action === 'start') {
+            if ((input.mid === undefined || input.uid === undefined) && (input.bid === undefined || input.cid === undefined)) {
+              throw new StudyError('invalid', 'start 需要 mid+uid 或 bid+cid')
+            }
+            return {
+              ok: true,
+              ...(await sessions.start({
+                ...(input.mid === undefined ? {} : { material: input.mid }),
+                ...(input.uid === undefined ? {} : { unit: input.uid }),
+                ...(input.bid === undefined ? {} : { book: input.bid }),
+                ...(input.cid === undefined ? {} : { chapter: input.cid }),
+                ...(input.limit === undefined ? {} : { limit: input.limit }),
+              })),
+            }
+          }
+          if (input.sid === undefined) throw new StudyError('invalid', '需要 sid')
+          if (input.action === 'get') return { ok: true, ...(await sessions.get(input.sid)) }
+          if (input.action === 'finish') return { ok: true, ...(await sessions.finish(input.sid)) }
+          if (input.itemId === undefined) throw new StudyError('invalid', 'answer 需要 itemId')
+          return {
+            ok: true,
+            ...(await sessions.answer(input.sid, input.itemId, input.answer, input.selfGrade)),
+          }
+        } catch (error) {
+          return refusal(error)
+        }
+      },
+    })
+  }
+
+  if (extras.books !== undefined && extras.generation !== undefined) {
+    const books = extras.books
+    const generation = extras.generation
+    tools.push({
+      name: 'study_book',
+      description:
+        '自编书：list 某条路径的书；get 看书封面/目录；chapter 读一章；outline 从路径编译大纲；generate-chapter 生成一章；continuity 做全书统稿检查；export 导出 Markdown；delete 删除书。生成会返回 jobId，用 study_jobs 查进度。',
+      parameters: objectSchema({
+        action: { type: 'string', enum: ['list', 'get', 'chapter', 'outline', 'generate-chapter', 'continuity', 'export', 'delete'] },
+        pid: { type: 'string' },
+        bid: { type: 'string' },
+        cid: { type: 'string' },
+      }, ['action']),
+      output: { schema: {}, render: renderJson },
+      async execute(args) {
+        const input = args as { action: string; pid?: string; bid?: string; cid?: string }
+        try {
+          if (input.action === 'list') return { ok: true, books: await books.list(input.pid) }
+          if (input.action === 'outline') {
+            if (input.pid === undefined) throw new StudyError('invalid', 'outline 需要 pid')
+            return { ok: true, ...(await generation.generateBookOutline(input.pid)) }
+          }
+          if (input.bid === undefined) throw new StudyError('invalid', '需要 bid')
+          if (input.action === 'get') return { ok: true, ...(await books.get(input.bid)) }
+          if (input.action === 'export') return { ok: true, markdown: await books.exportMarkdown(input.bid) }
+          if (input.action === 'delete') return { ok: true, ...(await books.delete(input.bid)) }
+          if (input.action === 'continuity') return { ok: true, ...(await generation.generateBookContinuity(input.bid)) }
+          if (input.cid === undefined) throw new StudyError('invalid', '需要 cid')
+          if (input.action === 'chapter') return { ok: true, ...(await books.chapter(input.bid, input.cid)) }
+          if (input.action === 'generate-chapter') return { ok: true, ...(await generation.generateBookChapter(input.bid, input.cid)) }
+          throw new StudyError('invalid', `未知 action：${input.action}`)
+        } catch (error) {
+          return refusal(error)
+        }
+      },
+    })
+  }
 
   return tools
 }

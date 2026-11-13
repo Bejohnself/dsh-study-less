@@ -25,8 +25,10 @@ export class LibraryPaths {
   readonly materialsDir: string
   readonly conceptsDir: string
   readonly plansDir: string
+  readonly booksDir: string
   readonly insightsDir: string
   readonly jobsDir: string
+  readonly quizSessionsDir: string
   readonly indexDir: string
   readonly progressFile: string
   readonly settingsFile: string
@@ -38,8 +40,10 @@ export class LibraryPaths {
     this.materialsDir = join(root, 'materials')
     this.conceptsDir = join(root, 'concepts')
     this.plansDir = join(root, 'plans')
+    this.booksDir = join(root, 'books')
     this.insightsDir = join(root, 'insights')
     this.jobsDir = join(root, 'jobs')
+    this.quizSessionsDir = join(root, 'quiz-sessions')
     this.indexDir = join(root, 'index')
     this.progressFile = join(root, 'progress.json')
     this.settingsFile = join(root, 'settings.json')
@@ -123,6 +127,39 @@ export class LibraryPaths {
     return join(this.plansDir, `${planId}.json`)
   }
 
+  /** Directory of one generated book. */
+  bookDir(bookId: string): string {
+    assertSegment(bookId, 'book id')
+    return join(this.booksDir, bookId)
+  }
+
+  /** Book manifest. */
+  bookFile(bookId: string): string {
+    return join(this.bookDir(bookId), 'book.json')
+  }
+
+  /** Chapter content file. */
+  bookChapterFile(bookId: string, chapterId: string): string {
+    assertSegment(chapterId, 'chapter id')
+    return join(this.bookDir(bookId), 'chapters', `${chapterId}.md`)
+  }
+
+  /** Chapter quiz file. */
+  bookChapterQuizFile(bookId: string, chapterId: string): string {
+    assertSegment(chapterId, 'chapter id')
+    return join(this.bookDir(bookId), 'chapters', `${chapterId}.quiz.json`)
+  }
+
+  /** Compiled whole-book Markdown. */
+  bookCompiledFile(bookId: string): string {
+    return join(this.bookDir(bookId), 'book.md')
+  }
+
+  /** Continuity report of one book. */
+  bookContinuityFile(bookId: string): string {
+    return join(this.bookDir(bookId), 'continuity.md')
+  }
+
   /** Insight file. */
   insightFile(insightId: string): string {
     assertSegment(insightId, 'insight id')
@@ -133,6 +170,12 @@ export class LibraryPaths {
   jobFile(jobId: string): string {
     assertSegment(jobId, 'job id')
     return join(this.jobsDir, `${jobId}.json`)
+  }
+
+  /** One adaptive quiz session file. */
+  quizSessionFile(sessionId: string): string {
+    assertSegment(sessionId, 'quiz session id')
+    return join(this.quizSessionsDir, `${sessionId}.json`)
   }
 
   /** Embedding index file. */

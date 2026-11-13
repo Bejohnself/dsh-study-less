@@ -8,9 +8,11 @@ import { createServer } from 'node:http'
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { LibraryPaths } from '../src/core/paths.ts'
+import { BookService } from '../src/host/books.ts'
 import { GenerationService } from '../src/host/generation.ts'
 import { InsightService } from '../src/host/insights.ts'
 import { JobQueue } from '../src/host/jobs.ts'
+import { QuizSessionService } from '../src/host/quizSessions.ts'
 import { makeStudyRoutes } from '../src/host/routes.ts'
 import { StudyService } from '../src/host/service.ts'
 import { SettingsService } from '../src/host/settings.ts'
@@ -21,6 +23,8 @@ const paths = new LibraryPaths(root)
 const service = new StudyService(paths)
 const settings = new SettingsService(paths)
 const insights = new InsightService(paths)
+const books = new BookService(paths, service)
+const quizSessions = new QuizSessionService(paths, service, books)
 const jobs = new JobQueue(paths, { concurrency: () => 1 })
 await jobs.recover()
 
@@ -81,7 +85,7 @@ const fake = {
 }
 
 await settings.patch({ text: { kind: 'dsh', model: 'fake' }, study: { autoQuiz: true, autoInsight: true } })
-const generation = new GenerationService(paths, { service, insights, settings, jobs, textProvider: () => fake })
+const generation = new GenerationService(paths, { service, insights, settings, jobs, books, textProvider: () => fake })
 const imported = await service.import({ filePath: fileURLToPath(new URL('../samples/attention.pdf', import.meta.url)) })
 mid = imported.manifest.id
 const node = imported.manifest.structure.find(candidate => candidate.kind === 'section') ?? imported.manifest.structure[0]
@@ -93,8 +97,32 @@ const plan = await service.createPlan({
   steps: [{ kind: 'unit', target: `${mid}:${uid}`, why: '检查删除路径' }],
 })
 const planId = plan.plan.id
+const book = await books.create({
+  version: 1,
+  id: 'book-api-check',
+  planId,
+  title: '接口检查书',
+  goal: '检查书路由',
+  status: 'outline',
+  sourceMaterials: [mid],
+  parts: [{ id: 'part-1', title: '第一部分', chapterIds: ['ch-1'] }],
+  chapters: [{
+    id: 'ch-1',
+    order: 1,
+    title: '第一章',
+    summary: '摘要',
+    objectives: ['目标'],
+    prerequisites: [],
+    narrativeRole: '起点',
+    sourceRefs: [{ material: mid, unit: uid, pageStart: page, pageEnd: page }],
+    concepts: [],
+    status: 'outline',
+  }],
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+})
 
-const routes = makeStudyRoutes(service, { settings, insights, generation, jobs })
+const routes = makeStudyRoutes(service, { settings, insights, generation, jobs, quizSessions, books })
 const server = createServer((req, res) => {
   void routes[0].handler(req, res)
 })
@@ -127,6 +155,12 @@ try {
   console.log('settings save:', saved.status, saved.body.value.study.autoQuiz)
   await postJson('/settings', { study: { autoQuiz: true } })
 
+  const booksList = await call('/books')
+  const bookView = await call(`/book?bid=${book.id}`)
+  const bookChapter = await call(`/book/chapter?bid=${book.id}&cid=ch-1`)
+  const bookExport = await fetch(`${base}/book/export?bid=${book.id}`)
+  console.log('book routes:', booksList.status, bookView.status, bookChapter.status, bookExport.status)
+
   const unitJob = await postJson('/generate/unit', { mid, uid })
   console.log('generate unit:', unitJob.status, unitJob.body.value.jobId)
   const finished = await wait(unitJob.body.value.jobId)
@@ -136,6 +170,12 @@ try {
 
   const submit = await postJson('/quiz/submit', { mid, uid, answers: [{ itemId: 'q1', answer: 0 }] })
   console.log('quiz submit:', submit.status, submit.body.value.score, submit.body.value.ratingSuggestion)
+
+  const sessionStart = await postJson('/quiz/session/start', { mid, uid })
+  const sid = sessionStart.body.value.session.id
+  console.log('quiz session start:', sessionStart.status, Boolean(sessionStart.body.value.item), 'answerLeaked', 'answerIndex' in (sessionStart.body.value.item ?? {}))
+  const sessionAnswer = await postJson('/quiz/session/answer', { sid, itemId: sessionStart.body.value.item.id, answer: 0 })
+  console.log('quiz session answer:', sessionAnswer.status, Boolean(sessionAnswer.body.value.feedback), 'summary', Boolean(sessionAnswer.body.value.summary))
 
   const insightJob = await postJson('/generate/insight', { mid, uid })
   const insightDone = await wait(insightJob.body.value.jobId)
@@ -163,6 +203,9 @@ try {
 
   const retry = await postJson('/plan/retry-chat', { pid: planId })
   console.log('retry chat prompt:', retry.status, retry.body.value.prompted, retry.body.value.prompt.length > 100)
+
+  const bookDelete = await postJson('/book/delete', { bid: book.id })
+  console.log('book delete:', bookDelete.status, booksList.body.value.length)
 
   await postJson('/plan/delete', { pid: planId })
   const plans = await call('/plans')

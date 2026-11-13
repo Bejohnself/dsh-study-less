@@ -7,10 +7,11 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { InsightCard, JobView, QuizSubmitView, UnitView } from '../../core/views.ts'
+import type { InsightCard, JobView, UnitView } from '../../core/views.ts'
 import { api, errorText, post, waitForJob } from '../api.ts'
 import { insightKindLabel } from '../labels.ts'
 import { EmptyState, JobBanner, Markdown, Toast } from './ui.tsx'
+import { QuizRunner } from './quiz.tsx'
 
 /** Reader tabs. */
 type ReaderTab = 'notes' | 'original' | 'quiz' | 'extras'
@@ -83,8 +84,6 @@ export function UnitReader({
   const [job, setJob] = useState<JobView | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
-  const [answers, setAnswers] = useState<Record<string, string>>({})
-  const [quizResult, setQuizResult] = useState<QuizSubmitView | null>(null)
 
   const load = useCallback(async () => {
     const value = await api<UnitView>(`/unit?mid=${encodeURIComponent(mid)}&uid=${encodeURIComponent(uid)}`)
@@ -97,8 +96,6 @@ export function UnitReader({
     let alive = true
     setUnit(null)
     setError(null)
-    setAnswers({})
-    setQuizResult(null)
     setJob(null)
     load().catch(reason => {
       if (alive) setError(errorText(reason))
@@ -156,22 +153,6 @@ export function UnitReader({
     if (job === null) return
     try {
       await post(`/jobs/${encodeURIComponent(job.id)}/cancel`, {})
-    } catch (reason) {
-      setToast({ message: errorText(reason), tone: 'error' })
-    }
-  }
-
-  const submitQuiz = async (): Promise<void> => {
-    if (unit?.quiz == null) return
-    try {
-      const payload = unit.quiz.items.map(item => {
-        const raw = answers[item.id] ?? ''
-        if (item.type === 'choice') return { itemId: item.id, answer: Number(raw) }
-        return { itemId: item.id, answer: raw }
-      })
-      const result = await post<QuizSubmitView>('/quiz/submit', { mid, uid, answers: payload })
-      setQuizResult(result)
-      setToast({ message: `得分 ${Math.round(result.score * 100)}%，建议评级 ${result.ratingSuggestion}`, tone: 'ok' })
     } catch (reason) {
       setToast({ message: errorText(reason), tone: 'error' })
     }
@@ -301,71 +282,11 @@ export function UnitReader({
         unit.quiz === null ? (
           <EmptyState
             title="还没有练习题。"
-            hint="先生成精读，再点「生成练习」；题目会挂到概念上，提交后更新掌握度。"
+            hint="先生成精读，再点「生成练习」；练习会一题一屏，并根据对错选择下一题。"
             action={{ label: '生成练习', onClick: () => generate('quiz') }}
           />
         ) : (
-          <div className="study-quiz">
-            {unit.quiz.items.map((item, index) => {
-              const verdict = quizResult?.attempts.find(attempt => attempt.itemId === item.id)
-              return (
-                <section key={item.id} className={`study-quiz-item${verdict === undefined ? '' : verdict.correct === true ? ' is-correct' : verdict.correct === false ? ' is-wrong' : ''}`}>
-                  <div className="study-quiz-head">
-                    <span className="study-quiz-index">{index + 1}</span>
-                    <span className="study-quiz-type">{item.type}</span>
-                    {item.page === undefined ? null : <span className="study-muted">p{item.page}</span>}
-                  </div>
-                  <p className="study-quiz-question">{item.question}</p>
-                  {item.type === 'choice' && item.choices !== undefined ? (
-                    <div className="study-quiz-choices">
-                      {item.choices.map((choice, choiceIndex) => (
-                        <label key={`${item.id}-${choiceIndex}`} className="study-quiz-choice">
-                          <input
-                            type="radio"
-                            name={item.id}
-                            checked={answers[item.id] === String(choiceIndex)}
-                            disabled={quizResult !== null}
-                            onChange={() => setAnswers(previous => ({ ...previous, [item.id]: String(choiceIndex) }))}
-                          />
-                          <span>{choice}</span>
-                        </label>
-                      ))}
-                    </div>
-                  ) : item.type === 'cloze' || item.type === 'evidence' ? (
-                    <input
-                      type="text"
-                      className="study-input"
-                      value={answers[item.id] ?? ''}
-                      disabled={quizResult !== null}
-                      onChange={event => setAnswers(previous => ({ ...previous, [item.id]: event.target.value }))}
-                    />
-                  ) : (
-                    <textarea
-                      className="study-input study-textarea"
-                      value={answers[item.id] ?? ''}
-                      disabled={quizResult !== null}
-                      onChange={event => setAnswers(previous => ({ ...previous, [item.id]: event.target.value }))}
-                    />
-                  )}
-                  {verdict === undefined ? null : (
-                    <p className="study-muted">
-                      {verdict.correct === null ? '主观题，请自行对照评分要点。' : verdict.correct ? '正确' : '错误'}
-                      {verdict.expected === undefined ? '' : ` · 参考答案：${verdict.expected}`}
-                    </p>
-                  )}
-                </section>
-              )
-            })}
-            {quizResult === null ? (
-              <button type="button" className="study-primary study-primary-tight" onClick={() => void submitQuiz()}>
-                提交并更新掌握度
-              </button>
-            ) : (
-              <div className="study-quiz-score">
-                得分 {Math.round(quizResult.score * 100)}% · 建议评级 {quizResult.ratingSuggestion}
-              </div>
-            )}
-          </div>
+          <QuizRunner scope={{ kind: 'unit', mid, uid: unit.unit.uid }} />
         )
       ) : null}
 
