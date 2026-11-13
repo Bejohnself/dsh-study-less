@@ -18,6 +18,7 @@ import { dueUnits, isWeak, markLearned, readProgress, recordAttempts, recordRevi
 import { listConcepts, readConcept } from '../core/concepts.ts'
 import { listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../core/plans.ts'
 import { gradeQuizItem } from '../core/quiz.ts'
+import { normalizeSettings } from '../core/settings.ts'
 import { hash32 } from '../core/srs.ts'
 import { ratingFromScore } from '../core/srs.ts'
 import { ensureDir, readJson, writeJsonAtomic, writeTextAtomic } from '../core/store.ts'
@@ -112,6 +113,12 @@ export class StudyService {
   /** The local date the service considers "today". */
   today(): string {
     return this.deps.today?.() ?? localDate()
+  }
+
+  /** Study preferences; a missing or corrupt settings file uses defaults. */
+  private async preferences(): Promise<{ targetRetention: number; maxIntervalDays: number }> {
+    const settings = normalizeSettings(await readJson<unknown>(this.paths.settingsFile, null))
+    return { targetRetention: settings.study.targetRetention, maxIntervalDays: settings.study.maxIntervalDays }
   }
 
   /** The shelf. Archived materials stay readable by id but are hidden here. */
@@ -422,10 +429,13 @@ export class StudyService {
     const node = structureNodeOf(manifest, unitId)
     await this.assertRevision(options.revision)
     const key = unitKey(materialId, unitId)
+    const preferences = await this.preferences()
     const { progress, unit } = await recordReview(this.paths, key, {
       rating: options.rating,
       quizScore: options.quizScore,
       today: this.today(),
+      targetRetention: preferences.targetRetention,
+      maxIntervalDays: preferences.maxIntervalDays,
     })
     return {
       unit: this.rowOf(materialId, node, manifest, progress, false),

@@ -298,7 +298,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
               <input className="study-input" type="number" value={maxIntervalDays} onChange={event => setMaxIntervalDays(event.target.value)} />
             </div>
             <div className="study-field">
-              <label className="study-field-label">每日新学上限（0=不限）</label>
+              <label className="study-field-label">每日新学上限（0=不限，预留）</label>
               <input className="study-input" type="number" min="0" value={dailyNewUnits} onChange={event => setDailyNewUnits(event.target.value)} />
             </div>
           </div>
