@@ -57,6 +57,7 @@ const fake = {
           steps: [
             { kind: 'unit', target: `${materialId}:${unitId}`, why: '先建立该单元的基本机制' },
             { kind: 'paper-pass', target: `${materialId}:p1`, why: '再用第一遍把论文主张串起来' },
+            { kind: 'drill', concepts: ['invented/concept'], why: '模型编造的概念应被忽略' },
           ],
         }),
       }

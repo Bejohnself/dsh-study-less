@@ -87,7 +87,7 @@ export function planPrompt(input: {
       '输出一个 JSON 对象：',
       '{"steps":[{"kind":"unit|paper-pass|drill|compare","target":"<material>:<unit>","concepts":["<concept id>"],"materials":["<material id>"],"why":"一句话说明为什么排在这里"}]}',
       `kind 只能是 ${allowedKinds.join('/')}。`,
-      'unit 与 paper-pass 必须带 target；drill 必须带 concepts；compare 必须带至少两个 materials。',
+      'unit 与 paper-pass 的 target 必须逐字复制目录里的 <material>:<unit>；drill 的 concepts 只能从上面「已有概念」逐字选择，列表为空时不要输出 drill；compare 必须带至少两个 materials。',
       '步骤按学习顺序排列，4–12 步；why 必须具体对应该目标，不要空话。',
       '先补前置，再到核心，再用论文证据/对比，最后练习。不要选与目标无关的单元。',
     ].join('\n'),

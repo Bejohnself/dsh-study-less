@@ -909,6 +909,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
 [data-dsh-study] .study-job-error { border-color: color-mix(in srgb, var(--s-danger) 40%, var(--s-border)); }
 [data-dsh-study] .study-job-head { display: flex; align-items: center; gap: 9px; font-size: 12.5px; flex-wrap: wrap; }
 [data-dsh-study] .study-job-status { font-weight: 650; color: var(--s-primary-ink); }
+[data-dsh-study] .study-job-issues { margin: 2px 0 0; padding-left: 18px; font-size: 12px; color: var(--s-danger); line-height: 1.6; }
 [data-dsh-study] .study-reader-actions { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; flex-wrap: wrap; }
 [data-dsh-study] .study-quiz { display: flex; flex-direction: column; gap: 14px; }
 [data-dsh-study] .study-quiz-item {

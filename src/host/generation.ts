@@ -149,8 +149,32 @@ export class GenerationService {
     const job = await this.deps.jobs.create('plan', { planId: goalResult.planId }, context =>
       this.runPlan(goalResult.planId, input, context),
     )
-    await this.deps.service.setPlanGeneration(goalResult.planId, { status: 'queued', jobId: job.id })
+    await this.deps.service.setPlanGeneration(goalResult.planId, { status: 'queued', mode: 'inline', jobId: job.id })
     return { planId: goalResult.planId, jobId: job.id }
+  }
+
+  /** Retry inline orchestration for an existing draft plan. */
+  async retryPlan(planId: string): Promise<{ planId: string; jobId: string }> {
+    if (!(await this.textReady())) throw new StudyError('unsupported', '还没有配置文本引擎')
+    const plan = await readPlan(this.paths, planId)
+    if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
+    const materials = plan.materials ?? []
+    if (materials.length === 0) throw new StudyError('invalid', '这条计划没有选定资料，无法自动重试')
+    const job = await this.deps.jobs.create('plan', { planId }, context =>
+      this.runPlan(
+        planId,
+        {
+          goal: plan.goal,
+          materials: [...materials],
+          ...(plan.brief === undefined ? {} : { brief: plan.brief }),
+          ...(plan.budget?.hoursPerWeek === undefined ? {} : { hoursPerWeek: plan.budget.hoursPerWeek }),
+          depth: 'deep',
+        },
+        context,
+      ),
+    )
+    await this.deps.service.setPlanGeneration(planId, { status: 'queued', mode: 'inline', jobId: job.id })
+    return { planId, jobId: job.id }
   }
 
   /** Queue one unit's notes (and optional quiz/insights). */
@@ -263,12 +287,14 @@ export class GenerationService {
     try {
       return await accept(parseJsonObject(second.text))
     } catch (error) {
-      throw new StudyError('invalid', '模型输出未通过校验', { issues: issuesOf(error) })
+      const issues = issuesOf(error)
+      console.error('[dsh-study] generation validation failed:', issues, '\nraw:', second.text.slice(0, 4000))
+      throw new StudyError('invalid', '模型输出未通过校验', { issues })
     }
   }
 
   private async runPlan(planId: string, input: GeneratePlanInput, context: JobContext): Promise<PlanDetailView> {
-    await this.deps.service.setPlanGeneration(planId, { status: 'running', jobId: context.job.id })
+    await this.deps.service.setPlanGeneration(planId, { status: 'running', mode: 'inline', jobId: context.job.id })
     try {
       const plan = await readPlan(this.paths, planId)
       if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
@@ -290,18 +316,31 @@ export class GenerationService {
         manifests: chosen,
         concepts,
       })
+      const validUnits = new Set<string>()
+      for (const manifest of chosen) {
+        for (const node of manifest.structure) validUnits.add(`${manifest.id}:${node.uid}`)
+      }
+      const validConcepts = new Set(concepts.map(concept => concept.id))
+      const validMaterials = new Set(chosen.map(manifest => manifest.id))
       let count = 0
+      let dropped = 0
       await this.completeJson(context, prompt, async parsed => {
-        const steps = normalizePlanSteps(parsed)
-        count = steps.length
-        await this.deps.service.updatePlan(planId, { replaceSteps: steps })
+        const raw = normalizePlanSteps(parsed)
+        const sanitized = sanitizePlanSteps(raw, validUnits, validConcepts, validMaterials)
+        if (sanitized.steps.length === 0) {
+          throw new StudyError('invalid', '计划没有可用的步骤', { issues: sanitized.issues })
+        }
+        count = sanitized.steps.length
+        dropped = sanitized.issues.length
+        await this.deps.service.updatePlan(planId, { replaceSteps: sanitized.steps })
       })
-      await this.deps.service.setPlanGeneration(planId, { status: 'done', jobId: context.job.id })
-      context.report(1, `已生成 ${count} 步`)
+      await this.deps.service.setPlanGeneration(planId, { status: 'done', mode: 'inline', jobId: context.job.id })
+      context.report(1, `已生成 ${count} 步${dropped === 0 ? '' : `（忽略 ${dropped} 个无效目标）`}`)
       return await this.deps.service.planView(planId)
     } catch (error) {
       await this.deps.service.setPlanGeneration(planId, {
         status: 'failed',
+        mode: 'inline',
         jobId: context.job.id,
         error: error instanceof Error ? error.message : String(error),
       })
@@ -494,6 +533,59 @@ export class GenerationService {
     context.report(1, `已合并 ${ids.length} 条`)
     return { ids }
   }
+}
+
+/** Drop steps that point at units/concepts/materials the library does not have. */
+function sanitizePlanSteps(
+  steps: ReadonlyArray<{
+    kind: PlanStepKind
+    target?: string
+    concepts?: string[]
+    materials?: string[]
+    why: string
+  }>,
+  validUnits: ReadonlySet<string>,
+  validConcepts: ReadonlySet<string>,
+  validMaterials: ReadonlySet<string>,
+): {
+  steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
+  issues: string[]
+} {
+  const kept: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }> = []
+  const issues: string[] = []
+  steps.forEach((step, index) => {
+    const label = `第 ${index + 1} 步`
+    if (step.why.trim().length === 0) {
+      issues.push(`${label} 缺少理由`)
+      return
+    }
+    if (step.kind === 'unit' || step.kind === 'paper-pass') {
+      if (step.target === undefined || !validUnits.has(step.target)) {
+        issues.push(`${label} 指向不存在的单元：${step.target ?? '—'}`)
+        return
+      }
+    }
+    if (step.kind === 'drill') {
+      const concepts = (step.concepts ?? []).filter(id => validConcepts.has(id))
+      if (concepts.length === 0) {
+        issues.push(`${label} 没有可用的已登记概念`)
+        return
+      }
+      kept.push({ ...step, concepts })
+      return
+    }
+    if (step.kind === 'compare') {
+      const materials = (step.materials ?? []).filter(id => validMaterials.has(id))
+      if (materials.length < 2) {
+        issues.push(`${label} 没有两份有效资料`)
+        return
+      }
+      kept.push({ ...step, materials })
+      return
+    }
+    kept.push(step)
+  })
+  return { steps: kept, issues }
 }
 
 /** Normalize a plan answer; throws with all shape issues. */

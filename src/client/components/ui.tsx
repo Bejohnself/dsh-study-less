@@ -147,6 +147,13 @@ export function JobBanner({ job, onCancel }: { job: JobView; onCancel?: () => vo
       </div>
       <ProgressBar percent={job.progress * 100} />
       {job.error === undefined ? null : <p className="study-form-error">{job.error}</p>}
+      {job.issues === undefined || job.issues.length === 0 ? null : (
+        <ul className="study-job-issues">
+          {job.issues.slice(0, 6).map(issue => (
+            <li key={issue}>{issue}</li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

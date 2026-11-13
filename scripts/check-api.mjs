@@ -161,6 +161,9 @@ try {
   const all = await call('/library?archived=1')
   console.log('shelf includes archived:', all.body.value.length)
 
+  const retry = await postJson('/plan/retry-chat', { pid: planId })
+  console.log('retry chat prompt:', retry.status, retry.body.value.prompted, retry.body.value.prompt.length > 100)
+
   await postJson('/plan/delete', { pid: planId })
   const plans = await call('/plans')
   console.log('plans after delete:', plans.body.value.length)

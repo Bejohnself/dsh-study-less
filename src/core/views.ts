@@ -214,7 +214,7 @@ export interface PlanDetailView {
     status: 'draft' | 'active' | 'paused' | 'done'
     hoursPerWeek?: number
     brief?: string
-    generation?: { status: string; jobId?: string; error?: string }
+    generation?: { status: string; mode?: 'inline' | 'chat'; jobId?: string; error?: string }
   }
   steps: PlanStepView[]
   done: number

@@ -171,13 +171,15 @@ export class JobQueue {
       await writeJob(this.paths, done)
     } catch (error) {
       if (controller.signal.aborted || this.remembered.get(running.id)?.status === 'cancelled') return
+      const details = (error as { details?: { issues?: unknown } } | null)?.details
+      const issues = Array.isArray(details?.issues)
+        ? details.issues.map(String)
+        : (error as { issues?: unknown } | null)?.issues
       const failed: GenerationJob = {
         ...running,
         status: 'failed',
         error: error instanceof Error ? error.message : String(error),
-        ...(typeof error === 'object' && error !== null && 'issues' in error
-          ? { issues: (error as { issues: string[] }).issues }
-          : {}),
+        ...(Array.isArray(issues) ? { issues: issues.map(String) } : {}),
         endedAt: new Date().toISOString(),
       }
       this.remembered.set(failed.id, failed)

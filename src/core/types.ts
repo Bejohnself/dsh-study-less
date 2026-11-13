@@ -292,6 +292,8 @@ export interface GenerationJob {
 /** A plan can remember which job last tried to fill it. */
 export interface PlanGeneration {
   status: 'idle' | 'queued' | 'running' | 'done' | 'failed'
+  /** Where the orchestration is running: the panel engine or the chat. */
+  mode?: 'inline' | 'chat'
   jobId?: string
   error?: string
   updatedAt?: string

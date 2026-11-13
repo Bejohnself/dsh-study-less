@@ -389,6 +389,11 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         }
         return
       }
+      if (path === '/generate/plan/retry') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, { ok: true, value: await serviceGeneration.retryPlan(requiredString(body, 'pid')) })
+        return
+      }
       if (path === '/generate/unit') {
         const serviceGeneration = requireService(generation, '生成引擎')
         send(res, 200, {
@@ -448,6 +453,16 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
       }
       if (path === '/material/delete') {
         send(res, 200, { ok: true, value: await service.deleteMaterial(requiredString(body, 'mid')) })
+        return
+      }
+      if (path === '/plan/retry-chat') {
+        send(res, 200, {
+          ok: true,
+          value: await service.promptPlanInChat(
+            requiredString(body, 'pid'),
+            typeof body.sessionId === 'string' ? body.sessionId : undefined,
+          ),
+        })
         return
       }
       if (path === '/plan/delete') {

@@ -312,6 +312,9 @@ export function PlanDetailPage({
   const [busy, setBusy] = useState<number | null>(null)
   const [job, setJob] = useState<JobView | null>(null)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
+  const [chatPrompt, setChatPrompt] = useState<string | null>(null)
+  const [chatBusy, setChatBusy] = useState(false)
+  const [inlineBusy, setInlineBusy] = useState(false)
 
   const reload = useCallback(async () => {
     setData(await api<PlanDetailView>(`/plan?pid=${encodeURIComponent(pid)}`))
@@ -352,6 +355,50 @@ export function PlanDetailPage({
       alive = false
     }
   }, [generation?.jobId, generation?.status, onChanged, reload])
+
+  const retryInline = async (): Promise<void> => {
+    setInlineBusy(true)
+    setJob(null)
+    try {
+      const { jobId } = await post<{ jobId: string }>('/generate/plan/retry', { pid })
+      const finished = await waitForJob(jobId, setJob)
+      if (finished.status === 'done') {
+        await reload()
+        onChanged()
+        setToast({ message: '路径编排完成', tone: 'ok' })
+      } else if (finished.status === 'failed') {
+        setToast({ message: finished.error ?? '编排失败', tone: 'error' })
+        await reload()
+      }
+    } catch (reason) {
+      setToast({ message: errorText(reason), tone: 'error' })
+    } finally {
+      setInlineBusy(false)
+      setJob(null)
+    }
+  }
+
+  const retryChat = async (): Promise<void> => {
+    setChatBusy(true)
+    try {
+      const value = await post<{ prompted: boolean; prompt: string; error?: string }>('/plan/retry-chat', {
+        pid,
+        ...(currentSessionId() === undefined ? {} : { sessionId: currentSessionId() }),
+      })
+      if (value.prompted) {
+        setToast({ message: '已交给当前对话，步骤写入后路径会自动更新', tone: 'ok' })
+        await reload()
+        openConversation()
+      } else {
+        setChatPrompt(value.prompt)
+        setToast({ message: value.error ?? '没有可用的会话；复制下面的 prompt 到聊天框', tone: 'error' })
+      }
+    } catch (reason) {
+      setToast({ message: errorText(reason), tone: 'error' })
+    } finally {
+      setChatBusy(false)
+    }
+  }
 
   const removePlan = async (): Promise<void> => {
     if (!window.confirm('删除这条学习路径？单元内容与进度不会被删除。')) return
@@ -424,16 +471,39 @@ export function PlanDetailPage({
           <span>
             {generation?.status === 'failed'
               ? `编排失败：${generation.error ?? '未知原因'}`
-              : generation?.jobId === undefined
-                ? '已创建目标；当前没有可用的页面内引擎，已交给对话或等待手动编排。'
-                : '这条路径正在页面内编排；步骤写入后会自动变为「进行中」。'}
+              : generation?.mode === 'chat'
+                ? '已交给当前对话编排；步骤写入后会自动变为「进行中」。'
+                : generation?.jobId === undefined
+                  ? '已创建目标；当前没有可用的页面内引擎，可以交给对话或手动编排。'
+                  : '这条路径正在页面内编排；步骤写入后会自动变为「进行中」。'}
           </span>
           {generation?.jobId === undefined ? null : <JobBanner job={job ?? { ...emptyJob(generation.jobId), status: generation.status as JobView['status'] }} />}
-          <button type="button" className="study-link" onClick={openConversation}>
-            打开对话
+          <button type="button" className="study-ghost" disabled={inlineBusy || chatBusy} onClick={() => void retryInline()}>
+            {inlineBusy ? '重试中…' : '重试编排'}
+          </button>
+          <button type="button" className="study-link" disabled={chatBusy || inlineBusy} onClick={() => void retryChat()}>
+            {chatBusy ? '发送中…' : '交给当前对话'}
           </button>
         </div>
       ) : null}
+
+      {chatPrompt === null ? null : (
+        <div className="study-fallback">
+          <p className="study-modal-note">没能自动发进对话。复制下面的 prompt 到聊天框即可继续：</p>
+          <textarea className="study-input study-textarea study-textarea-tall" readOnly value={chatPrompt} />
+          <div className="study-modal-actions">
+            <button
+              type="button"
+              className="study-ghost"
+              onClick={() => {
+                void navigator.clipboard?.writeText(chatPrompt)
+              }}
+            >
+              复制
+            </button>
+          </div>
+        </div>
+      )}
 
       {job !== null && data.plan.status !== 'draft' ? <JobBanner job={job} /> : null}
       {data.plan.brief === undefined ? null : <p className="study-definition">{data.plan.brief}</p>}

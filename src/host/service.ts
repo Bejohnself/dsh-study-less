@@ -482,7 +482,7 @@ export class StudyService {
       materials: [...input.materials],
       ...(input.hoursPerWeek === undefined ? {} : { budget: { hoursPerWeek: input.hoursPerWeek } }),
       steps: [],
-      generation: { status: 'queued' },
+      generation: { status: 'queued', mode: 'chat' },
       createdAt: now,
       updatedAt: now,
     }
@@ -497,6 +497,37 @@ export class StudyService {
       return { planId, prompted: true, prompt }
     } catch (error) {
       return { planId, prompted: false, error: error instanceof Error ? error.message : String(error), prompt }
+    }
+  }
+
+  /**
+   * Send an existing draft plan's orchestration prompt into the current
+   * conversation. Used when inline generation failed and the user asks the chat
+   * to take over, without creating a second plan.
+   */
+  async promptPlanInChat(
+    planId: string,
+    sessionId?: string,
+  ): Promise<{ prompted: boolean; prompt: string; error?: string }> {
+    const plan = await readPlan(this.paths, planId)
+    if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
+    const manifests = await listManifests(this.paths)
+    const selected = plan.materials === undefined || plan.materials.length === 0 ? manifests.map(manifest => manifest.id) : plan.materials
+    const chosen = selected
+      .map(id => manifests.find(manifest => manifest.id === id))
+      .filter((manifest): manifest is MaterialManifest => manifest !== undefined)
+    if (chosen.length === 0) throw new StudyError('not-found', '计划的资料都不存在了')
+    const prompt = this.goalPrompt(plan, chosen, 'deep')
+    if (sessionId === undefined || this.deps.promptSession === undefined) {
+      return { prompted: false, prompt }
+    }
+    try {
+      await this.deps.promptSession(sessionId, prompt)
+      plan.generation = { status: 'queued', mode: 'chat', updatedAt: new Date().toISOString() }
+      await writePlan(this.paths, plan)
+      return { prompted: true, prompt }
+    } catch (error) {
+      return { prompted: false, prompt, error: error instanceof Error ? error.message : String(error) }
     }
   }
 
@@ -629,6 +660,7 @@ export class StudyService {
           : {
               generation: {
                 status: plan.generation.status,
+                ...(plan.generation.mode === undefined ? {} : { mode: plan.generation.mode }),
                 ...(plan.generation.jobId === undefined ? {} : { jobId: plan.generation.jobId }),
                 ...(plan.generation.error === undefined ? {} : { error: plan.generation.error }),
               },
