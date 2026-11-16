@@ -1434,7 +1434,17 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
   box-shadow: var(--s-shadow-lg);
 }
 [data-dsh-study] .study-ask-head { display: flex; align-items: center; font-size: 12.5px; color: var(--s-muted); }
-[data-dsh-study] .study-ask-close { margin-left: auto; font-size: 16px; line-height: 1; color: var(--s-faint); }
+[data-dsh-study] .study-ask-copy {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--s-muted);
+  background: var(--s-surface-2);
+  border: 1px solid var(--s-border);
+}
+[data-dsh-study] .study-ask-copy:hover { color: var(--s-primary-ink); border-color: var(--s-primary); }
+[data-dsh-study] .study-ask-close { margin-left: 8px; font-size: 16px; line-height: 1; color: var(--s-faint); }
 [data-dsh-study] .study-ask-input {
   width: 100%;
   resize: vertical;
@@ -1753,11 +1763,15 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
   padding: 0;
   border: 0;
   border-radius: 3px;
+  background: transparent;
   cursor: pointer;
-  transition: filter 120ms ease;
+  transition: background 120ms ease;
   animation: study-mark-in 220ms ease-out;
 }
-[data-dsh-study] .study-mark:hover { filter: brightness(0.94) saturate(1.25); }
+/* Every paragraph is a target, but only the hovered one says so. */
+[data-dsh-study] .study-mark:hover { background: rgba(37, 99, 235, 0.055); }
+[data-dsh-study] .study-mark.is-active { cursor: pointer; }
+[data-dsh-study] .study-mark.is-active:hover { filter: brightness(0.95) saturate(1.25); }
 @keyframes study-mark-in {
   from { opacity: 0; }
   to { opacity: 1; }

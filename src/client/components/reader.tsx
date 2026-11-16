@@ -153,8 +153,12 @@ function PdfPage({
   mid: string
   page: number
   width: number
-  /** Paragraphs of the active block that live on this page. */
-  marks: ReadonlyArray<{ index: number; x: number; y: number; w: number; h: number; text: string }>
+  /**
+   * Every paragraph on this page. `active` marks the ones inside the current
+   * block: those keep their tint, the rest only show a hint on hover — any
+   * paragraph can be asked about, but the page stays quiet while reading.
+   */
+  marks: ReadonlyArray<{ index: number; x: number; y: number; w: number; h: number; text: string; active: boolean }>
   /** Block tint, so the highlight changes colour with the block. */
   tint: string
   onPick: (paragraph: { index: number; text: string }) => void
@@ -262,15 +266,25 @@ function PdfPage({
         <button
           key={mark.index}
           type="button"
-          className="study-mark"
-          style={{
-            left: `${String(mark.x * 100)}%`,
-            top: `${String(mark.y * 100)}%`,
-            width: `${String(mark.w * 100)}%`,
-            height: `${String(mark.h * 100)}%`,
-            background: withAlpha(tint, 0.13),
-            boxShadow: `inset 2px 0 0 ${tint}`,
-          }}
+          className={mark.active ? 'study-mark is-active' : 'study-mark'}
+          tabIndex={mark.active ? 0 : -1}
+          style={
+            mark.active
+              ? {
+                  left: `${String(mark.x * 100)}%`,
+                  top: `${String(mark.y * 100)}%`,
+                  width: `${String(mark.w * 100)}%`,
+                  height: `${String(mark.h * 100)}%`,
+                  background: withAlpha(tint, 0.13),
+                  boxShadow: `inset 2px 0 0 ${tint}`,
+                }
+              : {
+                  left: `${String(mark.x * 100)}%`,
+                  top: `${String(mark.y * 100)}%`,
+                  width: `${String(mark.w * 100)}%`,
+                  height: `${String(mark.h * 100)}%`,
+                }
+          }
           title="点一下，就这一段提问"
           aria-label="就这一段提问"
           onClick={() => onPick({ index: mark.index, text: mark.text })}
@@ -378,6 +392,7 @@ function AskPanel({
   const [answer, setAnswer] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -388,6 +403,18 @@ function AskPanel({
       window.removeEventListener('keydown', onKey)
     }
   }, [onClose])
+
+  /** Take the paragraph away: asking is not the only thing text is for. */
+  const copySeed = async (): Promise<void> => {
+    if (seed === undefined) return
+    try {
+      await navigator.clipboard.writeText(seed)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      setError('这段复制不了（浏览器没给剪贴板权限）')
+    }
+  }
 
   const send = async (): Promise<void> => {
     const text = question.trim()
@@ -413,6 +440,11 @@ function AskPanel({
     <div className="study-ask" role="dialog" aria-label="问一句">
       <div className="study-ask-head">
         <span>p{page} 这一段，说给我听听</span>
+        {seed === undefined ? null : (
+          <button type="button" className="study-ask-copy" onClick={() => void copySeed()}>
+            {copied ? '抄好了' : '复制这段'}
+          </button>
+        )}
         <button type="button" className="study-ask-close" onClick={onClose} aria-label="关闭">
           ×
         </button>
@@ -917,12 +949,24 @@ export function UnitReader({
   }, [open, activeBlock?.id])
 
 
-  const marksOf = (pageNumber: number): ParagraphRecord[] => {
-    if (layout === null || activeBlock === null) return []
-    return layout.filter(
-      paragraph =>
-        paragraph.page === pageNumber && paragraph.index >= activeBlock.startPara && paragraph.index <= activeBlock.endPara,
-    )
+  /**
+   * Every paragraph on a page, flagged with whether it belongs to the block the
+   * rail is talking about.
+   *
+   * Asking about the paragraph under the cursor must not require scrolling it
+   * into the current block first; the tint still says which block is active.
+   */
+  const marksOf = (pageNumber: number): Array<ParagraphRecord & { active: boolean }> => {
+    if (layout === null) return []
+    return layout
+      .filter(paragraph => paragraph.page === pageNumber)
+      .map(paragraph => ({
+        ...paragraph,
+        active:
+          activeBlock !== null &&
+          paragraph.index >= activeBlock.startPara &&
+          paragraph.index <= activeBlock.endPara,
+      }))
   }
 
   if (error !== null) return <div className="study-empty">无法打开这一节：{error}</div>
