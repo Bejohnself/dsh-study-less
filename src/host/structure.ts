@@ -143,13 +143,68 @@ function refinePages(nodes: StructureNode[], pages: readonly ExtractedPage[]): S
   return refined
 }
 
-/** Assign page ends from the next node's start. */
-function closeRanges(nodes: StructureNode[], numPages: number): StructureNode[] {
+/** Opening lines that may sit above a chapter title without being body text. */
+const PAGE_OPENING_LINES = 2
+
+/** Compare headings ignoring numbering, punctuation and CJK line breaking. */
+function looseLine(line: string): string {
+  return normalizedLine(line).replace(/\s+/g, '')
+}
+
+/**
+ * Whether a chapter opens its page.
+ *
+ * Only chapters get this test. A section heading cannot be told apart from the
+ * running head that repeats the same words at the top of the page, and guessing
+ * wrong there is what cut a section off mid-page; a section therefore always
+ * shares the page its successor starts on.
+ */
+function chapterOpensPage(node: StructureNode, firstLines: ReadonlyMap<number, string[]>): boolean {
+  if ((node.level ?? 2) > 1) return false
+  const target = looseLine(node.title)
+  if (target.length < 2) return false
+  return (firstLines.get(node.pageStart) ?? []).some(line => looseLine(line) === target)
+}
+
+/**
+ * Assign page ends from the next node's start.
+ *
+ * A PDF page cannot be split: when the next section starts below the top of its
+ * page, that page still carries the tail of the current one, so both units read
+ * it. Ending at `next.pageStart - 1` is what cut 1.1 off as soon as 1.2 appeared
+ * halfway down the page; only a chapter that starts a fresh page may end its
+ * predecessor before that page.
+ *
+ * Exported so a library imported before this rule can be re-closed in place:
+ * only the page ends change, never the unit ids or the progress.
+ */
+export function closeRanges(
+  nodes: StructureNode[],
+  pages: readonly ExtractedPage[],
+  numPages: number,
+  options: { chapters?: boolean } = {},
+): StructureNode[] {
+  const firstLines = new Map<number, string[]>()
+  for (const page of pages) {
+    firstLines.set(
+      page.page,
+      page.text
+        .split('\n')
+        .map(normalizedLine)
+        .filter(line => line.length > 0)
+        .slice(0, PAGE_OPENING_LINES),
+    )
+  }
   const sorted = [...nodes].sort((a, b) => a.pageStart - b.pageStart)
   for (const [index, node] of sorted.entries()) {
     const next = sorted[index + 1]
-    const end = next === undefined ? numPages : next.pageStart - 1
-    node.pageEnd = Math.max(node.pageStart, Math.min(node.pageEnd, end, numPages))
+    const end =
+      next === undefined
+        ? numPages
+        : options.chapters === true && chapterOpensPage(next, firstLines)
+          ? next.pageStart - 1
+          : next.pageStart
+    node.pageEnd = Math.max(node.pageStart, Math.min(end, numPages))
   }
   return nodes
 }
@@ -178,10 +233,16 @@ export function buildStructure(input: StructureInput): StructureNode[] {
   const refinedSections = refinePages(sections, input.pages)
 
   let nodes: StructureNode[]
+  // Chunked fallbacks already tile the document page by page; the "share the
+  // page the next section starts on" rule only applies to real headings.
+  let closed = false
   if (input.type === 'paper') {
     nodes = [...paperPasses(input.numPages), ...refinedSections]
+  } else if (refinedSections.length >= 2) {
+    nodes = refinedSections
   } else {
-    nodes = refinedSections.length >= 2 ? refinedSections : chunked(input)
+    nodes = chunked(input)
+    closed = true
   }
 
   // Unique uids across passes and sections.
@@ -198,10 +259,11 @@ export function buildStructure(input: StructureInput): StructureNode[] {
   }
 
   // Passes keep the whole document; sections close against their neighbours.
-  const sectionNodes = closeRanges(
-    nodes.filter(node => node.kind !== 'pass'),
-    input.numPages,
-  )
+  const sectionNodes = closed
+    ? nodes
+    : closeRanges(nodes.filter(node => node.kind !== 'pass'), input.pages, input.numPages, {
+        chapters: input.type === 'book',
+      })
   const byUid = new Map(sectionNodes.map(node => [node.uid, node]))
   return nodes.map(node => (node.kind === 'pass' ? node : (byUid.get(node.uid) ?? node)))
 }
