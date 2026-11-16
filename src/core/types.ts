@@ -258,7 +258,18 @@ export interface StudySettings {
 }
 
 /** A long-running generation job. */
-export type JobKind = 'plan' | 'unit' | 'quiz' | 'insight' | 'image' | 'animation' | 'index' | 'book-outline' | 'book-chapter' | 'book-continuity'
+export type JobKind =
+  | 'plan'
+  | 'unit'
+  | 'quiz'
+  | 'insight'
+  | 'image'
+  | 'animation'
+  | 'index'
+  | 'book-outline'
+  | 'book-chapter'
+  | 'book-continuity'
+  | 'blocks'
 
 /** Lifecycle of a generation job. */
 export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled'
@@ -306,6 +317,15 @@ export interface PlanGeneration {
 /** Kinds of steps a learning plan can hold. */
 export type PlanStepKind = 'unit' | 'paper-pass' | 'drill' | 'compare'
 
+/** Boundary decision of one step (docs/POSITIONING.md: 必读 / 略读 / 不读). */
+export type Coverage = 'read' | 'skim' | 'skip'
+
+/** How a conclusion was reached (归因三态). */
+export type Provenance = 'independent' | 'judged' | 'adopted-unverified'
+
+/** The five minimal moves a first attempt may take (最小反事实五式). */
+export type AttemptMove = 'assumption' | 'constraint' | 'counterexample' | 'ablation' | 'transfer'
+
 /** One step of a learning plan. */
 export interface PlanStep {
   n: number
@@ -318,6 +338,76 @@ export interface PlanStep {
   materials?: string[]
   why: string
   done: boolean
+  /** Boundary decision; absent means 'read' (plans written before v0.4). */
+  coverage?: Coverage
+  /** Why this range can be left out; required when coverage is 'skip'. */
+  skipReason?: string
+}
+
+/** One independent attempt: a small new thing done, not a page read. */
+export interface AttemptRecord {
+  id: string
+  move: AttemptMove
+  /** What was tried, in the user's own words. */
+  what: string
+  /** Where it got stuck; repeats become one StuckPoint. */
+  stuck?: string
+  provenance: Provenance
+  /** Outcome, in the user's own words. */
+  result?: string
+  at: string
+}
+
+/** One sufficiency question of a goal (判定题). */
+export interface SufficiencyItem {
+  id: string
+  q: string
+  /** Effective conclusion: true only when the answer passed a check. */
+  passed?: boolean
+  /** Why this question is asked (the judge's rubric lives here). */
+  why?: string
+  /** The range this question points at, as `<materialId>:<unitId>`. */
+  ref?: string
+  /** The answer the user wrote before asking for a judgement. */
+  answer?: string
+  /** Verdict of the judge; `missing` says what was absent. */
+  verdict?: JudgeVerdict
+  missing?: string[]
+  advice?: string
+  judgedAt?: string
+  judgedBy?: { engine: string; model?: string }
+  /** The user overruled a negative verdict; always shown as 自评. */
+  selfPass?: boolean
+  selfPassReason?: string
+}
+
+/** How the judge scored one answer. */
+export type JudgeVerdict = 'pass' | 'partial' | 'fail'
+
+/** What a review card asks again. */
+export type CardKind = 'judgement' | 'unit'
+
+/**
+ * One review card: the smallest thing the desk asks again.
+ *
+ * Cards are written only by a failed sufficiency question, so the review queue
+ * never grows on its own and every card traces back to a goal the user set.
+ */
+export interface CardRecord {
+  version: 1
+  id: string
+  kind: CardKind
+  /** Goal the card belongs to; closing the goal retires its cards. */
+  planId?: string
+  /** Answer/context revealed after a recall attempt. */
+  prompt: string
+  detail?: string
+  srs: SrsCard
+  history: ReviewEvent[]
+  due?: string
+  lastReviewedAt?: string
+  state: 'new' | 'learned' | 'suspended'
+  createdAt: string
 }
 
 /** A goal-driven learning plan (`plans/<pid>.json`). */
@@ -331,6 +421,20 @@ export interface PlanRecord {
   materials?: string[]
   budget?: { hoursPerWeek?: number }
   steps: PlanStep[]
+  /** What this goal must deliver; the boundary is projected from it. */
+  deliverable?: string
+  /** Local date `YYYY-MM-DD` the deliverable is due. */
+  deadline?: string
+  /** Who receives the deliverable. */
+  audience?: string
+  /** Evidence that the goal was reached on the user's own (append-only). */
+  attempts?: AttemptRecord[]
+  /** Questions whose answers mean "this is enough" (判定题). */
+  sufficiency?: SufficiencyItem[]
+  /** Closure gate threshold in [0, 1]; default 0.8. */
+  threshold?: number
+  closedAt?: string
+  closureNote?: string
   /** Last inline-orchestration attempt, shown while the plan is a draft. */
   generation?: PlanGeneration
   /** Generated book compiled from this path, when one exists. */
@@ -488,4 +592,86 @@ export interface UnitMetaFile {
   /** Insight ids distilled from this unit. */
   insights?: string[]
   extras?: { anim?: string[]; code?: string[]; media?: string[]; image?: string[] }
+}
+
+/** What one guiding card asks the reader to do in their head (POSITIONING §3 阅读面). */
+export type PromptKind = 'predict' | 'contrast' | 'recall' | 'transfer'
+
+/**
+ * One guiding card.
+ *
+ * There is no answer field on purpose: the rail asks and never explains. A card
+ * that could carry an answer would drift back into being a summary.
+ */
+export interface PromptCard {
+  kind: PromptKind
+  /** One line pointing at what was just read; never restates a conclusion. */
+  transition: string
+  /** One question; at most one question mark. */
+  question: string
+}
+
+/**
+ * One semantic block: a contiguous paragraph range with at most one card.
+ *
+ * Paragraphs, not pages: a textbook page can hold two unrelated points, and a
+ * block must be able to start in the middle of a page. Paragraph indices are
+ * local to the unit. `startPage`/`endPage` are derived from the paragraph boxes
+ * when the block is written, so they can never disagree with the layout.
+ */
+export interface BlockInput {
+  /** Stable inside the unit, e.g. `b1`. */
+  id: string
+  /** First paragraph, 0-based, inclusive, unit-local. */
+  startPara: number
+  /** Last paragraph, 0-based, inclusive, unit-local. */
+  endPara: number
+  /** Rail heading, at most 10 characters. */
+  title: string
+  prompt?: PromptCard
+}
+
+/** A stored block: the input plus the page span derived from its paragraphs. */
+export interface BlockRecord extends BlockInput {
+  /** First page touched by the block, 1-based, inclusive. */
+  startPage: number
+  /** Last page touched by the block, 1-based, inclusive. */
+  endPage: number
+}
+
+/** One paragraph of a unit's pages, positioned in 0..1 page units. */
+export interface ParagraphRecord {
+  /** Unit-local index, 0-based, in reading order. */
+  index: number
+  page: number
+  x: number
+  y: number
+  w: number
+  h: number
+  text: string
+}
+
+/** `materials/<mid>/layout/p####.json` — one page of paragraph geometry. */
+export interface PageLayoutFile {
+  version: 1
+  page: number
+  width: number
+  height: number
+  paragraphs: Array<{ x: number; y: number; w: number; h: number; text: string }>
+}
+
+/**
+ * `units/<uid>/blocks.json` — the reading surface.
+ *
+ * Blocks belong to the reading surface, never to the ledger: nothing here is a
+ * progress record, and the closure gate reads the same blocks without learning
+ * whether they were read.
+ */
+export interface BlockFile {
+  version: 2
+  unit: string
+  /** Paragraph count the blocks were written against. */
+  paragraphs: number
+  blocks: BlockRecord[]
+  generatedAt: string
 }

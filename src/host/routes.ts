@@ -7,10 +7,12 @@
  * never a public API.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createReadStream } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { extname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { settingsView } from '../core/settings.ts'
-import type { Rating } from '../core/types.ts'
+import type { AttemptMove, Coverage, Provenance, Rating } from '../core/types.ts'
 import { PLUGIN_VERSION } from '../core/version.ts'
 import type { SettingsUpdate } from '../core/views.ts'
 import type { BookService } from './books.ts'
@@ -30,6 +32,20 @@ export interface StudyRoute {
 
 /** Body cap for JSON actions. */
 const MAX_BODY_BYTES = 1024 * 1024
+
+/** Boundary decisions accepted from the browser. */
+const COVERAGES: readonly Coverage[] = ['read', 'skim', 'skip']
+
+/** The five minimal moves an attempt may take. */
+const ATTEMPT_MOVES: readonly AttemptMove[] = ['assumption', 'constraint', 'counterexample', 'ablation', 'transfer']
+
+/** Attribution states of a conclusion. */
+const PROVENANCES: readonly Provenance[] = ['independent', 'judged', 'adopted-unverified']
+
+/** Narrow an untrusted value to one of the allowed strings. */
+function oneOf<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value) ? (value as T) : undefined
+}
 
 /** Loopback addresses accepted as the client. */
 function isLoopback(address: string | undefined): boolean {
@@ -99,6 +115,209 @@ async function sendAsset(res: ServerResponse, file: string, name: string): Promi
       : {}),
   })
   res.end(bytes)
+}
+
+/** One byte range of a response body. */
+interface ByteRange {
+  start: number
+  end: number
+}
+
+/**
+ * Parse one `bytes=a-b` request header.
+ *
+ * @returns null for "no range", 'unsatisfiable' when it cannot be served, and
+ * the inclusive range otherwise. Multi-range requests fall back to the full body:
+ * the reader only ever asks for one span.
+ */
+function parseRange(header: string | undefined, size: number): ByteRange | null | 'unsatisfiable' {
+  if (header === undefined) return null
+  const raw = header.trim()
+  if (!raw.toLowerCase().startsWith('bytes=')) return null
+  const spec = raw.slice('bytes='.length)
+  if (spec.includes(',')) return null
+  const match = /^(\d*)-(\d*)$/.exec(spec)
+  if (match === null) return null
+  const rawStart = match[1] ?? ''
+  const rawEnd = match[2] ?? ''
+  if (rawStart.length === 0 && rawEnd.length === 0) return null
+  if (rawStart.length === 0) {
+    // Suffix range: the last N bytes.
+    const length = Number(rawEnd)
+    if (!Number.isFinite(length) || length <= 0) return 'unsatisfiable'
+    return { start: Math.max(0, size - length), end: size - 1 }
+  }
+  const start = Number(rawStart)
+  const end = rawEnd.length === 0 ? size - 1 : Number(rawEnd)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= size) return 'unsatisfiable'
+  return { start, end: Math.min(end, size - 1) }
+}
+
+/**
+ * Stream the original PDF, honouring Range so a 700-page book opens at once.
+ *
+ * The browser's own viewer does the rendering; this route only has to be a
+ * correct, cacheable, range-capable file server for one file.
+ */
+async function sendPdf(
+  req: IncomingMessage,
+  res: ServerResponse,
+  file: string,
+  options: { title: string; etag?: string },
+): Promise<void> {
+  let info
+  try {
+    info = await stat(file)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new StudyError('not-found', '原文件不在库里：可以先用文本视图，或重新导入这份资料')
+    }
+    throw error
+  }
+  if (!info.isFile()) throw new StudyError('not-found', '原文件不是普通文件')
+  const size = info.size
+  const etag = options.etag === undefined ? undefined : `"${options.etag.slice(0, 16)}"`
+  const headers: Record<string, string> = {
+    'content-type': 'application/pdf',
+    'accept-ranges': 'bytes',
+    'cache-control': 'private, max-age=3600',
+    'x-content-type-options': 'nosniff',
+    'content-disposition': `inline; filename="${encodeURIComponent(options.title)}.pdf"; filename*=UTF-8''${encodeURIComponent(options.title)}.pdf`,
+    ...(etag === undefined ? {} : { etag }),
+  }
+  if (etag !== undefined && req.headers['if-none-match'] === etag) {
+    res.writeHead(304, { ...headers, etag })
+    res.end()
+    return
+  }
+  const range = parseRange(req.headers.range, size)
+  if (range === 'unsatisfiable') {
+    res.writeHead(416, { ...headers, 'content-range': `bytes */${size}`, 'content-length': '0' })
+    res.end()
+    return
+  }
+  if (range === null) {
+    res.writeHead(200, { ...headers, 'content-length': String(size) })
+    if (req.method === 'HEAD') {
+      res.end()
+      return
+    }
+    createReadStream(file)
+      .on('error', () => res.destroy())
+      .pipe(res)
+    return
+  }
+  res.writeHead(206, {
+    ...headers,
+    'content-length': String(range.end - range.start + 1),
+    'content-range': `bytes ${range.start}-${range.end}/${size}`,
+  })
+  if (req.method === 'HEAD') {
+    res.end()
+    return
+  }
+  createReadStream(file, { start: range.start, end: range.end })
+    .on('error', () => res.destroy())
+    .pipe(res)
+}
+
+/** Browser-side pdf.js module entry: tags onto the global study desk. */
+const PDFJS_LOADER = `import * as pdfjs from './pdf.mjs'
+pdfjs.GlobalWorkerOptions.workerSrc = '/study-api/pdfjs/pdf.worker.mjs'
+globalThis.__studyPdfjs = pdfjs
+globalThis.dispatchEvent(new Event('study-pdfjs-ready'))
+`
+
+/** Directory groups the in-panel PDF viewer may fetch; nothing else is exposed. */
+const PDFJS_DIRECTORIES = new Set(['wasm', 'cmaps', 'standard_fonts'])
+
+/** Top-level pdf.js files the viewer may fetch. */
+const PDFJS_FILES = new Set(['pdf.mjs', 'pdf.worker.mjs'])
+
+/** Content types for the vendored pdf.js assets. */
+const PDFJS_TYPES: Record<string, string> = {
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.bcmap': 'application/octet-stream',
+  '.pfb': 'application/octet-stream',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+}
+
+/** Reject any asset name that could escape the vendored directory. */
+function pdfJsPath(name: string): { group: string; file: string } | undefined {
+  const parts = name.split('/')
+  if (parts.some(part => part.length === 0 || part === '.' || part === '..' || part.includes('\\'))) return undefined
+  if (parts.length === 1) return PDFJS_FILES.has(parts[0]!) ? { group: '', file: parts[0]! } : undefined
+  if (parts.length === 2 && PDFJS_DIRECTORIES.has(parts[0]!)) return { group: parts[0]!, file: parts[1]! }
+  return undefined
+}
+
+/**
+ * Serve one pdf.js asset for the in-panel viewer.
+ *
+ * The panel renders original pages on a canvas instead of embedding the
+ * browser's own PDF viewer: an iframe is blank wherever that viewer is missing
+ * (desktop shells, some browsers), which looks like an endless "loading". The
+ * decoder wasm and cMap/font assets come along, so scanned pages and CJK PDFs
+ * render too.
+ *
+ * @param res - response owned by this call.
+ * @param name - file name below the pdfjs route segment, possibly grouped.
+ */
+async function sendPdfJsAsset(res: ServerResponse, name: string): Promise<void> {
+  if (name === 'loader.mjs') {
+    const body = PDFJS_LOADER
+    res.writeHead(200, {
+      'content-type': 'text/javascript; charset=utf-8',
+      'content-length': Buffer.byteLength(body),
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+    })
+    res.end(body)
+    return
+  }
+  const target = pdfJsPath(name)
+  if (target === undefined) throw new StudyError('not-found', `未知的 PDF 资源：${name}`)
+  const relative = target.group.length === 0 ? target.file : `${target.group}/${target.file}`
+  const file = fileURLToPath(new URL(`./pdfjs/${relative}`, import.meta.url))
+  let bytes: Buffer
+  try {
+    bytes = await readFile(file)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new StudyError('not-found', 'PDF 渲染引擎没有随插件打包，请重新构建插件')
+    }
+    throw error
+  }
+  res.writeHead(200, {
+    'content-type': PDFJS_TYPES[extname(target.file).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': bytes.byteLength,
+    'cache-control': 'private, max-age=3600',
+    'x-content-type-options': 'nosniff',
+  })
+  res.end(bytes)
+}
+
+/**
+ * Original text of one referenced range, bounded, for the judge's context.
+ *
+ * @param ref - `<materialId>:<unitId>`
+ */
+async function referenceText(service: StudyService, ref: string): Promise<string | undefined> {
+  const separator = ref.indexOf(':')
+  if (separator <= 0) return undefined
+  try {
+    const view = await service.unit(ref.slice(0, separator), ref.slice(separator + 1))
+    const text = view.original
+      .map(page => `[p${page.page}]\n${page.text}`)
+      .join('\n\n')
+      .slice(0, 4000)
+    return text.length === 0 ? undefined : text
+  } catch {
+    return undefined
+  }
 }
 
 /** Require an optional service, or refuse with a stable code. */
@@ -228,8 +447,22 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
           })
           return
         }
+        if (path === '/layout') {
+          const mid = query.get('mid') ?? ''
+          const from = Number(query.get('from') ?? '0')
+          const to = Number(query.get('to') ?? '0')
+          send(res, 200, {
+            ok: true,
+            value: { paragraphs: await service.layout(mid, from, to) },
+          })
+          return
+        }
         if (path === '/due') {
           send(res, 200, { ok: true, value: await service.due() })
+          return
+        }
+        if (path === '/cards') {
+          send(res, 200, { ok: true, value: await service.dueCardList() })
           return
         }
         if (path === '/today') {
@@ -320,6 +553,25 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
           const queue = requireService(jobs, '生成任务')
           const jobId = decodeURIComponent(path.slice('/jobs/'.length))
           send(res, 200, { ok: true, value: await queue.get(jobId) })
+          return
+        }
+        if (path.startsWith('/pdfjs/')) {
+          await sendPdfJsAsset(res, path.slice('/pdfjs/'.length))
+          return
+        }
+        if (path === '/pdf') {
+          const mid = query.get('mid') ?? ''
+          let source: { file: string; title: string; sha256?: string }
+          try {
+            source = await service.pdfSource(mid)
+          } catch (error) {
+            if (error instanceof StudyError) throw error
+            throw new StudyError('not-found', `资料不存在：${mid}`)
+          }
+          await sendPdf(req, res, source.file, {
+            title: source.title,
+            ...(source.sha256 === undefined ? {} : { etag: source.sha256 }),
+          })
           return
         }
         if (path === '/asset') {
@@ -477,6 +729,37 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         send(res, 200, {
           ok: true,
           value: await serviceGeneration.generateQuiz({
+            material: requiredString(body, 'mid'),
+            unit: requiredString(body, 'uid'),
+          }),
+        })
+        return
+      }
+      if (path === '/ask') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, {
+          ok: true,
+          value: await serviceGeneration.ask({
+            material: requiredString(body, 'mid'),
+            unit: requiredString(body, 'uid'),
+            ...(typeof body.page === 'number' ? { page: body.page } : {}),
+            question: requiredString(body, 'question'),
+          }),
+        })
+        return
+      }
+      if (path === '/blocks/merge') {
+        send(res, 200, {
+          ok: true,
+          value: await service.mergeBlock(requiredString(body, 'mid'), requiredString(body, 'uid'), requiredString(body, 'blockId')),
+        })
+        return
+      }
+      if (path === '/generate/blocks') {
+        const serviceGeneration = requireService(generation, '生成引擎')
+        send(res, 200, {
+          ok: true,
+          value: await serviceGeneration.generateBlocks({
             material: requiredString(body, 'mid'),
             unit: requiredString(body, 'uid'),
           }),
@@ -656,6 +939,9 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
             goal,
             steps: steps as Parameters<StudyService['createPlan']>[0]['steps'],
             ...(typeof body.hoursPerWeek === 'number' ? { hoursPerWeek: body.hoursPerWeek } : {}),
+            ...(typeof body.deliverable === 'string' ? { deliverable: body.deliverable } : {}),
+            ...(typeof body.deadline === 'string' ? { deadline: body.deadline } : {}),
+            ...(typeof body.audience === 'string' ? { audience: body.audience } : {}),
           }),
         })
         return
@@ -665,6 +951,28 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         const setStep = body.setStep as { n?: unknown; done?: unknown } | undefined
         const setStatus = body.setStatus
         const replaceSteps = body.replaceSteps
+        const setMeta = body.setMeta as Record<string, unknown> | undefined
+        const setCoverage = body.setCoverage as { n?: unknown; coverage?: unknown; reason?: unknown } | undefined
+        const addAttempt = body.addAttempt as {
+          move?: unknown
+          what?: unknown
+          stuck?: unknown
+          provenance?: unknown
+          result?: unknown
+        } | undefined
+        const toggleSufficiency = body.toggleSufficiency as { id?: unknown; passed?: unknown } | undefined
+        const metaText = (value: unknown): string | null | undefined => (value === null ? null : typeof value === 'string' ? value : undefined)
+        const meta = {
+          ...(setMeta === undefined ? {} : {
+            ...(metaText(setMeta.deliverable) === undefined ? {} : { deliverable: metaText(setMeta.deliverable) }),
+            ...(metaText(setMeta.deadline) === undefined ? {} : { deadline: metaText(setMeta.deadline) }),
+            ...(metaText(setMeta.audience) === undefined ? {} : { audience: metaText(setMeta.audience) }),
+            ...(typeof setMeta.threshold === 'number' ? { threshold: setMeta.threshold } : {}),
+          }),
+        }
+        const coverage = setCoverage === undefined ? undefined : oneOf(setCoverage.coverage, COVERAGES)
+        const move = addAttempt === undefined ? undefined : oneOf(addAttempt.move, ATTEMPT_MOVES)
+        const provenance = addAttempt === undefined ? undefined : oneOf(addAttempt.provenance, PROVENANCES)
         send(res, 200, {
           ok: true,
           value: await service.updatePlan(pid, {
@@ -676,7 +984,159 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
             ...(Array.isArray(replaceSteps)
               ? { replaceSteps: replaceSteps as Parameters<StudyService['updatePlan']>[1]['replaceSteps'] }
               : {}),
+            ...(Object.keys(meta).length === 0 ? {} : { setMeta: meta }),
+            ...(setCoverage === undefined || typeof setCoverage.n !== 'number' || coverage === undefined
+              ? {}
+              : {
+                  setCoverage: {
+                    n: setCoverage.n,
+                    coverage,
+                    ...(typeof setCoverage.reason === 'string' ? { reason: setCoverage.reason } : {}),
+                  },
+                }),
+            ...(addAttempt === undefined || typeof addAttempt.what !== 'string' || move === undefined || provenance === undefined
+              ? {}
+              : {
+                  addAttempt: {
+                    move,
+                    what: addAttempt.what,
+                    provenance,
+                    ...(typeof addAttempt.stuck === 'string' ? { stuck: addAttempt.stuck } : {}),
+                    ...(typeof addAttempt.result === 'string' ? { result: addAttempt.result } : {}),
+                  },
+                }),
+            ...(typeof body.removeAttempt === 'string' ? { removeAttempt: body.removeAttempt } : {}),
+            ...(Array.isArray(body.replaceSufficiency)
+              ? {
+                  replaceSufficiency: body.replaceSufficiency as Array<{ q: string; passed?: boolean }>,
+                }
+              : {}),
+            ...(toggleSufficiency === undefined || typeof toggleSufficiency.id !== 'string' || typeof toggleSufficiency.passed !== 'boolean'
+              ? {}
+              : {
+                  toggleSufficiency: {
+                    id: toggleSufficiency.id,
+                    passed: toggleSufficiency.passed,
+                    ...(typeof (body.toggleSufficiency as { reason?: unknown }).reason === 'string'
+                      ? { reason: (body.toggleSufficiency as { reason: string }).reason }
+                      : {}),
+                    ...(typeof (body.toggleSufficiency as { answer?: unknown }).answer === 'string'
+                      ? { answer: (body.toggleSufficiency as { answer: string }).answer }
+                      : {}),
+                  },
+                }),
           }),
+        })
+        return
+      }
+      if (path === '/card/review') {
+        const cid = requiredString(body, 'cid')
+        const rating = optionalRating(body)
+        if (rating === undefined) throw new StudyError('invalid', '缺少 rating')
+        send(res, 200, { ok: true, value: await service.reviewCard(cid, rating) })
+        return
+      }
+      if (path === '/plan/questions') {
+        const pid = requiredString(body, 'pid')
+        const serviceGeneration = requireService(generation, '生成引擎')
+        const view = await service.planView(pid)
+        if (!(await serviceGeneration.textReady())) {
+          send(res, 200, { ok: true, value: { generated: false, reason: 'no-engine', plan: view } })
+          return
+        }
+        const ranges = view.steps
+          .filter(step => step.target !== undefined && step.coverage !== 'skip')
+          .map(step => ({
+            id: `${step.target!.materialId}:${step.target!.unitId}`,
+            title: step.target!.title,
+            pages: `${String(step.target!.pageStart)}-${String(step.target!.pageEnd)}`,
+            coverage: (step.coverage === 'skim' ? 'skim' : 'read') as 'read' | 'skim',
+            why: step.why,
+          }))
+        if (ranges.length === 0) throw new StudyError('invalid', '这个目标还没有可读范围，先补上裁剪单')
+        const count = typeof body.count === 'number' ? Math.min(8, Math.max(4, Math.round(body.count))) : 6
+        const generated = await serviceGeneration.generateQuestions({
+          goal: view.plan.goal,
+          ...(view.plan.meta.deliverable === undefined ? {} : { deliverable: view.plan.meta.deliverable }),
+          ...(view.plan.meta.deadline === undefined ? {} : { deadline: view.plan.meta.deadline }),
+          ...(view.plan.meta.audience === undefined ? {} : { audience: view.plan.meta.audience }),
+          ranges,
+          count,
+        })
+        send(res, 200, {
+          ok: true,
+          value: {
+            generated: true,
+            engine: generated.engine,
+            ...(generated.model === undefined ? {} : { model: generated.model }),
+            plan: await service.recordQuestions(
+              pid,
+              generated.questions.map(question => ({
+                q: question.q,
+                ...(question.why === undefined ? {} : { why: question.why }),
+                ...(question.ref === undefined ? {} : { ref: question.ref }),
+              })),
+            ),
+          },
+        })
+        return
+      }
+      if (path === '/plan/judge') {
+        const pid = requiredString(body, 'pid')
+        const qid = requiredString(body, 'qid')
+        const answer = requiredString(body, 'answer').trim()
+        const serviceGeneration = requireService(generation, '生成引擎')
+        const view = await service.planView(pid)
+        const item = view.sufficiency.find(candidate => candidate.id === qid)
+        if (item === undefined) throw new StudyError('not-found', `判定题不存在：${qid}`)
+        if (!(await serviceGeneration.textReady())) {
+          // No engine is not a failure: the panel switches to self-evaluation.
+          send(res, 200, { ok: true, value: { judged: false, reason: 'no-engine', plan: view } })
+          return
+        }
+        const boundary = view.steps
+          .filter(step => step.coverage !== 'skip')
+          .map(step => {
+            const name = step.target?.title ?? step.why
+            const pages = step.target === undefined ? '' : ` p${step.target.pageStart}-${step.target.pageEnd}`
+            return `${name}${pages}（${step.coverage === 'skim' ? '略读' : '必读'}）`
+          })
+        const reference =
+          typeof body.ref === 'string' && body.ref.length > 0 ? await referenceText(service, body.ref) : undefined
+        const judged = await serviceGeneration.judgeAnswer({
+          goal: view.plan.goal,
+          ...(view.plan.meta.deliverable === undefined ? {} : { deliverable: view.plan.meta.deliverable }),
+          ...(view.plan.meta.deadline === undefined ? {} : { deadline: view.plan.meta.deadline }),
+          ...(view.plan.meta.audience === undefined ? {} : { audience: view.plan.meta.audience }),
+          boundary,
+          question: item.q,
+          answer,
+          ...(reference === undefined ? {} : { reference }),
+        })
+        send(res, 200, {
+          ok: true,
+          value: {
+            judged: true,
+            verdict: judged.verdict,
+            missing: judged.missing,
+            ...(judged.advice === undefined ? {} : { advice: judged.advice }),
+            confidence: judged.confidence,
+            plan: await service.recordJudgement(pid, qid, {
+              answer,
+              verdict: judged.verdict,
+              ...(judged.missing.length === 0 ? {} : { missing: judged.missing }),
+              ...(judged.advice === undefined ? {} : { advice: judged.advice }),
+              judgedBy: { engine: judged.engine, ...(judged.model === undefined ? {} : { model: judged.model }) },
+            }),
+          },
+        })
+        return
+      }
+      if (path === '/plan/close') {
+        const pid = requiredString(body, 'pid')
+        send(res, 200, {
+          ok: true,
+          value: await service.closePlan(pid, typeof body.note === 'string' ? body.note : undefined),
         })
         return
       }

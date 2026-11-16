@@ -13,16 +13,16 @@ export const STUDY_CSS = `
   color-scheme: light;
 
   /* Blue-led light palette (Tailwind blue scale). */
-  --s-bg: #f3f7fd;
+  --s-bg: #f4f7fc;
   --s-surface: #ffffff;
   --s-surface-2: #f7faff;
   --s-surface-3: #eef4fe;
   --s-hover: #e9f1ff;
-  --s-text: #10203d;
-  --s-muted: #5a6c88;
-  --s-faint: #8b9bb5;
-  --s-border: #dbe6f4;
-  --s-border-strong: #c4d5ec;
+  --s-text: #101c33;
+  --s-muted: #5b6c86;
+  --s-faint: #93a3b9;
+  --s-border: #e3ebf7;
+  --s-border-strong: #cedaec;
   --s-primary: #2563eb;
   --s-primary-strong: #1d4ed8;
   --s-primary-soft: #e7efff;
@@ -37,9 +37,9 @@ export const STUDY_CSS = `
   --s-code-bg: #0e1a2e;
   --s-code-fg: #dbe7ff;
   --s-ring: rgba(37, 99, 235, 0.38);
-  --s-shadow-sm: 0 1px 2px rgba(16, 32, 61, 0.06);
-  --s-shadow-md: 0 1px 2px rgba(16, 32, 61, 0.05), 0 10px 28px rgba(16, 32, 61, 0.08);
-  --s-shadow-lg: 0 2px 6px rgba(16, 32, 61, 0.06), 0 18px 44px rgba(16, 32, 61, 0.12);
+  --s-shadow-sm: 0 1px 2px rgba(16, 32, 61, 0.05);
+  --s-shadow-md: 0 2px 4px rgba(16, 32, 61, 0.04), 0 12px 30px rgba(16, 32, 61, 0.07);
+  --s-shadow-lg: 0 4px 10px rgba(16, 32, 61, 0.05), 0 22px 50px rgba(16, 32, 61, 0.11);
   --s-reading-font: "Times New Roman", "Nimbus Roman", "Liberation Serif", "Songti SC", "SimSun", "Noto Serif CJK SC", serif;
   --s-math-font: "Latin Modern Math", "STIX Two Math", "Cambria Math", "Times New Roman", serif;
 
@@ -81,9 +81,9 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] {
   --s-code-bg: #0a1526;
   --s-code-fg: #dbe7ff;
   --s-ring: rgba(107, 164, 255, 0.45);
-  --s-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --s-shadow-md: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 30px rgba(0, 0, 0, 0.32);
-  --s-shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.45), 0 20px 48px rgba(0, 0, 0, 0.4);
+  --s-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --s-shadow-md: 0 2px 6px rgba(0, 0, 0, 0.35), 0 14px 34px rgba(0, 0, 0, 0.3);
+  --s-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4), 0 24px 56px rgba(0, 0, 0, 0.36);
 }
 
 [data-dsh-study] *,
@@ -110,7 +110,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] {
 [data-dsh-study] h1,
 [data-dsh-study] h2,
 [data-dsh-study] h3 { color: var(--s-text); }
-[data-dsh-study] h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: .01em; }
+[data-dsh-study] h1 { font-size: 21px; font-weight: 700; margin: 0; letter-spacing: .01em; }
 [data-dsh-study] h2 { font-size: 18px; font-weight: 650; margin: 0; line-height: 1.35; }
 [data-dsh-study] h3 { font-size: 13px; font-weight: 650; margin: 0; letter-spacing: .03em; }
 [data-dsh-study] .study-link { color: var(--s-primary); }
@@ -264,6 +264,14 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
 /* ---------- today ---------- */
 [data-dsh-study] .study-today { display: flex; flex-direction: column; gap: 18px; }
 [data-dsh-study] .study-today-line { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--s-muted); }
+[data-dsh-study] .study-today-fish {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 4px 12px rgba(16, 32, 61, 0.16);
+}
+[data-dsh-study] .study-today-hi { color: var(--s-text); font-weight: 600; }
 [data-dsh-study] .study-today-date {
   font-weight: 650;
   color: var(--s-text);
@@ -282,15 +290,23 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
 [data-dsh-study] .study-panel {
   border: 1px solid var(--s-border);
   background: var(--s-surface);
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: 20px;
+  padding: 20px;
   box-shadow: var(--s-shadow-sm);
 }
 [data-dsh-study] .study-panel h3 {
   margin: 0 0 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--s-border);
-  color: var(--s-primary-ink);
+  color: var(--s-text);
+}
+/* The desk's three panels are labels, not section headers: quieter, no rule. */
+[data-dsh-study] .study-today .study-panel h3 {
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  color: var(--s-muted);
 }
 [data-dsh-study] .study-panel p { margin: 0; font-size: 12.5px; color: var(--s-muted); line-height: 1.7; }
 [data-dsh-study] .study-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -312,8 +328,8 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
   gap: 4px;
   width: 100%;
   text-align: left;
-  padding: 14px 16px;
-  border-radius: 12px;
+  padding: 16px 18px;
+  border-radius: 16px;
   border: 1px solid color-mix(in srgb, var(--s-primary) 26%, var(--s-border));
   border-left: 3px solid var(--s-primary);
   background: var(--s-primary-soft);
@@ -420,26 +436,6 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
 
 [data-dsh-study] .study-reader { display: flex; flex-direction: column; gap: 16px; }
 [data-dsh-study] .study-reader-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-[data-dsh-study] .study-tabs {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: 11px;
-  background: var(--s-surface-2);
-  border: 1px solid var(--s-border);
-  margin-left: auto;
-}
-[data-dsh-study] .study-tabs button {
-  padding: 5px 14px;
-  border-radius: 8px;
-  font-size: 12.5px;
-  color: var(--s-muted);
-}
-[data-dsh-study] .study-tabs button:hover { color: var(--s-text); }
-[data-dsh-study] .study-tabs button.is-on {
-  background: var(--s-primary);
-  color: var(--s-on-primary);
-  box-shadow: 0 1px 2px rgba(16, 32, 61, .16);
-}
 [data-dsh-study] .study-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 [data-dsh-study] .study-chip {
   font-size: 11.5px;
@@ -450,34 +446,6 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
   color: var(--s-primary-ink);
 }
 [data-dsh-study] .study-chip:hover { border-color: var(--s-primary); }
-
-[data-dsh-study] .study-original { display: flex; flex-direction: column; gap: 14px; }
-[data-dsh-study] .study-page-slice {
-  border: 1px solid var(--s-border);
-  border-radius: 14px;
-  background: var(--s-surface);
-  padding: 18px 20px;
-  box-shadow: var(--s-shadow-sm);
-}
-[data-dsh-study] .study-page-no {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--s-primary-ink);
-  background: var(--s-primary-soft);
-  padding: 1px 8px;
-  border-radius: 6px;
-}
-[data-dsh-study] .study-page-slice pre {
-  margin: 10px 0 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--s-text);
-  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  font-size: 13px;
-  line-height: 1.85;
-}
-[data-dsh-study] .study-truncated { font-size: 12px; color: var(--s-muted); text-align: center; padding: 8px; }
 
 /* ---------- notes typography ---------- */
 [data-dsh-study] .study-notes {
@@ -1097,6 +1065,173 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
   [data-dsh-study] .study-book.is-focus { padding: 0 14px 40px; }
 }
 
+/* Question generator toolbar and manual fallback. */
+[data-dsh-study] .study-question-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+[data-dsh-study] .study-question-why { color: var(--s-faint); font-size: 12px; }
+[data-dsh-study] .study-question-manual { margin-top: 12px; }
+[data-dsh-study] .study-question-manual > summary { cursor: pointer; font-size: 13px; margin-bottom: 8px; }
+
+/* Judgement questions: verdict chips and the answer box. */
+[data-dsh-study] .study-question { flex-direction: column; align-items: stretch; gap: 8px; }
+[data-dsh-study] .study-question-head { display: flex; align-items: center; gap: 10px; }
+[data-dsh-study] .study-question-head .study-question-text { flex: 1; min-width: 0; }
+[data-dsh-study] .study-verdict {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--s-border);
+  color: var(--s-muted);
+  white-space: nowrap;
+}
+[data-dsh-study] .study-verdict.is-pass { color: var(--s-success); border-color: var(--s-success); background: var(--s-success-soft); }
+[data-dsh-study] .study-verdict.is-partial { color: var(--s-warning); border-color: var(--s-warning); background: var(--s-warning-soft); }
+[data-dsh-study] .study-verdict.is-fail { color: var(--s-danger); border-color: var(--s-danger); background: var(--s-danger-soft); }
+[data-dsh-study] .study-verdict.is-self { color: var(--s-primary-ink); border-color: var(--s-primary); background: var(--s-primary-soft); }
+[data-dsh-study] .study-question-feedback {
+  font-size: 13px;
+  color: var(--s-muted);
+  padding: 8px 10px;
+  border-left: 2px solid var(--s-border-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+[data-dsh-study] .study-question-feedback ul { margin: 0; padding-left: 18px; }
+[data-dsh-study] .study-answer { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+[data-dsh-study] .study-answer .study-textarea { min-height: 130px; }
+[data-dsh-study] .study-answer .study-inline .study-input { flex: 1; min-width: 200px; }
+
+/* Original PDF surface: the browser viewer does the rendering. */
+[data-dsh-study] .study-pdf { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+[data-dsh-study] .study-ghost-tight { padding: 4px 10px; font-size: 12px; }
+/* Canvas viewer: the original page is drawn by pdf.js, so it renders even where
+   the browser has no built-in PDF viewer. */
+[data-dsh-study] .study-pdf-canvas {
+  margin: 0 auto;
+  border-radius: 2px;
+  background: #ffffff;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.38);
+}
+/* Goal context above the reading surface. */
+[data-dsh-study] .study-goal-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--s-border);
+  border-left: 3px solid var(--s-primary);
+  border-radius: 10px;
+  background: var(--s-surface-2);
+}
+[data-dsh-study] .study-goal-strip-label {
+  font-size: 11px;
+  color: var(--s-muted);
+  border: 1px solid var(--s-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+[data-dsh-study] .study-goal-strip-goal { font-weight: 600; }
+
+/* Goal, crop list, attempts and the closure gate (docs/POSITIONING.md). */
+[data-dsh-study] .study-goal-card,
+[data-dsh-study] .study-boundary,
+[data-dsh-study] .study-attempts,
+[data-dsh-study] .study-gate {
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--s-border);
+  border-radius: 14px;
+  background: var(--s-surface);
+}
+[data-dsh-study] .study-version {
+  align-self: center;
+  font-size: 11px;
+  color: var(--s-faint);
+  border: 1px solid var(--s-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+[data-dsh-study] .study-version.is-stale { color: var(--s-warning); border-color: var(--s-warning); background: var(--s-warning-soft); }
+[data-dsh-study] .study-panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+[data-dsh-study] .study-goal-card .study-row .study-field:first-child { flex: 2 1 320px; }
+[data-dsh-study] .study-goal-card .study-row .study-field:nth-child(2) { flex: 1 1 160px; }
+[data-dsh-study] .study-panel-head h3 { margin: 0; font-size: 15px; }
+[data-dsh-study] .study-boundary-group { margin-top: 14px; }
+[data-dsh-study] .study-boundary-group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+[data-dsh-study] .study-coverage-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--s-border);
+  color: var(--s-muted);
+  background: var(--s-surface-2);
+}
+[data-dsh-study] .study-coverage-pill.is-read { color: var(--s-primary-ink); border-color: var(--s-primary); background: var(--s-primary-soft); }
+[data-dsh-study] .study-coverage-pill.is-skim { color: var(--s-warning); border-color: var(--s-warning); background: var(--s-warning-soft); }
+[data-dsh-study] .study-coverage-pill.is-skip { color: var(--s-faint); }
+[data-dsh-study] .study-boundary-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--s-border);
+}
+[data-dsh-study] .study-boundary-row.is-skip .study-step-body { opacity: 0.62; }
+[data-dsh-study] .study-skip-mark { font-size: 12px; color: var(--s-faint); padding-top: 3px; }
+[data-dsh-study] .study-skip-reason { margin-top: 4px; font-size: 12px; color: var(--s-muted); font-style: italic; }
+[data-dsh-study] .study-coverage { display: inline-flex; border: 1px solid var(--s-border); border-radius: 9px; overflow: hidden; }
+[data-dsh-study] .study-coverage-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 0;
+  background: var(--s-surface-2);
+  color: var(--s-muted);
+  cursor: pointer;
+}
+[data-dsh-study] .study-coverage-btn + .study-coverage-btn { border-left: 1px solid var(--s-border); }
+[data-dsh-study] .study-coverage-btn.is-on { background: var(--s-primary-soft); color: var(--s-primary-ink); font-weight: 600; }
+[data-dsh-study] .study-coverage-btn:disabled { cursor: not-allowed; opacity: 0.55; }
+[data-dsh-study] .study-stuck { margin: 10px 0; display: flex; flex-direction: column; gap: 6px; }
+[data-dsh-study] .study-stuck .study-chip { cursor: default; }
+[data-dsh-study] .study-attempt-form {
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px dashed var(--s-border-strong);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+[data-dsh-study] .study-attempt-list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+[data-dsh-study] .study-attempt { padding: 12px 14px; border: 1px solid var(--s-border); border-radius: 12px; background: var(--s-surface-2); }
+[data-dsh-study] .study-attempt-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+[data-dsh-study] .study-attempt-head .study-link { margin-left: auto; }
+[data-dsh-study] .study-prov { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--s-border); }
+[data-dsh-study] .study-prov.is-independent { color: var(--s-success); border-color: var(--s-success); background: var(--s-success-soft); }
+[data-dsh-study] .study-prov.is-judged { color: var(--s-primary-ink); border-color: var(--s-primary); background: var(--s-primary-soft); }
+[data-dsh-study] .study-prov.is-adopted-unverified { color: var(--s-warning); border-color: var(--s-warning); background: var(--s-warning-soft); }
+[data-dsh-study] .study-question-list { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+[data-dsh-study] .study-question-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--s-border); border-radius: 10px; }
+[data-dsh-study] .study-question-list li.is-passed { border-color: var(--s-success); background: var(--s-success-soft); }
+[data-dsh-study] .study-question-text { flex: 1; min-width: 0; }
+[data-dsh-study] .study-gate-reasons { margin: 12px 0 0; padding-left: 18px; color: var(--s-muted); font-size: 13px; line-height: 1.7; }
+[data-dsh-study] .study-gate-ready { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--s-success); border-radius: 12px; background: var(--s-success-soft); }
+[data-dsh-study] .study-gate-ready p { margin: 0 0 8px; }
+[data-dsh-study] .study-closed { margin-top: 12px; font-size: 13px; color: var(--s-muted); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+[data-dsh-study] .study-gate .study-inline > .study-input { flex: 1; min-width: 220px; }
+
+@media (max-width: 900px) {
+  [data-dsh-study] .study-boundary-row { grid-template-columns: auto minmax(0, 1fr); }
+  [data-dsh-study] .study-boundary-row .study-coverage { grid-column: 1 / -1; justify-self: start; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-dsh-study] button,
   [data-dsh-study] .study-book,
@@ -1116,6 +1251,531 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-badge-paper { backgrou
   [data-dsh-study] .study-nav button { flex: 1; }
   [data-dsh-study] .study-notes { padding: 20px 18px; }
 }
+/* ---------- reading surface v2: PDF left, guiding rail right ---------- */
+
+/*
+  The reader escapes the 1160px shell. Everything in this block exists to keep
+  two numbers stable while the reader scrolls: the column width and the rail
+  width. A width that changes under content is what made the old viewer flash.
+*/
+[data-dsh-study] .study-shell.is-reader { max-width: none; padding: 18px 22px 40px; }
+
+[data-dsh-study] .study-reader2 { display: block; }
+
+[data-dsh-study] .study-reader2-top {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  padding-bottom: 8px;
+  background: var(--s-bg);
+}
+
+[data-dsh-study] .study-reader2-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--s-border);
+}
+[data-dsh-study] .study-reader2-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+[data-dsh-study] .study-reader2-title h2 { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+[data-dsh-study] .study-reader2-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+
+[data-dsh-study] .study-menu-wrap { position: relative; }
+[data-dsh-study] .study-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 180px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  box-shadow: var(--s-shadow-md);
+  z-index: 12;
+}
+[data-dsh-study] .study-menu button {
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--s-text);
+}
+[data-dsh-study] .study-menu button:hover { background: var(--s-hover); }
+[data-dsh-study] .study-menu button:disabled { color: var(--s-faint); cursor: default; }
+
+[data-dsh-study] .study-reader2-body { display: block; }
+
+[data-dsh-study] .study-pdf-col { min-width: 0; }
+[data-dsh-study] .study-pdf-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 0 60px;
+}
+
+/* The page box keeps its measured height, so adding a bitmap never moves it. */
+[data-dsh-study] .study-pdf-page {
+  position: relative;
+  flex: none;
+  background: var(--s-surface);
+  border-radius: 3px;
+  box-shadow: 0 2px 12px rgba(16, 32, 61, 0.16);
+  overflow: hidden;
+}
+[data-dsh-study] .study-pdf-canvas { display: block; }
+[data-dsh-study] .study-pdf-page-no {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  font-size: 11px;
+  color: var(--s-faint);
+  background: var(--s-surface);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+[data-dsh-study] .study-pdf-fail {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--s-muted);
+  background: var(--s-surface-2);
+}
+
+/* ---------- the rail ---------- */
+
+[data-dsh-study] .study-rail-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: study-card-in 160ms ease-out;
+}
+@keyframes study-card-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+[data-dsh-study] .study-rail-head { display: flex; align-items: center; gap: 8px; }
+[data-dsh-study] .study-rail-title {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--s-muted);
+}
+[data-dsh-study] .study-rail-kind {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: var(--s-faint);
+  background: var(--s-surface-2);
+  border: 1px solid var(--s-border);
+}
+
+[data-dsh-study] .study-rail-transition {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--s-muted);
+}
+/* The question is the only thing on this screen allowed to look important. */
+[data-dsh-study] .study-rail-question {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.65;
+  color: var(--s-text);
+}
+[data-dsh-study] .study-rail-empty { font-size: 12.5px; color: var(--s-muted); }
+[data-dsh-study] .study-rail-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+[data-dsh-study] .study-rail-ask {
+  padding: 6px 12px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: var(--s-primary-ink);
+  background: var(--s-surface-2);
+  border: 1px solid var(--s-border);
+}
+[data-dsh-study] .study-rail-ask:hover { border-color: var(--s-primary); background: var(--s-primary-soft); }
+[data-dsh-study] .study-rail-merge {
+  font-size: 12px;
+  color: var(--s-muted);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+[data-dsh-study] .study-rail-merge:hover { color: var(--s-primary-ink); }
+[data-dsh-study] .study-rail-foot {
+  padding-top: 8px;
+  border-top: 1px dashed var(--s-border);
+  font-size: 11px;
+  color: var(--s-faint);
+}
+
+/* ---------- the small question window ---------- */
+
+[data-dsh-study] .study-ask {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 70;
+  width: min(360px, calc(100vw - 44px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border-strong);
+  box-shadow: var(--s-shadow-lg);
+}
+[data-dsh-study] .study-ask-head { display: flex; align-items: center; font-size: 12.5px; color: var(--s-muted); }
+[data-dsh-study] .study-ask-close { margin-left: auto; font-size: 16px; line-height: 1; color: var(--s-faint); }
+[data-dsh-study] .study-ask-input {
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface-2);
+  color: var(--s-text);
+  font: inherit;
+}
+[data-dsh-study] .study-ask-input:focus { outline: none; border-color: var(--s-primary); box-shadow: 0 0 0 3px var(--s-ring); }
+[data-dsh-study] .study-ask-actions { display: flex; align-items: center; gap: 10px; }
+[data-dsh-study] .study-ask-hint { font-size: 11px; color: var(--s-faint); }
+[data-dsh-study] .study-ask-answer {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--s-text);
+  padding-top: 8px;
+  border-top: 1px dashed var(--s-border);
+}
+
+/* ---------- drawers ---------- */
+
+[data-dsh-study] .study-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 34px;
+  background: rgba(12, 16, 22, 0.44);
+}
+[data-dsh-study] .study-drawer {
+  width: min(440px, 100%);
+  max-height: 84vh;
+  overflow: auto;
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  box-shadow: var(--s-shadow-lg);
+}
+[data-dsh-study] .study-drawer-wide { width: min(820px, 100%); }
+[data-dsh-study] .study-drawer-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+[data-dsh-study] .study-drawer-head h3 { flex: 1; }
+[data-dsh-study] .study-drawer-list { display: flex; flex-direction: column; gap: 2px; }
+[data-dsh-study] .study-drawer-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 9px;
+  border-radius: 9px;
+  text-align: left;
+}
+[data-dsh-study] .study-drawer-row:hover { background: var(--s-surface-2); }
+[data-dsh-study] .study-drawer-row.is-on { background: var(--s-primary-soft); }
+[data-dsh-study] .study-drawer-title { font-size: 13px; color: var(--s-text); min-width: 0; }
+[data-dsh-study] .study-drawer-meta { margin-left: auto; font-size: 11px; color: var(--s-faint); }
+
+/* ---------- the guide: a whale in the corner, a cloud when opened ---------- */
+
+/*
+  The anchor is always mounted: closing the card must not move the button, so
+  both states share one fixed point and the card positions itself against it.
+*/
+[data-dsh-study] .study-guide {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 62;
+  width: 58px;
+  height: 58px;
+}
+
+[data-dsh-study] .study-sprite {
+  width: 58px;
+  height: 58px;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: transparent;
+  box-shadow: 0 10px 26px rgba(16, 32, 61, 0.24);
+  cursor: grab;
+  animation: study-bob 4.2s ease-in-out infinite;
+  transition: box-shadow 140ms ease;
+}
+[data-dsh-study] .study-sprite:hover {
+  animation-play-state: paused;
+  box-shadow: 0 14px 32px rgba(16, 32, 61, 0.3), 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+[data-dsh-study] .study-sprite:active { cursor: grabbing; }
+[data-dsh-study] .study-sprite .study-mascot { width: 100%; height: 100%; object-fit: cover; }
+
+.study-mascot {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.study-mascot.is-think { animation: study-wobble 1.2s ease-in-out infinite; transform-origin: 50% 62%; }
+
+@keyframes study-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes study-wobble {
+  0%, 100% { transform: rotate(-4deg); }
+  50% { transform: rotate(4deg); }
+}
+@keyframes study-puff {
+  0%, 100% { opacity: 0.35; transform: translateY(1px) scale(0.96); }
+  50% { opacity: 0.85; transform: translateY(-1px) scale(1.04); }
+}
+@keyframes study-dot {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
+
+/*
+  The card is a cloud: an irregular silhouette, translucent enough that the page
+  shows through, anchored to the whale with a little tail. The tint follows the
+  block, so switching blocks also switches colour.
+*/
+[data-dsh-study] .study-companion {
+  position: absolute;
+  right: 0;
+  bottom: 68px;
+  width: min(300px, calc(100vw - 40px));
+  display: flex;
+  flex-direction: column;
+  padding: 2px;
+  border-radius: 42px 38px 34px 40px;
+  background: color-mix(in srgb, var(--s-surface) 82%, transparent);
+  backdrop-filter: blur(14px) saturate(1.06);
+  box-shadow:
+    0 2px 6px rgba(16, 32, 61, 0.06),
+    0 18px 44px rgba(16, 32, 61, 0.16),
+    inset 0 0 0 1px color-mix(in srgb, var(--s-tint, var(--s-primary)) 22%, transparent);
+  animation: study-cloud-in 200ms ease-out;
+}
+[data-dsh-study] .study-companion[data-vertical='below'] { bottom: auto; top: 68px; }
+[data-dsh-study] .study-companion[data-align='start'] { right: auto; left: 0; }
+
+/* The tail that points back at the whale. */
+[data-dsh-study] .study-companion::after {
+  content: '';
+  position: absolute;
+  right: 24px;
+  bottom: -7px;
+  width: 16px;
+  height: 16px;
+  border-radius: 6px;
+  background: inherit;
+  transform: rotate(45deg);
+}
+[data-dsh-study] .study-companion[data-vertical='below']::after { bottom: auto; top: -7px; }
+[data-dsh-study] .study-companion[data-align='start']::after { right: auto; left: 24px; }
+
+@keyframes study-cloud-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+[data-dsh-study] .study-companion-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 14px;
+  cursor: grab;
+  user-select: none;
+}
+[data-dsh-study] .study-companion-head:active { cursor: grabbing; }
+[data-dsh-study] .study-companion-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--s-tint, var(--s-primary)) 32%, transparent);
+}
+[data-dsh-study] .study-companion-avatar .study-mascot { width: 100%; height: 100%; object-fit: cover; }
+[data-dsh-study] .study-companion-title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--s-text);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+[data-dsh-study] .study-companion-head .study-rail-kind {
+  margin-left: auto;
+  border-color: color-mix(in srgb, var(--s-tint, var(--s-primary)) 35%, transparent);
+  color: color-mix(in srgb, var(--s-tint, var(--s-primary)) 80%, var(--s-text));
+}
+[data-dsh-study] .study-companion-toggle {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--s-faint);
+}
+[data-dsh-study] .study-companion-toggle:hover { background: var(--s-hover); color: var(--s-muted); }
+[data-dsh-study] .study-companion-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 2px 18px 14px;
+  border-radius: 0 0 38px 34px;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+}
+[data-dsh-study] .study-companion-think {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 2px 12px;
+  font-size: 12.5px;
+  color: var(--s-muted);
+}
+[data-dsh-study] .study-think { display: inline-flex; gap: 4px; align-items: center; }
+[data-dsh-study] .study-think i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--s-tint, var(--s-primary));
+  opacity: 0.3;
+  animation: study-dot 1.05s ease-in-out infinite;
+}
+[data-dsh-study] .study-think i:nth-child(2) { animation-delay: 0.15s; }
+[data-dsh-study] .study-think i:nth-child(3) { animation-delay: 0.3s; }
+
+/* The question takes the block's colour: the one thing allowed to stand out. */
+[data-dsh-study] .study-rail-question {
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.62;
+  color: var(--s-text);
+  text-wrap: pretty;
+}
+
+@media (max-width: 900px) {
+  /* Not a mobile layout: the companion simply shrinks to the viewport. */
+  [data-dsh-study] .study-companion { right: 10px; bottom: 10px; width: calc(100vw - 20px); }
+}
+
+/* ---------- fullscreen reading + resizable split ---------- */
+
+/*
+  Fullscreen is the reading mode: the reader owns the viewport, the left column
+  scrolls on its own, and the rail keeps its width. Nothing else changes, so
+  there is only one layout to reason about.
+*/
+[data-dsh-study] .study-reader2.is-full {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px 10px;
+  background: var(--s-bg);
+}
+[data-dsh-study] .study-reader2.is-full .study-reader2-top { display: none; }
+[data-dsh-study] .study-reader2.is-full .study-reader2-body { flex: 1; min-height: 0; }
+[data-dsh-study] .study-reader2.is-full .study-pdf-col { height: 100%; overflow-y: auto; }
+[data-dsh-study] .study-reader2.is-full .study-pdf-stack { padding-top: 56px; }
+
+/* Fullscreen bar: three actions and a title, translucent, out of the way. */
+[data-dsh-study] .study-floatbar {
+  position: fixed;
+  top: 14px;
+  right: 18px;
+  z-index: 92;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 999px;
+  background: var(--s-surface);
+  background: color-mix(in srgb, var(--s-surface) 88%, transparent);
+  border: 1px solid var(--s-border);
+  box-shadow: var(--s-shadow-md);
+  backdrop-filter: blur(8px);
+}
+[data-dsh-study] .study-floatbar-title {
+  max-width: 260px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--s-muted);
+  margin-right: 6px;
+}
+[data-dsh-study] .study-floatbar-btn {
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--s-text);
+  background: transparent;
+  border: 1px solid transparent;
+}
+[data-dsh-study] .study-floatbar-btn:hover { background: var(--s-hover); }
+[data-dsh-study] .study-floatbar-btn.is-primary {
+  color: var(--s-on-primary);
+  background: var(--s-primary);
+}
+[data-dsh-study] .study-floatbar-btn.is-primary:hover { background: var(--s-primary-strong); }
+
+/* The paragraph the rail is talking about: a hint, not a highlighter. */
+[data-dsh-study] .study-mark {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: filter 120ms ease;
+  animation: study-mark-in 220ms ease-out;
+}
+[data-dsh-study] .study-mark:hover { filter: brightness(0.94) saturate(1.25); }
+@keyframes study-mark-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+[data-dsh-study] .study-mark:focus-visible { outline: 2px solid var(--s-primary); outline-offset: 1px; }
+
+[data-dsh-study] .study-ask-seed {
+  max-height: 84px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--s-muted);
+  background: var(--s-surface-2);
+  border-left: 2px solid var(--s-border-strong);
+}
+
 `
 
 /** Inject the stylesheet once per document. */

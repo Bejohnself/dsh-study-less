@@ -5,10 +5,11 @@
  * the browser and a tool call from the assistant change exactly the same state.
  */
 import { createWriteStream } from 'node:fs'
-import { readFile, rm, unlink } from 'node:fs/promises'
+import { readFile, rm, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { validateBlocks } from '../core/blocks.ts'
 import { assertConceptId, assertSegment, slugify, splitUnitKey, uniqueSlug, unitKey } from '../core/ids.ts'
 import { deleteInsight, insightCard, listInsights, readInsight, writeInsight } from '../core/insights.ts'
 import { listManifests, readManifest, structureNodeOf, unitMetaOf, writeManifest } from '../core/library.ts'
@@ -17,6 +18,8 @@ import { upsertConcept, writeConcept } from '../core/concepts.ts'
 import { dueUnits, emptyProgress, isWeak, markLearned, readProgress, recordAttempts, recordReview, unmarkLearned } from '../core/progress.ts'
 import { listConcepts, readConcept } from '../core/concepts.ts'
 import { deletePlan as removePlanFile, listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../core/plans.ts'
+import { deleteCard, dueCards, judgementCardId, listCards, overdueDays, retirePlanCards, reviewCardOnce, upsertJudgementCard } from '../core/cards.ts'
+import { coverageOf, deriveStuckPoints, gateStatus, planProgress, summarizeBoundary, thresholdOf } from '../core/planGate.ts'
 import { gradeQuizItem } from '../core/quiz.ts'
 import { normalizeSettings } from '../core/settings.ts'
 import { hash32 } from '../core/srs.ts'
@@ -24,11 +27,21 @@ import { ratingFromScore } from '../core/srs.ts'
 import { ensureDir, readJson, updateJson, writeJsonAtomic, writeTextAtomic } from '../core/store.ts'
 import { addDays, localDate } from '../core/time.ts'
 import type {
+  AttemptMove,
+  AttemptRecord,
+  BlockFile,
+  BlockInput,
+  BlockRecord,
+  CardRecord,
+  PageLayoutFile,
+  ParagraphRecord,
+  Coverage,
   MaterialManifest,
   PlanGeneration,
   PlanRecord,
   PlanStep,
   PlanStepKind,
+  Provenance,
   ProgressFile,
   QuizBank,
   QuizItem,
@@ -39,6 +52,7 @@ import type {
 } from '../core/types.ts'
 import { mathStyleWarnings, validateNotes, validateQuizBank } from '../core/validate.ts'
 import type {
+  CardView,
   ConceptCard,
   ConceptDetailView,
   ExtraAsset,
@@ -51,6 +65,7 @@ import type {
   TodayView,
 } from '../core/views.ts'
 import { ORIGINAL_PAGE_CAP, type CompleteOptions, type CompleteResult, type DueItem, type MaterialCard, type MaterialStateView, type PageSlice, type TocRow, type UnitView } from '../core/views.ts'
+import { extractLayouts } from './pdf.ts'
 import { importMaterial, titleFromName, type ImportRequest, type ImportResult } from './import.ts'
 
 /** A domain refusal with a stable machine code. */
@@ -147,6 +162,34 @@ export class StudyService {
     }
   }
 
+  /**
+   * The original PDF of one material.
+   *
+   * The path comes from the manifest, so it is resolved and jailed inside the
+   * material directory before the route streams it.
+   */
+  async pdfSource(materialId: string): Promise<{ file: string; title: string; sha256?: string; pages: number }> {
+    const manifest = await this.manifest(materialId)
+    const file = this.paths.sourceFile(materialId, manifest.source.path)
+    return {
+      file,
+      title: manifest.title,
+      ...(manifest.source.sha256 === undefined ? {} : { sha256: manifest.source.sha256 }),
+      pages: manifest.source.pages,
+    }
+  }
+
+  /** Whether the original PDF is still on disk. */
+  async pdfAvailable(materialId: string): Promise<boolean> {
+    try {
+      const { file } = await this.pdfSource(materialId)
+      const info = await stat(file)
+      return info.isFile() && info.size > 0
+    } catch {
+      return false
+    }
+  }
+
   /** The reader payload for one unit. */
   async unit(materialId: string, unitId: string): Promise<UnitView> {
     const [manifest, progress, notes] = await Promise.all([
@@ -159,6 +202,7 @@ export class StudyService {
     const original = await this.readPages(materialId, node.pageStart, node.pageEnd)
     const meta = await readJson<UnitMetaFile | null>(this.paths.unitMetaFile(materialId, unitId), null)
     const quiz = await readJson<QuizBank | null>(this.paths.quizFile(materialId, unitId), null)
+    const blocks = await readJson<BlockFile | null>(this.paths.blocksFile(materialId, unitId), null)
     const insights: UnitView['insights'] = []
     for (const insightIdValue of meta?.insights ?? []) {
       const record = await readInsight(this.paths, insightIdValue)
@@ -168,11 +212,15 @@ export class StudyService {
       material: this.cardOf(manifest, progress),
       unit: { ...row, concepts: meta?.concepts ?? row.concepts },
       notes,
+      pdfAvailable: await this.pdfAvailable(materialId),
       original: original.pages,
       truncated: original.truncated,
       quiz,
       extras: this.extrasOf(materialId, unitId, meta),
       insights,
+      // A page-based blocks file from an older version is not readable by the
+      // paragraph rail: treat it as "not generated" so the rail offers a rebuild.
+      blocks: blocks !== null && blocks.version === 2 ? blocks.blocks : null,
     }
   }
 
@@ -346,7 +394,7 @@ export class StudyService {
 
     const activePlans = plans.filter(plan => plan.status === 'active')
     const planBriefs: PlanBrief[] = activePlans.map(plan => {
-      const done = plan.steps.filter(step => step.done).length
+      const { done, total } = planProgress(plan)
       const step = nextPlanStep(plan)
       let next: PlanBrief['next']
       if (step?.target !== undefined) {
@@ -361,7 +409,15 @@ export class StudyService {
           next = undefined
         }
       }
-      return { id: plan.id, goal: plan.goal, done, total: plan.steps.length, ...(next === undefined ? {} : { next }) }
+      return {
+        id: plan.id,
+        goal: plan.goal,
+        done,
+        total,
+        gateReady: gateStatus(plan).ready,
+        ...(plan.deliverable === undefined ? {} : { deliverable: plan.deliverable }),
+        ...(next === undefined ? {} : { next }),
+      }
     })
 
     let next: NextStepView | null = null
@@ -373,7 +429,15 @@ export class StudyService {
         const manifest = manifests.find(candidate => candidate.id === materialId)
         const node = manifest?.structure.find(candidate => candidate.uid === unitId)
         if (manifest !== undefined && node !== undefined) {
-          next = { source: 'plan', materialId, unitId, title: node.title, materialTitle: manifest.title, why: step.why }
+          next = {
+            source: 'plan',
+            planId: plan.id,
+            materialId,
+            unitId,
+            title: node.title,
+            materialTitle: manifest.title,
+            why: step.why,
+          }
           break
         }
       } catch {
@@ -406,10 +470,12 @@ export class StudyService {
       return first === date || last === date
     }).length
 
+    const dueCardViews = await this.dueCardList(date)
     const pinned = (await listInsights(this.paths)).find(record => record.pinned)
 
     return {
       date,
+      dueCards: dueCardViews,
       due,
       weak: concepts.filter(concept => concept.weak).slice(0, 5),
       next,
@@ -615,7 +681,7 @@ export class StudyService {
     const [plans, manifests] = await Promise.all([listPlans(this.paths), listManifests(this.paths)])
     const byId = new Map(manifests.map(manifest => [manifest.id, manifest]))
     return plans.map(plan => {
-      const done = plan.steps.filter(step => step.done).length
+      const { done } = planProgress(plan)
       const step = nextPlanStep(plan)
       let next: string | undefined
       if (step?.target !== undefined) {
@@ -648,6 +714,21 @@ export class StudyService {
     ])
     const conceptById = new Map(concepts.map(concept => [concept.id, concept]))
     const steps = plan.steps.map(step => this.stepView(step, manifests, conceptById, progress))
+    const bounds = planProgress(plan)
+    const pageOf = (target: string): { pageStart: number; pageEnd: number } | null => {
+      try {
+        const { materialId, unitId } = splitUnitKey(target)
+        const node = manifests.find(manifest => manifest.id === materialId)?.structure.find(candidate => candidate.uid === unitId)
+        return node === undefined ? null : { pageStart: node.pageStart, pageEnd: node.pageEnd }
+      } catch {
+        return null
+      }
+    }
+    const attempts = [...(plan.attempts ?? [])].sort((a, b) => (a.at < b.at ? 1 : -1))
+    const goalById = new Map([[plan.id, plan.goal]])
+    const cards = (await listCards(this.paths))
+      .filter(card => card.planId === plan.id)
+      .map(card => this.cardView(card, this.today(), goalById))
     return {
       plan: {
         id: plan.id,
@@ -656,6 +737,14 @@ export class StudyService {
         ...(plan.budget?.hoursPerWeek === undefined ? {} : { hoursPerWeek: plan.budget.hoursPerWeek }),
         ...(plan.brief === undefined ? {} : { brief: plan.brief }),
         ...(plan.bookId === undefined ? {} : { bookId: plan.bookId }),
+        meta: {
+          ...(plan.deliverable === undefined ? {} : { deliverable: plan.deliverable }),
+          ...(plan.deadline === undefined ? {} : { deadline: plan.deadline }),
+          ...(plan.audience === undefined ? {} : { audience: plan.audience }),
+          threshold: thresholdOf(plan),
+          ...(plan.closedAt === undefined ? {} : { closedAt: plan.closedAt }),
+          ...(plan.closureNote === undefined ? {} : { closureNote: plan.closureNote }),
+        },
         ...(plan.generation === undefined
           ? {}
           : {
@@ -668,17 +757,114 @@ export class StudyService {
             }),
       },
       steps,
-      done: steps.filter(step => step.done).length,
-      total: steps.length,
+      done: bounds.done,
+      total: bounds.total,
+      boundary: summarizeBoundary(plan, pageOf),
+      attempts,
+      stuck: deriveStuckPoints(plan.attempts ?? []),
+      sufficiency: plan.sufficiency ?? [],
+      gate: gateStatus(plan),
+      cards,
     }
+  }
+
+  /**
+   * Replace the sufficiency questions of one goal.
+   *
+   * Questions with the same text keep their progress (answers, verdicts, card),
+   * so regenerating does not throw away work; removed questions retire their
+   * cards.
+   */
+  async recordQuestions(
+    planId: string,
+    items: Array<{ q: string; why?: string; ref?: string }>,
+  ): Promise<PlanDetailView> {
+    const plan = await readPlan(this.paths, planId)
+    if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
+    const previous = new Map((plan.sufficiency ?? []).map(item => [item.q, item]))
+    const next: SufficiencyItem[] = []
+    for (const input of items) {
+      const q = input.q.trim()
+      if (q.length === 0) continue
+      const existing = previous.get(q)
+      next.push({
+        ...(existing ?? {}),
+        id: existing?.id ?? `q-${crypto.randomUUID().slice(0, 8)}`,
+        q,
+        ...(input.why === undefined ? {} : { why: input.why }),
+        ...(input.ref === undefined ? {} : { ref: input.ref }),
+      })
+    }
+    if (next.length === 0) throw new StudyError('invalid', '没有可用的判定题')
+    const kept = new Set(next.map(item => item.id))
+    for (const item of plan.sufficiency ?? []) {
+      if (!kept.has(item.id)) await deleteCard(this.paths, judgementCardId(plan.id, item.id))
+    }
+    plan.sufficiency = next
+    await writePlan(this.paths, plan)
+    return this.planView(planId)
+  }
+
+  /**
+   * Write the verdict of one judgement and sync its card.
+   *
+   * The route owns the model call; this method only records the outcome, so the
+   * service never depends on the generation layer.
+   */
+  async recordJudgement(
+    planId: string,
+    questionId: string,
+    result: {
+      answer: string
+      verdict: 'pass' | 'partial' | 'fail'
+      missing?: string[]
+      advice?: string
+      judgedBy?: { engine: string; model?: string }
+    },
+  ): Promise<PlanDetailView> {
+    const plan = await readPlan(this.paths, planId)
+    if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
+    const item = (plan.sufficiency ?? []).find(candidate => candidate.id === questionId)
+    if (item === undefined) throw new StudyError('invalid', '判定题不存在')
+    const answer = result.answer.trim()
+    if (answer.length === 0) throw new StudyError('invalid', '先写下你的答案，再请判定')
+    item.answer = answer
+    item.verdict = result.verdict
+    item.passed = result.verdict === 'pass'
+    item.judgedAt = new Date().toISOString()
+    delete item.selfPass
+    delete item.selfPassReason
+    if (result.missing === undefined || result.missing.length === 0) delete item.missing
+    else item.missing = result.missing
+    if (result.advice === undefined || result.advice.length === 0) delete item.advice
+    else item.advice = result.advice
+    if (result.judgedBy === undefined) delete item.judgedBy
+    else item.judgedBy = result.judgedBy
+    await writePlan(this.paths, plan)
+    const feedback = [result.advice, ...(result.missing ?? [])].filter(item => item !== undefined && item.length > 0)
+    if (result.verdict === 'pass') {
+      await deleteCard(this.paths, judgementCardId(plan.id, item.id))
+    } else {
+      await upsertJudgementCard(this.paths, {
+        planId: plan.id,
+        questionId: item.id,
+        prompt: item.q,
+        detail: feedback.length === 0 ? `目标：${plan.goal}` : `目标：${plan.goal}\n\n判定：${result.verdict}\n${feedback.join('\n')}`,
+        today: this.today(),
+      })
+    }
+    return this.planView(planId)
   }
 
   /** Create and validate a plan. */
   async createPlan(input: {
     goal: string
-    steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
+    steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string; coverage?: Coverage; skipReason?: string }>
     hoursPerWeek?: number
     id?: string
+    deliverable?: string
+    deadline?: string
+    audience?: string
   }): Promise<PlanDetailView> {
     const [manifests, concepts, plans] = await Promise.all([
       listManifests(this.paths),
@@ -691,6 +877,9 @@ export class StudyService {
       goal: input.goal.trim(),
       status: 'active',
       ...(input.hoursPerWeek === undefined ? {} : { budget: { hoursPerWeek: input.hoursPerWeek } }),
+      ...(input.deliverable === undefined || input.deliverable.trim().length === 0 ? {} : { deliverable: input.deliverable.trim() }),
+      ...(input.deadline === undefined || input.deadline.trim().length === 0 ? {} : { deadline: input.deadline.trim() }),
+      ...(input.audience === undefined || input.audience.trim().length === 0 ? {} : { audience: input.audience.trim() }),
       steps: input.steps.map((step, index) => ({
         n: index + 1,
         kind: step.kind,
@@ -699,6 +888,8 @@ export class StudyService {
         ...(step.materials === undefined ? {} : { materials: step.materials }),
         why: step.why,
         done: false,
+        ...(step.coverage === undefined ? {} : { coverage: step.coverage }),
+        ...(step.skipReason === undefined ? {} : { skipReason: step.skipReason }),
       })),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -717,6 +908,14 @@ export class StudyService {
       setStatus?: 'active' | 'paused' | 'done'
       setGoal?: string
       replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
+      /** Goal facts: deliverable, deadline and audience. null clears a field. */
+      setMeta?: { deliverable?: string | null; deadline?: string | null; audience?: string | null; threshold?: number }
+      /** Crop one step: read, skim or skip (skip needs a reason). */
+      setCoverage?: { n: number; coverage: Coverage; reason?: string }
+      addAttempt?: { move: AttemptMove; what: string; stuck?: string; provenance: Provenance; result?: string }
+      removeAttempt?: string
+      replaceSufficiency?: Array<{ q: string; passed?: boolean }>
+      toggleSufficiency?: { id: string; passed: boolean; reason?: string; answer?: string }
     },
   ): Promise<PlanDetailView> {
     const plan = await readPlan(this.paths, planId)
@@ -726,7 +925,13 @@ export class StudyService {
       if (input.setGoal.trim().length === 0) throw new StudyError('invalid', '目标不能为空')
       plan.goal = input.setGoal.trim()
     }
-    if (input.setStatus !== undefined) plan.status = input.setStatus
+    if (input.setStatus !== undefined) {
+      plan.status = input.setStatus
+      if (input.setStatus === 'active') {
+        delete plan.closedAt
+        delete plan.closureNote
+      }
+    }
     if (input.setStep !== undefined) {
       const step = plan.steps.find(candidate => candidate.n === input.setStep!.n)
       if (step === undefined) throw new StudyError('invalid', `计划没有第 ${input.setStep.n} 步`)
@@ -746,10 +951,141 @@ export class StudyService {
       plan.generation = { status: 'done', updatedAt: new Date().toISOString() }
     }
 
+    if (input.setMeta !== undefined) {
+      const meta = input.setMeta
+      if ('deliverable' in meta) {
+        const value = meta.deliverable?.trim() ?? ''
+        if (value.length === 0) delete plan.deliverable
+        else plan.deliverable = value
+      }
+      if ('deadline' in meta) {
+        const value = meta.deadline?.trim() ?? ''
+        if (value.length === 0) delete plan.deadline
+        else plan.deadline = value
+      }
+      if ('audience' in meta) {
+        const value = meta.audience?.trim() ?? ''
+        if (value.length === 0) delete plan.audience
+        else plan.audience = value
+      }
+      if (meta.threshold !== undefined) plan.threshold = Math.min(1, Math.max(0, meta.threshold))
+    }
+    if (input.setCoverage !== undefined) {
+      const step = plan.steps.find(candidate => candidate.n === input.setCoverage!.n)
+      if (step === undefined) throw new StudyError('invalid', `计划没有第 ${input.setCoverage.n} 步`)
+      const reason = input.setCoverage.reason?.trim() ?? ''
+      if (input.setCoverage.coverage === 'skip' && reason.length === 0) {
+        throw new StudyError('invalid', '标为「不读」时必须写清理由：为什么这段对目标不需要')
+      }
+      step.coverage = input.setCoverage.coverage
+      if (input.setCoverage.coverage === 'skip') step.skipReason = reason
+      else delete step.skipReason
+    }
+    if (input.addAttempt !== undefined) {
+      const what = input.addAttempt.what.trim()
+      if (what.length === 0) throw new StudyError('invalid', '尝试内容不能为空')
+      const stuck = input.addAttempt.stuck?.trim() ?? ''
+      const result = input.addAttempt.result?.trim() ?? ''
+      const record: AttemptRecord = {
+        id: `a-${crypto.randomUUID().slice(0, 8)}`,
+        move: input.addAttempt.move,
+        what,
+        provenance: input.addAttempt.provenance,
+        at: new Date().toISOString(),
+        ...(stuck.length === 0 ? {} : { stuck }),
+        ...(result.length === 0 ? {} : { result }),
+      }
+      plan.attempts = [...(plan.attempts ?? []), record]
+    }
+    if (input.removeAttempt !== undefined) {
+      plan.attempts = (plan.attempts ?? []).filter(attempt => attempt.id !== input.removeAttempt)
+    }
+    if (input.replaceSufficiency !== undefined) {
+      const previous = new Map((plan.sufficiency ?? []).map(item => [item.q, item]))
+      const next: SufficiencyItem[] = []
+      for (const item of input.replaceSufficiency) {
+        const q = item.q.trim()
+        if (q.length === 0) continue
+        const existing = previous.get(q)
+        const passed = item.passed ?? existing?.passed
+        next.push({
+          ...(existing ?? {}),
+          id: existing?.id ?? `q-${crypto.randomUUID().slice(0, 8)}`,
+          q,
+          ...(passed === undefined ? {} : { passed }),
+        })
+      }
+      const kept = new Set(next.map(item => item.id))
+      for (const item of plan.sufficiency ?? []) {
+        if (!kept.has(item.id)) await deleteCard(this.paths, judgementCardId(plan.id, item.id))
+      }
+      plan.sufficiency = next
+    }
+    if (input.toggleSufficiency !== undefined) {
+      const item = (plan.sufficiency ?? []).find(candidate => candidate.id === input.toggleSufficiency!.id)
+      if (item === undefined) throw new StudyError('invalid', '判定题不存在')
+      const passed = input.toggleSufficiency.passed
+      const reason = input.toggleSufficiency.reason?.trim() ?? ''
+      const answer = input.toggleSufficiency.answer?.trim() ?? ''
+      if (answer.length > 0) item.answer = answer
+      // Manual control is the self-evaluation path: it only applies when there is
+      // no verdict, or when the user overrules one with a written reason.
+      if (passed && item.verdict !== undefined && item.verdict !== 'pass') {
+        if (reason.length === 0) {
+          throw new StudyError('invalid', '要推翻判定结果，必须写清为什么你认为已经达到标准')
+        }
+        item.selfPass = true
+        item.selfPassReason = reason
+      } else if (passed) {
+        delete item.selfPassReason
+        if (item.verdict === undefined) item.selfPass = true
+      } else {
+        delete item.selfPass
+        delete item.selfPassReason
+      }
+      item.passed = passed
+      // A failed question is the only thing that writes a review card; a passed
+      // one retires it. That is what keeps the queue from growing on its own.
+      if (item.passed) {
+        await deleteCard(this.paths, judgementCardId(plan.id, item.id))
+      } else {
+        await upsertJudgementCard(this.paths, {
+          planId: plan.id,
+          questionId: item.id,
+          prompt: item.q,
+          detail: `目标：${plan.goal}`,
+          today: this.today(),
+        })
+      }
+    }
+
     const [manifests, concepts] = await Promise.all([listManifests(this.paths), listConcepts(this.paths)])
     const issues = validatePlan(plan, this.planTargets(manifests, concepts))
     if (issues.length > 0) throw new StudyError('invalid', '计划未通过校验', { issues })
     await writePlan(this.paths, plan)
+    return this.planView(planId)
+  }
+
+  /**
+   * Close one goal once the closure gate passes (docs/POSITIONING.md §4).
+   *
+   * Closing is the product's core action: the ranges, the attempts and the
+   * reviews stop asking for anything. A goal that does not pass the gate can
+   * only be paused, never completed.
+   */
+  async closePlan(planId: string, note?: string): Promise<PlanDetailView> {
+    const plan = await readPlan(this.paths, planId)
+    if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
+    const gate = gateStatus(plan)
+    if (!gate.ready) throw new StudyError('invalid', '结案门未通过', { issues: gate.reasons })
+    plan.status = 'done'
+    plan.closedAt = new Date().toISOString()
+    const reason = note?.trim() ?? ''
+    if (reason.length === 0) delete plan.closureNote
+    else plan.closureNote = reason
+    await writePlan(this.paths, plan)
+    // Closing means nothing comes back: the goal's cards leave the queue.
+    await retirePlanCards(this.paths, plan.id)
     return this.planView(planId)
   }
 
@@ -761,6 +1097,45 @@ export class StudyService {
     await writePlan(this.paths, plan)
   }
 
+  /** Resolve one card for the panel. */
+  private cardView(card: CardRecord, today: string, goalById: ReadonlyMap<string, string>): CardView {
+    const goal = card.planId === undefined ? undefined : goalById.get(card.planId)
+    return {
+      id: card.id,
+      kind: card.kind,
+      ...(card.planId === undefined ? {} : { planId: card.planId }),
+      ...(goal === undefined ? {} : { goal }),
+      prompt: card.prompt,
+      ...(card.detail === undefined ? {} : { detail: card.detail }),
+      due: card.due ?? today,
+      overdueDays: overdueDays(card.due, today),
+      reps: card.srs.reps,
+      ...(card.srs.lastRating === undefined ? {} : { lastRating: card.srs.lastRating }),
+    }
+  }
+
+  /** Cards due today or earlier, most overdue first. */
+  async dueCardList(date = this.today()): Promise<CardView[]> {
+    const [cards, plans] = await Promise.all([listCards(this.paths), listPlans(this.paths)])
+    const goalById = new Map(plans.map(plan => [plan.id, plan.goal]))
+    return dueCards(cards, date).map(card => this.cardView(card, date, goalById))
+  }
+
+  /** Record one rating on a card and return its next due date. */
+  async reviewCard(cardId: string, rating: Rating): Promise<{ card: CardView; due: string }> {
+    const preferences = await this.preferences()
+    const today = this.today()
+    const card = await reviewCardOnce(this.paths, cardId, {
+      rating,
+      today,
+      targetRetention: preferences.targetRetention,
+      maxIntervalDays: preferences.maxIntervalDays,
+    })
+    const plans = await listPlans(this.paths)
+    const goalById = new Map(plans.map(plan => [plan.id, plan.goal]))
+    return { card: this.cardView(card, today, goalById), due: card.due ?? today }
+  }
+
   /** Resolve one plan step into human labels. */
   private stepView(
     step: PlanStep,
@@ -768,14 +1143,28 @@ export class StudyService {
     conceptById: ReadonlyMap<string, { id: string; name: string }>,
     progress: ProgressFile,
   ): PlanStepView {
-    const view: PlanStepView = { n: step.n, kind: step.kind, why: step.why, done: step.done }
+    const view: PlanStepView = {
+      n: step.n,
+      kind: step.kind,
+      why: step.why,
+      done: step.done,
+      coverage: coverageOf(step),
+      ...(step.skipReason === undefined ? {} : { skipReason: step.skipReason }),
+    }
     if (step.target !== undefined) {
       try {
         const { materialId, unitId } = splitUnitKey(step.target)
         const manifest = manifests.find(candidate => candidate.id === materialId)
         const node = manifest?.structure.find(candidate => candidate.uid === unitId)
         if (manifest !== undefined && node !== undefined) {
-          view.target = { materialId, unitId, title: node.title, materialTitle: manifest.title }
+          view.target = {
+            materialId,
+            unitId,
+            title: node.title,
+            materialTitle: manifest.title,
+            pageStart: node.pageStart,
+            pageEnd: node.pageEnd,
+          }
         }
       } catch {
         // A stale target is dropped from the view; validatePlan refuses new ones.
@@ -974,6 +1363,151 @@ export class StudyService {
     }
     await writeJsonAtomic(this.paths.quizFile(materialId, unitId), bank)
     return bank
+  }
+
+  /**
+   * Write one unit's semantic blocks.
+   *
+   * Blocks are the reading surface: nothing here is progress, so this method
+   * never touches progress.json and the closure gate never asks what was read.
+   * Page spans are derived from the paragraph boxes, never taken from the model.
+   */
+  async writeBlocks(materialId: string, unitId: string, blocks: readonly BlockInput[]): Promise<BlockFile> {
+    const manifest = await this.manifest(materialId)
+    const node = structureNodeOf(manifest, unitId)
+    const paragraphs = await this.layout(materialId, node.pageStart, node.pageEnd)
+    if (paragraphs.length === 0) {
+      throw new StudyError('invalid', '这一节抽取不到文字层，不能按段落分块')
+    }
+    const cleaned: BlockInput[] = blocks.map(block => ({
+      id: block.id.trim(),
+      startPara: block.startPara,
+      endPara: block.endPara,
+      title: block.title.replace(/\s+/gu, ' ').trim(),
+      ...(block.prompt === undefined
+        ? {}
+        : {
+            prompt: {
+              kind: block.prompt.kind,
+              transition: block.prompt.transition.replace(/\s+/gu, ' ').trim(),
+              question: block.prompt.question.replace(/\s+/gu, ' ').trim(),
+            },
+          }),
+    }))
+    const issues = validateBlocks(cleaned, { paragraphs: paragraphs.length })
+    if (issues.length > 0) throw new StudyError('invalid', '引导卡未通过校验', { issues })
+
+    const records: BlockRecord[] = []
+    for (const block of cleaned) {
+      const first = paragraphs[block.startPara]
+      const last = paragraphs[block.endPara]
+      if (first === undefined || last === undefined) {
+        throw new StudyError('invalid', `第 ${block.id} 块的段落超出范围`)
+      }
+      records.push({ ...block, startPage: first.page, endPage: last.page })
+    }
+
+    const file: BlockFile = {
+      version: 2,
+      unit: unitId,
+      paragraphs: paragraphs.length,
+      blocks: records,
+      generatedAt: new Date().toISOString(),
+    }
+    await writeJsonAtomic(this.paths.blocksFile(materialId, unitId), file)
+    return file
+  }
+
+  /**
+   * Paragraph geometry of a page range, cached per page on disk.
+   *
+   * Extraction is the expensive part (a PDF open plus one text pass per page),
+   * so each page is laid out once and then served from `materials/<mid>/layout`.
+   * Indices are unit-local and ordered page by page, which is what blocks quote.
+   */
+  async layout(materialId: string, from: number, to: number): Promise<ParagraphRecord[]> {
+    const manifest = await this.manifest(materialId)
+    const first = Math.max(1, Math.min(from, to))
+    const last = Math.min(manifest.source.pages, Math.max(from, to))
+    if (last < first) return []
+
+    const pages: number[] = []
+    for (let page = first; page <= last; page += 1) pages.push(page)
+
+    const loaded = new Map<number, PageLayoutFile>()
+    const missing: number[] = []
+    for (const page of pages) {
+      const file = await readJson<PageLayoutFile | null>(this.paths.layoutFile(materialId, page), null)
+      if (file === null || file.version !== 1) missing.push(page)
+      else loaded.set(page, file)
+    }
+    if (missing.length > 0) {
+      const bytes = await readFile(this.paths.sourceFile(materialId, manifest.source.path))
+      const extracted = await extractLayouts(new Uint8Array(bytes), missing)
+      for (const page of extracted) {
+        const file: PageLayoutFile = {
+          version: 1,
+          page: page.page,
+          width: page.width,
+          height: page.height,
+          paragraphs: page.paragraphs,
+        }
+        await writeJsonAtomic(this.paths.layoutFile(materialId, page.page), file)
+        loaded.set(page.page, file)
+      }
+    }
+
+    const out: ParagraphRecord[] = []
+    for (const page of pages) {
+      const file = loaded.get(page)
+      if (file === undefined) continue
+      for (const paragraph of file.paragraphs) {
+        out.push({
+          index: out.length,
+          page,
+          x: paragraph.x,
+          y: paragraph.y,
+          w: paragraph.w,
+          h: paragraph.h,
+          text: paragraph.text,
+        })
+      }
+    }
+    return out
+  }
+
+  /**
+   * Fold one block into the previous one.
+   *
+   * The only correction the reading surface allows: when自动分块 put a boundary
+   * in the wrong place, merging is enough. Splitting or editing cards would
+   * turn the rail into a content editor (POSITIONING §3 阅读面).
+   */
+  async mergeBlock(materialId: string, unitId: string, blockId: string): Promise<BlockFile> {
+    const file = await readJson<BlockFile | null>(this.paths.blocksFile(materialId, unitId), null)
+    if (file === null) throw new StudyError('not-found', '这一节还没有生成引导')
+    const index = file.blocks.findIndex(block => block.id === blockId)
+    if (index < 0) throw new StudyError('not-found', `找不到这一块：${blockId}`)
+    if (index === 0) throw new StudyError('invalid', '第一块没有上一块可并')
+    const asInput = (block: BlockRecord): BlockInput => ({
+      id: block.id,
+      startPara: block.startPara,
+      endPara: block.endPara,
+      title: block.title,
+      ...(block.prompt === undefined ? {} : { prompt: block.prompt }),
+    })
+    const previous = file.blocks[index - 1]!
+    const current = file.blocks[index]!
+    const merged: BlockInput = {
+      ...asInput(previous),
+      endPara: current.endPara,
+      ...(previous.prompt === undefined && current.prompt !== undefined ? { prompt: current.prompt } : {}),
+    }
+    return this.writeBlocks(materialId, unitId, [
+      ...file.blocks.slice(0, index - 1).map(asInput),
+      merged,
+      ...file.blocks.slice(index + 1).map(asInput),
+    ])
   }
 
   /** Grade a quiz submission and fold the objective results into concept mastery. */

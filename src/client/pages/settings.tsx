@@ -305,11 +305,11 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
           <div className="study-settings-toggles">
             <label className="study-inline-check">
               <input type="checkbox" checked={autoQuiz} onChange={event => setAutoQuiz(event.target.checked)} />
-              生成精读后自动出题
+              生成导读后自动出题
             </label>
             <label className="study-inline-check">
               <input type="checkbox" checked={autoInsight} onChange={event => setAutoInsight(event.target.checked)} />
-              生成精读后自动提炼洞察
+              生成导读后自动提炼洞察
             </label>
             <label className="study-inline-check">
               <input type="checkbox" checked={verifyNotes} onChange={event => setVerifyNotes(event.target.checked)} />

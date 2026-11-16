@@ -59,6 +59,7 @@ export class DshTextProvider implements TextProvider {
     }
 
     let text = ''
+    let reasoning = ''
     let usage: TextResult['usage']
     try {
       for await (const raw of this.llm.stream(options)) {
@@ -66,6 +67,8 @@ export class DshTextProvider implements TextProvider {
         if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
           text += chunk.text
           request.onProgress?.(text.length)
+        } else if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') {
+          reasoning += chunk.text
         } else if (chunk.type === 'usage' && chunk.usage !== undefined) {
           usage = {
             ...(chunk.usage.inputTokens === undefined ? {} : { inputTokens: chunk.usage.inputTokens }),
@@ -76,13 +79,27 @@ export class DshTextProvider implements TextProvider {
             chunk.reason.kind === 'aborted' ? 'aborted' : 'llm',
             chunk.reason.failure?.message ?? 'DSH 模型调用失败',
           )
+        } else if (chunk.type === 'finish' && chunk.reason?.kind === 'max-tokens' && text.trim().length === 0) {
+          // A reasoning model spends the same output budget on its thinking: a
+          // small maxTokens can be used up before the first answer token.
+          throw new ProviderError(
+            'max-tokens',
+            '模型把输出预算用在了思考过程上，没有返回正文；请提高最大输出长度，或把推理强度调低',
+          )
         }
       }
     } catch (error) {
       if (error instanceof ProviderError) throw error
       throw new ProviderError('llm', `DSH 模型调用失败：${(error as Error).message}`)
     }
-    if (text.trim().length === 0) throw new ProviderError('empty', 'DSH 模型返回了空内容')
+    if (text.trim().length === 0) {
+      throw new ProviderError(
+        'empty',
+        reasoning.trim().length === 0
+          ? 'DSH 模型返回了空内容'
+          : '模型只返回了思考过程，没有给出正文；请提高最大输出长度，或把推理强度调低',
+      )
+    }
     return {
       text,
       model: selection.model,

@@ -1,5 +1,5 @@
 /**
- * 大道至简: distilled insight cards and the global concept graph.
+ * 笔记（实验）: distilled insight cards and the global concept graph.
  *
  * Insights are the "read the book down to one page" layer; concepts are the
  * cross-material index. Both jump back to the exact page they came from.
@@ -85,8 +85,8 @@ function InsightList({ onOpen, refreshToken }: { onOpen: (iid: string) => void; 
   if (items.length === 0) {
     return (
       <EmptyState
-        title="还没有洞察。"
-        hint="打开任一节的精读稿，点「提炼洞察」；或者在概念页把同一概念在多份资料里的讲法合并成对比卡。"
+        title="还没攒下笔记。"
+        hint="随便打开一节，点「提炼洞察」；或者把同一个概念在不同书里的讲法摆在一起，比较本身就是一条笔记。"
       />
     )
   }
@@ -149,7 +149,7 @@ function ConceptList({ onOpen, refreshToken }: { onOpen: (cid: string) => void; 
   if (error !== null) return <div className="study-empty">无法读取概念：{error}</div>
   if (items === null) return <div className="study-empty">正在读取概念图…</div>
   if (items.length === 0) {
-    return <EmptyState title="还没有概念。" hint="生成精读稿时登记的概念会出现在这里，并跨书/论文共享掌握度。" />
+    return <EmptyState title="还没有概念。" hint="导读里登记过的概念会聚到这里，掌握度跨书共享。" />
   }
 
   return (
@@ -248,7 +248,7 @@ export function InsightDetailPage({
     <div className="study-insight-detail">
       <div className="study-material-head">
         <button type="button" className="study-back" onClick={onBack}>
-          ← 大道至简
+          ← 笔记（实验）
         </button>
         <div className="study-reader-title">
           <h2>{insight.title}</h2>
@@ -494,7 +494,7 @@ export function ConceptDetailPage({
     <div className="study-concept-detail">
       <div className="study-material-head">
         <button type="button" className="study-back" onClick={onBack}>
-          ← 大道至简
+          ← 笔记（实验）
         </button>
         <div className="study-reader-title">
           <h2>{data.concept.name}</h2>

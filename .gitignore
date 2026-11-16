@@ -3,6 +3,12 @@ lib/
 .test-study/
 .test-generation/
 .test-api/
+.test-plan/
+.test-pdf/
+.test-judge/
+.test-judge-route/
 .pnpm-store/
 .npm-cache/
 *.log
+.test-blocks/
+figure/out/

@@ -66,9 +66,9 @@ export type TopTab = 'library' | 'learn' | 'insights'
 /** The three top-level sections. */
 export function TopNav({ active, onSelect }: { active: TopTab; onSelect: (tab: TopTab) => void }): ReactElement {
   const items: Array<{ id: TopTab; label: string }> = [
-    { id: 'library', label: '变强清单' },
-    { id: 'learn', label: '学习之路' },
-    { id: 'insights', label: '大道至简' },
+    { id: 'library', label: '书架' },
+    { id: 'learn', label: '阅读' },
+    { id: 'insights', label: '笔记（实验）' },
   ]
   return (
     <div className="study-nav" role="tablist">

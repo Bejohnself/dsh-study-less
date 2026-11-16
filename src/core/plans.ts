@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { assertSegment, splitUnitKey } from './ids.ts'
 import type { LibraryPaths } from './paths.ts'
 import { readJson, writeJsonAtomic } from './store.ts'
+import { coverageOf } from './planGate.ts'
 import type { PlanRecord, PlanStep } from './types.ts'
 
 /** Read one plan, or null when missing. */
@@ -110,9 +111,15 @@ export function validatePlan(plan: PlanRecord, targets: PlanTargets): string[] {
   return issues
 }
 
-/** The next unfinished step of one plan. */
+/**
+ * The next unfinished step of one plan.
+ *
+ * Steps the user cropped out ('skip') are never suggested, and 'read' ranges
+ * win over 'skim' ones: the minimal set is what the goal actually needs.
+ */
 export function nextStep(plan: PlanRecord): PlanStep | undefined {
-  return plan.steps.find(step => !step.done)
+  const open = plan.steps.filter(step => !step.done && coverageOf(step) !== 'skip')
+  return open.find(step => coverageOf(step) === 'read') ?? open[0]
 }
 
 /** Turn the next unfinished step into a jump target. */

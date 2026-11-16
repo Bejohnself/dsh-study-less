@@ -4,18 +4,26 @@
  * These are wire shapes, not files: they are computed from manifests, progress
  * and content on demand.
  */
+import type { BoundarySummary, GateStatus, StuckPointView } from './planGate.ts'
 import type {
   AnimationSettings,
+  AttemptMove,
+  AttemptRecord,
+  BlockRecord,
   BookChapterMeta,
   BookRecord,
   CapabilitySettings,
+  CardKind,
   GenerationJob,
   InsightKind,
   InsightRecord,
   JobStatus,
   MaterialType,
+  Coverage,
   QuizBank,
+  Provenance,
   Rating,
+  SufficiencyItem,
   StudyPreferences,
   TextEngineSettings,
   UnitKind,
@@ -91,6 +99,8 @@ export interface UnitView {
   material: MaterialCard
   unit: TocRow
   notes: string | null
+  /** Whether the original PDF is still on disk (the reader shows it first). */
+  pdfAvailable: boolean
   original: PageSlice[]
   /** True when the page range was clipped by the server cap. */
   truncated: boolean
@@ -100,6 +110,13 @@ export interface UnitView {
   extras: ExtraAsset[]
   /** Insights distilled from this unit. */
   insights: InsightCard[]
+  /**
+   * Semantic blocks with their guiding cards, when generated.
+   *
+   * Null means "not generated yet": the rail shows one quiet line and a button
+   * instead of guessing. Blocks are reading surface, never progress.
+   */
+  blocks: BlockRecord[] | null
 }
 
 /** One item of the "ready to review" list. */
@@ -168,6 +185,8 @@ export interface ConceptDetailView {
 export interface NextStepView {
   /** Where the suggestion came from. */
   source: 'plan' | 'material'
+  /** The goal this step belongs to, so the reader can show its context. */
+  planId?: string
   materialId: string
   unitId: string
   title: string
@@ -182,11 +201,31 @@ export interface PlanBrief {
   done: number
   total: number
   next?: { materialId: string; unitId: string; title: string }
+  /** What this goal must deliver; the Today page shows it above the next step. */
+  deliverable?: string
+  /** Whether the closure gate is already satisfied. */
+  gateReady: boolean
+}
+
+/** One review card as the panel shows it. */
+export interface CardView {
+  id: string
+  kind: CardKind
+  planId?: string
+  goal?: string
+  prompt: string
+  detail?: string
+  due: string
+  overdueDays: number
+  reps: number
+  lastRating?: Rating
 }
 
 /** Everything the Today page needs in one read. */
 export interface TodayView {
   date: string
+  /** Cards written by failed sufficiency questions, most overdue first. */
+  dueCards: CardView[]
   due: DueItem[]
   weak: ConceptCard[]
   next: NextStepView | null
@@ -203,9 +242,28 @@ export interface PlanStepView {
   kind: 'unit' | 'paper-pass' | 'drill' | 'compare'
   why: string
   done: boolean
-  target?: { materialId: string; unitId: string; title: string; materialTitle: string }
+  /** Boundary decision; old plans read as 'read'. */
+  coverage: Coverage
+  skipReason?: string
+  target?: { materialId: string; unitId: string; title: string; materialTitle: string; pageStart: number; pageEnd: number }
   concepts?: Array<{ id: string; name: string; mastery: number }>
   materials?: Array<{ id: string; title: string }>
+}
+
+/** One attempt as the panel shows it. */
+export interface AttemptView extends AttemptRecord {
+  move: AttemptMove
+  provenance: Provenance
+}
+
+/** The goal's own facts, editable in the panel. */
+export interface PlanMetaView {
+  deliverable?: string
+  deadline?: string
+  audience?: string
+  threshold: number
+  closedAt?: string
+  closureNote?: string
 }
 
 /** One plan in full. */
@@ -217,11 +275,24 @@ export interface PlanDetailView {
     hoursPerWeek?: number
     brief?: string
     bookId?: string
+    meta: PlanMetaView
     generation?: { status: string; mode?: 'inline' | 'chat'; jobId?: string; error?: string }
   }
   steps: PlanStepView[]
   done: number
   total: number
+  /** Page arithmetic of the crop list. */
+  boundary: BoundarySummary
+  /** Independent attempts, newest first. */
+  attempts: AttemptView[]
+  /** Stuck points derived from the attempts, most frequent first. */
+  stuck: StuckPointView[]
+  /** Sufficiency questions (判定题). */
+  sufficiency: SufficiencyItem[]
+  /** Closure gate: what still blocks closing this goal. */
+  gate: GateStatus
+  /** Cards written by this goal's failed questions; closing retires them. */
+  cards: CardView[]
 }
 
 /** One plan in a list. */

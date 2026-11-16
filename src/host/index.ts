@@ -43,7 +43,8 @@ const SECTION_ORDER = 200
 
 /** Model-facing announcement of the study desk. */
 export const STUDY_GUIDANCE = [
-  '本机已安装 dsh-study 插件（DSH Web GUI 的「书桌」），分为三块：变强清单（知识库）、学习之路（路径/复习/练习）、大道至简（概念与洞察）。侧栏面板行「书桌」。',
+  '本机已安装 dsh-study 插件（DSH Web GUI 的「书桌」），分为三块：书架（知识库）、阅读（今日/目标/复习）、笔记（实验，概念与洞察）。侧栏面板行「书桌」。',
+  '定位规范见 docs/POSITIONING.md，核心是「允许你不读完」：目标 → 裁剪边界（必读/略读/不读）→ 独立尝试与卡点 → 结案。精读稿（现称导读）、自编书、洞察卡属于实验功能，不要默认批量生成。',
   '工具：study_library / study_import_book / study_structure_set / study_unit_material / study_unit_write / study_unit_verify / study_concept_link / study_concept / study_today / study_plans / study_plan_create / study_plan_update / study_due / study_review / study_generate / study_jobs / study_insight / study_delete / study_quiz / study_book。',
   '导入流程：study_import_book(path) → 看返回的单元 → 必要时 study_structure_set 修正 → 逐节 study_unit_material → study_unit_write（精读稿）→ study_unit_verify。',
   '精读稿硬性要求：必须含「本节目标/前置知识/核心概念/逐步讲解/类比/常见误区/自测/出处」八节；正文≥400字；所有页码引用必须落在该单元 pageStart..pageEnd 内；概念用全局 id（如 consensus/raft）并通过 concepts 参数登记。',
@@ -53,7 +54,7 @@ export const STUDY_GUIDANCE = [
   '自编书：路径详情可把步骤编译成一本独立书稿（先大纲、再样章、再逐章）；书有目录、章摘要、章间过渡和章节练习，原文单元只作为证据。不要一次生成整本书，先做样章让用户确认风格。',
   '目标学习：用户说「我想搞懂 X / 读懂这篇」时，先 study_library + study_concept 摸清家底与掌握度，再用 study_plan_create 或 study_generate(action=plan) 排出跨资料步骤（unit/paper-pass/drill/compare），每步写 why；不要凭空列不存在的单元。',
   '复习：会话开始时 study_today 或 study_due，逐项「先让我复述→指出偏差→给最小对照例子→study_review(rating)」，不要一次把答案倒完。',
-  '未经用户明确同意，不要一次性生成整本书；先做 1 节样例让用户确认风格，再批量。用户提到「书桌 / 今日 / 学习路径 / 复习到期 / 大道至简」即指本插件。',
+  '未经用户明确同意，不要一次性生成整本书；先做 1 节样例让用户确认风格，再批量。用户提到「书桌 / 今日 / 目标 / 复习到期 / 笔记」即指本插件。',
 ].join('\n')
 
 /** Tool registry face (`ctx.tools`). */

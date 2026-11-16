@@ -10,7 +10,7 @@
  * a CJS factory, so the browser bundle is built as CJS and wrapped below.
  */
 import { execFileSync } from 'node:child_process'
-import { copyFile, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, cp, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -49,6 +49,7 @@ run([
   '--external:react-dom',
   '--external:react/jsx-runtime',
   '--define:process.env.NODE_ENV="production"',
+  `--define:__STUDY_VERSION__=${JSON.stringify(pkg.version)}`,
   '--minify',
   '--log-level=warning',
   '--outfile=lib/client.body.cjs',
@@ -66,10 +67,21 @@ ${body}
 });
 `
 await writeFile(new URL('../lib/client.js', import.meta.url), wrapped)
-// pdf.js resolves its worker relative to the bundle that imports it.
-await copyFile(
-  new URL('../vendor/pdfjs/pdf.worker.mjs', import.meta.url),
-  new URL('../lib/pdf.worker.mjs', import.meta.url),
-)
+// The panel loads pdf.js in the browser from routes that mirror lib/pdfjs/, so
+// the module, its worker and the decoder assets ship next to the Host bundle.
+await mkdir(new URL('../lib/pdfjs', import.meta.url), { recursive: true })
+for (const name of ['pdf.mjs', 'pdf.worker.mjs']) {
+  await copyFile(
+    new URL(`../vendor/pdfjs/${name}`, import.meta.url),
+    new URL(`../lib/pdfjs/${name}`, import.meta.url),
+  )
+}
+for (const directory of ['wasm', 'cmaps', 'standard_fonts']) {
+  await cp(
+    new URL(`../vendor/pdfjs/${directory}`, import.meta.url),
+    new URL(`../lib/pdfjs/${directory}`, import.meta.url),
+    { recursive: true },
+  )
+}
 await unlink(new URL('../lib/client.body.cjs', import.meta.url))
 console.log(`built lib/index.js and lib/client.js (${wrapped.length} bytes client)`)

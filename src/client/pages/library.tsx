@@ -1,5 +1,5 @@
 /**
- * 变强清单: the knowledge base.
+ * 书架: the knowledge base.
  *
  * The shelf is a checklist, not a file browser: every card shows how much is
  * learned, verified and due, and clicking it opens the shared reader.
@@ -75,9 +75,9 @@ export function LibraryPage({
   if (cards.length === 0) {
     return (
       <EmptyState
-        title="清单还是空的。"
-        hint="导入一本 PDF 或一篇 arXiv 论文，Host 会抽取目录、按页切片并生成学习单元。"
-        action={{ label: '导入资料', onClick: onImport }}
+        title="书架还是空的。"
+        hint="丢一本 PDF 或 arXiv 链接进来，我把它拆成能读的几节——目录会自己抽好。"
+        action={{ label: '放一本书进来', onClick: onImport }}
       />
     )
   }
@@ -194,7 +194,7 @@ function TocList({
               <span className="study-toc-meta">
                 p{row.pageStart}
                 {row.pageEnd > row.pageStart ? `–${row.pageEnd}` : ''}
-                {row.status === 'verified' ? ' · 已校验' : row.status === 'drafted' ? ' · 有精读' : ''}
+                {row.status === 'verified' ? ' · 已校验' : row.status === 'drafted' ? ' · 有导读' : ''}
                 {row.due !== undefined ? ` · ${row.due} 到期` : ''}
               </span>
             </button>
@@ -213,6 +213,7 @@ export function MaterialPage({
   onBack,
   onOpenConcept,
   onOpenInsight,
+  onOpenPlan,
   onChanged,
   refreshToken,
 }: {
@@ -222,6 +223,8 @@ export function MaterialPage({
   onBack: () => void
   onOpenConcept: (cid: string) => void
   onOpenInsight: (iid: string) => void
+  /** Jump to the goal this range belongs to. */
+  onOpenPlan?: (pid: string) => void
   onChanged?: () => void
   refreshToken?: number
 }): ReactElement {
@@ -278,7 +281,7 @@ export function MaterialPage({
 
   const removeMaterial = async (): Promise<void> => {
     if (state === null) return
-    if (!window.confirm('删除这份资料及它的精读、练习、进度？此操作不可恢复。')) return
+    if (!window.confirm('删除这份资料及它的导读、练习、进度？此操作不可恢复。')) return
     try {
       await post('/material/delete', { mid })
       onChanged?.()
@@ -338,32 +341,43 @@ export function MaterialPage({
         </div>
       </div>
 
-      <div className="study-body">
-        <TocList
-          state={state}
-          current={current}
-          busy={busy}
-          onSelect={setCurrent}
-          onToggle={(row, done) => {
-            void toggle(row, done)
-          }}
-        />
-        <div className="study-content">
-          {current === null ? (
+      {current === null ? (
+        <div className="study-body">
+          <TocList
+            state={state}
+            current={current}
+            busy={busy}
+            onSelect={setCurrent}
+            onToggle={(row, done) => {
+              void toggle(row, done)
+            }}
+          />
+          <div className="study-content">
             <div className="study-empty">从左侧目录选一节开始。</div>
-          ) : (
-            <UnitReader
-              mid={mid}
-              uid={current}
-              {...(planId === undefined ? {} : { planId })}
-              onBack={() => setCurrent(null)}
-              onOpenConcept={onOpenConcept}
-              onOpenInsight={onOpenInsight}
-              onChanged={onChanged}
-            />
-          )}
+          </div>
         </div>
-      </div>
+      ) : (
+        // The reader owns the full width: its own header carries the section,
+        // the page range and the actions, and the table of contents becomes a
+        // drawer. Nesting it in the 296px column is what squeezed the PDF.
+        <UnitReader
+          mid={mid}
+          uid={current}
+          toc={state.toc}
+          onSelectUnit={setCurrent}
+          {...(planId === undefined ? {} : { planId })}
+          onBack={() => {
+            // Opening from a goal: back leaves the range and returns to the
+            // goal panel, not to an empty reader.
+            if (planId !== undefined) onBack()
+            else setCurrent(null)
+          }}
+          onOpenConcept={onOpenConcept}
+          onOpenInsight={onOpenInsight}
+          {...(onOpenPlan === undefined ? {} : { onOpenPlan })}
+          onChanged={onChanged}
+        />
+      )}
 
       {toast !== null ? <Toast message={toast.message} tone={toast.tone} /> : null}
     </div>

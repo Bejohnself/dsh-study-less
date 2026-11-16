@@ -37,6 +37,101 @@ export function parseJsonObject(text: string): unknown {
   return JSON.parse(body.slice(start, end + 1)) as unknown
 }
 
+/** One range the questions may point at. */
+export interface QuestionRange {
+  id: string
+  title: string
+  pages: string
+  coverage: 'read' | 'skim'
+  why: string
+}
+
+/** Input of the question generator. */
+export interface QuestionPromptInput {
+  goal: string
+  deliverable?: string
+  deadline?: string
+  audience?: string
+  ranges: QuestionRange[]
+  count: number
+}
+
+/** System prompt of the sufficiency-question writer. */
+export const QUESTIONS_SYSTEM = [
+  '你是学习桌的出题器：为一个"学到什么程度算够"的目标，写出判定题。',
+  '你只输出一个合法 JSON 对象，不要输出 Markdown 代码围栏、解释或前后缀。',
+  '题目要求：',
+  '1. 每题必须能"合上材料白板作答"：要求推导、解释、判断、构造反例，不要问需要查书的细节或名词解释。',
+  '2. 每题针对一种不同的证据：能推导、能解释为什么这样设计、能说明边界/假设、能构造反例、能迁移到相邻场景。',
+  '3. 不要选择题、不要填空题、不要"请简述"这类空泛问法；写成一个可判定的断言式问题。',
+  '4. 不要问目标范围之外的内容。',
+  '5. 每题挂一个 ref，取自给定的范围 id，表示这道题靠哪一段来判。',
+  '输出：{"questions":[{"q":"问题","ref":"<范围 id>","why":"这道题在验证什么能力"}]}',
+].join('\n')
+
+/** Build the question-generation prompt. */
+export function questionsPrompt(input: QuestionPromptInput): { system: string; user: string } {
+  const facts = [
+    `目标：${input.goal}`,
+    input.deliverable === undefined ? '' : `要交出：${input.deliverable}`,
+    input.deadline === undefined ? '' : `期限：${input.deadline}`,
+    input.audience === undefined ? '' : `给谁看：${input.audience}`,
+    `范围：\n${input.ranges.map(range => `- ${range.id} | ${range.title} | p${range.pages} | ${range.coverage === 'skim' ? '略读' : '必读'} | ${range.why}`).join('\n')}`,
+    `数量：${String(input.count)} 道（4–8 之间）`,
+  ]
+    .filter(line => line.length > 0)
+    .join('\n')
+  return { system: QUESTIONS_SYSTEM, user: facts }
+}
+
+/** Everything the judge needs to score one answer. */
+export interface JudgePromptInput {
+  goal: string
+  deliverable?: string
+  deadline?: string
+  audience?: string
+  /** The crop list, so the judge knows what the goal required. */
+  boundary: string[]
+  question: string
+  answer: string
+  /** Source excerpt the question points at, when one was chosen. */
+  reference?: string
+}
+
+/** System prompt of the sufficiency judge. */
+export const JUDGE_SYSTEM = [
+  '你是学习桌的判定器：只判断"用户写下的答案"是否足以说明他已达到该目标，不评判措辞、不要求与原文用词一致。',
+  '你只输出一个合法 JSON 对象，不要输出 Markdown 代码围栏、解释或前后缀。',
+  '判定规则（必须遵守）：',
+  '1. 只依据答案本身能否独立复现结论、推导步骤或给出正确判断；不能因为"看起来像是会的"就给 pass。',
+  '2. 等价表述、不同符号、省略显然步骤都算通过；缺一个关键步骤，或结论对而依据错，判 partial。',
+  '3. 答案里出现"大概/应该是/记得/好像"且没有任何推导，判 fail。',
+  '4. 如果这道题本身不可判定（没有可验证的标准），判 partial，并在 missing 里写"改写成可验证的断言"。',
+  '5. confidence 是你对判定的把握（0–1）；低于 0.6 会被系统自动降级为 partial，所以不要硬给 pass。',
+  '输出：{"verdict":"pass|partial|fail","missing":["缺什么"],"advice":"一句话怎么补","confidence":0.0}',
+].join('\n')
+
+/** Build the judge prompt. */
+export function judgePrompt(input: JudgePromptInput): { system: string; user: string } {
+  const facts = [
+    `目标：${input.goal}`,
+    input.deliverable === undefined ? '' : `要交出：${input.deliverable}`,
+    input.deadline === undefined ? '' : `期限：${input.deadline}`,
+    input.audience === undefined ? '' : `给谁看：${input.audience}`,
+    input.boundary.length === 0 ? '' : `裁剪范围：\n${input.boundary.map(line => `- ${line}`).join('\n')}`,
+  ]
+    .filter(line => line.length > 0)
+    .join('\n')
+  const reference =
+    input.reference === undefined
+      ? ''
+      : `\n\n【这道题指向的原文，仅用于核对，不要因为答案没抄它就扣分】\n${input.reference}`
+  return {
+    system: JUDGE_SYSTEM,
+    user: `${facts}\n\n【判定题】\n${input.question}\n\n【用户写下的答案】\n${input.answer}${reference}`,
+  }
+}
+
 /** One material row in a plan prompt. */
 function catalogue(manifests: readonly MaterialManifest[], maxUnits = 120): string {
   return manifests
@@ -236,6 +331,74 @@ export function repairPrompt(previous: string, issues: readonly string[]): { sys
       '',
       '## 上一次输出',
       previous.slice(0, 20_000),
+    ].join('\n'),
+  }
+}
+
+/**
+ * Build the guiding-card prompt for one unit's reading surface.
+ *
+ * The model sees paragraphs, not pages: a textbook page can hold two unrelated
+ * points, and the boundary has to be allowed to fall in the middle of a page.
+ * The contract is deliberately narrow — blocks tile the paragraphs, each block
+ * carries one pointer plus one question, and no field can hold an answer.
+ */
+export function blocksPrompt(input: {
+  materialTitle: string
+  unitTitle: string
+  pageStart: number
+  pageEnd: number
+  paragraphs: ReadonlyArray<{ index: number; page: number; text: string }>
+}): { system: string; user: string } {
+  const total = input.paragraphs.length
+  const listing = input.paragraphs
+    .map(paragraph => `[#${String(paragraph.index)} p${String(paragraph.page)}] ${paragraph.text}`)
+    .join('\n')
+  return {
+    system: JSON_SYSTEM,
+    user: [
+      `把《${input.materialTitle}》单元「${input.unitTitle}」的段落切成语义块，并给每块写一张引导卡。`,
+      `页码范围 p${String(input.pageStart)}–p${String(input.pageEnd)}，共 ${String(total)} 段（编号 #0 到 #${String(total - 1)}）。`,
+      '',
+      '## 段落（按阅读顺序编号）',
+      listing,
+      '',
+      '## 分块要求',
+      `1. 必须无缝铺满：第一块从 #0 开始，最后一块到 #${String(total - 1)} 结束，中间不许留空、不许重叠。`,
+      '2. 按意思分组：背景、要素、推导、结论各成一块；大致 2–6 段一块，短段落可以多并几段。',
+      '3. 块数越少越好：能 3–5 块就不要 8 块，最多 8 块。',
+      '4. 一页里有两个不相干的要点时，就在这一页中间切开——这正是按段落而不是按页分块的原因。',
+      '',
+      '## 引导卡要求（最重要）',
+      '卡是「问题」，不是「讲解」。它只做两件事：指出刚才读的是哪一段，然后问一个问题让读者在脑子里动一下。',
+      '',
+      '## 说话的样子（重要）',
+      '你就是坐在旁边那只大肥鱼，陪人读书。说话活泼、短、口语，像个话多但靠谱的同学，不像教科书。',
+      '- 常带语气词：啊、呢、嘞、嘛、诶、唔、啦；想事情时来一个「嘶」。',
+      '- 可以用很短的口气开头：「诶」「唔」「等等」「好嘞」。',
+      '- 叫读者「你」，说自己「我」。',
+      '- 句子短，一口气念完；一个问号只问一件事。',
+      '- 不要书面腔：不要「首先/其次/综上所述/值得注意的是/本节将介绍/由此可见」。',
+      '- 不要卖萌过头：不用表情符号、不叠字、不用「喵/嗷呜」、不玩梗。活泼的是说法，不是要求。',
+      `- transition：≤${String(25)} 字，只指向刚读过的内容，不复述结论、不解释。不许出现这些词：因为、所以、也就是说、简单来说、本质上、这意味着、换句话说。不许带问号。`,
+      `- question：≤${String(35)} 字，只问一件事，必须以问号结尾，且整句只有一个问号。不要给答案，不要给提示。`,
+      '- kind 四选一：predict（猜下一步会发生什么）、contrast（比较两件事的差别）、recall（不看原文能不能说出关键点）、transfer（换个条件还成立吗）。',
+      '- title：≤10 字，是右栏的小标题（名词短语），不是句子。',
+      '',
+      '## 正例',
+      '{"id":"b1","startPara":0,"endPara":3,"title":"折扣因子","kind":"predict","transition":"诶，这一块讲的是折扣因子。","question":"为啥它小于 1 就一定能收敛嘞？"}',
+      '{"id":"b2","startPara":4,"endPara":6,"title":"基线","kind":"contrast","transition":"唔，刚才那段把基线讲完了。","question":"要是把它去掉，会变成啥样？"}',
+      '',
+      '## 反例（会被校验拒绝或太死板）',
+      '{"transition":"因为策略梯度把奖励换成可微目标，所以能反向传播","question":"为什么需要 baseline？另外方差怎么降？"}',
+      '（过渡句在解释；问题有两个问号。）',
+      '{"transition":"本节阐述了折扣因子的定义及其作用。","question":"请说明折扣因子取值对收敛性的影响。"}',
+      '（没有错，但太像考卷：没人愿意被这么问。）',
+      '',
+      '## 输出契约',
+      '输出一个 JSON 对象：',
+      '{"blocks":[{"id":"b1","startPara":0,"endPara":3,"title":"要素","kind":"predict","transition":"过渡句","question":"问题？"}]}',
+      `块必须恰好覆盖 #0–#${String(total - 1)}，不留缝不重叠。`,
     ].join('\n'),
   }
 }

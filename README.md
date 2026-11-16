@@ -1,12 +1,34 @@
 # dsh-study（书桌）
 
-DSH Web GUI 的学习插件：知识库、学习路径、间隔复习与「大道至简」洞察。
+> 大部分读书工具都在催你读完，这个不是。
+> 写下一个目标（比如：能独立推导这篇边缘计算论文），它把书裁成一条能读完的边界，剩下的明确标为不需要。
+> 你每次独立做出一点小改动，它记一笔；卡在哪，也记一笔。够了就结案。
+> 不依赖 AI，本地文件，随时导出。
 
-## 三块
+**完整定位见 [docs/POSITIONING.md](docs/POSITIONING.md)——它是本仓库的规范文件，加功能前先读第八节「不做什么」。**
+**面向读者的文字怎么说话，见 [docs/VOICE.md](docs/VOICE.md)。**
 
-- **变强清单**：书/论文/文章的统一清单。导入 PDF 或 arXiv，按目录切成学习单元；勾选即记录首次学习。
-- **学习之路**：默认入口。今日（下一步 / 到期复习 / 薄弱概念 / 钉选洞察）、路径（目标 → 步骤 → 阅读器）、复习（FSRS 评级）。路径和精读可以在页面内直接生成，不再默认把 prompt 发进聊天。
-- **大道至简**：跨资料的概念图 + 一屏洞察卡（一句话本质 / 公式 / 对比 / 误区），每条都带可跳转的来源页码。
+## 当前实现状态
+
+这个仓库目前是 **阶段 1（v0.5.0）**：核心回路已闭环——目标交付物 → 裁剪单三态 → 独立尝试与归因 → 卡点 → **AI 判定你写下的答案** → 结案门；复习队列只由「判定没过」生成，结案即归档。原文面是**原文件 PDF**（Range 流式，浏览器自带预览器），从「今天」进来会带目标上下文。旧的按节复习作为「旧账」保留在复习页底部。
+
+功能按新定位归位（「实验」= 默认不进主回路）：
+
+| 功能 | 状态 | 与新定位的关系 |
+|---|---|---|
+| 导入 PDF、按目录切范围、原文件 PDF 阅读 | 保留 | 对应回路第 2 步「划边界」的素材；原文就是原 PDF，不再显示抽取文本 |
+| 阅读面：语义块 + 引导卡 | 阶段一已实现 | 连续滚动原文，可全屏（全屏只留目录 / 过关测试 / 退出）；引导是右下角一只**小鲸鱼**（点开才展开成半透明云朵卡、可拖动、可收起，点开时先「想一想」再说话；块与块之间换颜色），按**语义块**换卡，点高亮段落即可就那段提问；块按**段落**切，可在一页中间开始；这一面**不记账**（不统计时长、已读段、块内计数） |
+| 目标、裁剪单、尝试与结案（旧称「学习之路」） | 阶段一已实现 | 交付物/期限/受众 → 必读·略读·不读 → 独立尝试与卡点 → **AI 出判定题、你作答、AI 判定** → 结案门 |
+| FSRS 复习 | 已改粒度 | 新卡来自判定题答错；旧的按节到期单元标为「旧账」并列在同一页 |
+| 写好的导读（旧称「精读稿」） | 实验 | 属于「替你读」那一层；入口在阅读页「⋯」里的「导读（实验）」，主流程不再默认生成 |
+| 自编书、洞察卡、自适应练习 | 实验 | 默认不进主回路；判据是它们能否落成最小卡 |
+| 概念图 | 实验 | 从导读登记的概念，未与摘录打通 |
+
+## 三块（界面上的现状）
+
+- **书架**（旧名「变强清单」）：书/论文的统一清单，导入后按目录切成「范围」，勾选即记录首次学习。
+- **阅读**（旧名「学习之路」）：今日（下一步 / 到期复习 / 薄弱概念）、目标（路径 → 步骤 → 阅读器）、复习（FSRS 评级）。路径与导读可在页面内生成。
+- **笔记（实验）**（旧名「大道至简」）：跨资料概念图 + 一屏洞察卡，每条带可跳转的来源页码。
 
 ## 数据布局
 
@@ -14,25 +36,26 @@ DSH Web GUI 的学习插件：知识库、学习路径、间隔复习与「大�
 
 ```
 library root/
-├─ materials/<mid>/        # manifest.json / pages / source / units/<uid>/{notes.md,meta.json,quiz.json,extras}
+├─ materials/<mid>/        # manifest.json / pages / source / layout / units/<uid>/{notes.md,meta.json,quiz.json,blocks.json,extras}
 ├─ concepts/<cid>.json     # 全局概念，跨资料共享
 ├─ plans/<pid>.json        # 目标与步骤
 ├─ books/<bid>/            # 自编书：book.json + chapters/*.md + 章节练习 + book.md
+├─ cards/<cid>.json        # 最小复习卡（判定题答错生成，结案归档）
 ├─ quiz-sessions/<sid>.json # 自适应练习会话
 ├─ progress.json           # 单元 FSRS + 概念掌握度
-├─ insights/<iid>.json     # 大道至简洞察卡
+├─ insights/<iid>.json     # 洞察卡
 ├─ jobs/<jobId>.json       # 页面内生成任务
 ├─ settings.json           # 引擎与学习偏好（0600）
 └─ index/                  # 嵌入索引预留目录
 ```
 
-## 页面内生成
+## 页面内生成（实验）
 
 设置（齿轮）里的四类能力：
 
 | 能力 | 默认 | 说明 |
 |---|---|---|
-| 文本 | 复用 DSH 已配置模型（`ctx.llm` + `agentDefaultModel`） | 路径、精读、练习、洞察、校验；也可切到自定义 OpenAI 兼容接口 |
+| 文本 | 复用 DSH 已配置模型（`ctx.llm` + `agentDefaultModel`） | 路径、导读、练习、洞察、校验；也可切到自定义 OpenAI 兼容接口 |
 | 图片 | 关闭 | OpenAI Images 兼容，后续阶段接入 |
 | 动画 | 关闭 | 先做文生 SVG/HTML，视频 API 预留 |
 | 嵌入 | 关闭 | 语义检索/相关推荐，不是导入加速 |
@@ -47,14 +70,15 @@ library root/
 
 所有接口在 `/study-api` 下，仅接受本机回环且同源：
 
-- 读：`/library`、`/material`、`/unit`、`/today`、`/due`、`/concepts`、`/concept`、`/plans`、`/plan`、`/books`、`/book`、`/book/chapter`、`/quiz`、`/quiz/session`、`/insights`、`/insight`、`/jobs`、`/settings`
-- 写：`/unit/complete`、`/unit/uncomplete`、`/review`、`/quiz/submit`、`/goal/create`、`/plan/create`、`/plan/update`、`/plan/delete`、`/insight/create|update|delete|pin`、`/material/archive`、`/material/delete`
-- 生成：`/generate/plan|unit|quiz|insight`、`/generate/book/outline|chapter|continuity`、`/jobs/:id/cancel`、`/settings/test`
+- 读：`/library`、`/material`、`/unit`、`/pdf`、`/today`、`/cards`、`/due`、`/concepts`、`/concept`、`/plans`、`/plan`、`/books`、`/book`、`/book/chapter`、`/quiz`、`/quiz/session`、`/insights`、`/insight`、`/jobs`、`/settings`
+- 写：`/unit/complete`、`/unit/uncomplete`、`/review`、`/card/review`、`/plan/questions`、`/plan/judge`、`/plan/close`、`/quiz/submit`、`/goal/create`、`/plan/create`、`/plan/update`、`/plan/delete`、`/insight/create|update|delete|pin`、`/material/archive`、`/material/delete`
+- 生成：`/generate/plan|unit|quiz|insight|blocks`、`/generate/book/outline|chapter|continuity`、`/jobs/:id/cancel`、`/settings/test`
+- 阅读面：`/layout`（段落几何，按页缓存到 `materials/<mid>/layout/`）、`/ask`（小窗答疑，答完即走、不落库）、`/blocks/merge`（把一块并入上一块；不提供拆分或编辑器）
 - 练习：`/quiz/session/start|answer|finish`
 - 书：`/book/export`、`/book/progress`、`/book/delete`
 - 资产：`/asset?mid&uid&name`（HTML/SVG 带 sandbox CSP）
 
-Agent 工具与 HTTP 共用同一 service 方法；新增工具：`study_generate`、`study_jobs`、`study_insight`、`study_delete`（删除路径/资料，不可恢复）、`study_quiz`（自适应练习）、`study_book`（自编书）。
+Agent 工具与 HTTP 共用同一 service 方法：`study_generate`、`study_jobs`、`study_insight`、`study_delete`、`study_quiz`、`study_book`。
 
 ## 开发
 
@@ -63,7 +87,15 @@ node scripts/build.mjs      # 用 vendor 的 esbuild 打包 Host 与 Client
 node --test tests/*.test.ts # 纯逻辑单测
 node scripts/check-service.mjs
 node scripts/check-routes.mjs
+node scripts/check-plan.mjs           # 阶段一闭环：裁剪单 / 尝试 / 判定 / 结案门
+node scripts/check-plan-routes.mjs    # 同一闭环的 HTTP 层
+node scripts/check-judge.mjs          # AI 出题与判定（stub 引擎）：通过/部分/降级/自评
+node scripts/check-judge-route.mjs    # /plan/judge 的正常与降级路径
+node scripts/check-pdf-route.mjs      # 原文件 PDF：Range / HEAD / ETag / 越权
 node scripts/check-generation.mjs
+node scripts/check-blocks.mjs          # 阅读面：分块 / 引导卡 / 并入上一块 / 拒绝解释性过渡句
+node scripts/build-mascot.mjs          # 从 figure/ 的圆形头像重建大肥鱼（写 src/client/mascot.ts）
+node scripts/check-voice.mjs           # 文案口径闸门（见 docs/VOICE.md）
 node scripts/check-api.mjs
 ```
 

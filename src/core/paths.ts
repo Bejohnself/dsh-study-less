@@ -5,7 +5,7 @@
  * jail: nothing outside `root` can be addressed.
  */
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { assertConceptId, assertSegment } from './ids.ts'
 
 /** The DSH home directory (`$DSH_HOME` or `~/.dsh`). */
@@ -29,6 +29,7 @@ export class LibraryPaths {
   readonly insightsDir: string
   readonly jobsDir: string
   readonly quizSessionsDir: string
+  readonly cardsDir: string
   readonly indexDir: string
   readonly progressFile: string
   readonly settingsFile: string
@@ -44,9 +45,16 @@ export class LibraryPaths {
     this.insightsDir = join(root, 'insights')
     this.jobsDir = join(root, 'jobs')
     this.quizSessionsDir = join(root, 'quiz-sessions')
+    this.cardsDir = join(root, 'cards')
     this.indexDir = join(root, 'index')
     this.progressFile = join(root, 'progress.json')
     this.settingsFile = join(root, 'settings.json')
+  }
+
+  /** File of one review card. */
+  cardFile(cardId: string): string {
+    assertSegment(cardId, 'card id')
+    return join(this.cardsDir, `${cardId}.json`)
   }
 
   /** Directory of one material. */
@@ -63,6 +71,21 @@ export class LibraryPaths {
   /** Source directory of one material. */
   sourceDir(materialId: string): string {
     return join(this.materialDir(materialId), 'source')
+  }
+
+  /**
+   * The original PDF of one material.
+   *
+   * `manifest.source.path` is relative to the material directory; the resolved
+   * path must stay inside it, so a tampered manifest cannot read elsewhere.
+   */
+  sourceFile(materialId: string, sourcePath: string): string {
+    const dir = this.materialDir(materialId)
+    const resolved = resolve(dir, sourcePath)
+    if (resolved !== dir && !resolved.startsWith(dir + sep)) {
+      throw new Error(`source path escapes the material directory: ${sourcePath}`)
+    }
+    return resolved
   }
 
   /** Per-page text slices of one material. */
@@ -100,6 +123,21 @@ export class LibraryPaths {
   /** Quiz bank of one unit. */
   quizFile(materialId: string, unitId: string): string {
     return join(this.unitDir(materialId, unitId), 'quiz.json')
+  }
+
+  /** Paragraph geometry of one page, cached after the first extraction. */
+  layoutDir(materialId: string): string {
+    return join(this.materialDir(materialId), 'layout')
+  }
+
+  /** Paragraph geometry of one page. */
+  layoutFile(materialId: string, page: number): string {
+    return join(this.layoutDir(materialId), `p${String(page).padStart(4, '0')}.json`)
+  }
+
+  /** Semantic blocks and guiding cards of one unit (reading surface only). */
+  blocksFile(materialId: string, unitId: string): string {
+    return join(this.unitDir(materialId, unitId), 'blocks.json')
   }
 
   /** Extras (animations, code, media) of one unit. */

@@ -2,7 +2,8 @@
  * The study desk application shell.
  *
  * Three top-level sections share one reader and one refresh token:
- * 变强清单 (library), 学习之路 (today/paths/review) and 大道至简 (insights).
+ * 书架 (library), 阅读 (today/paths/review) and 笔记（实验，insights）.
+ * Positioning lives in docs/POSITIONING.md; the copy here follows its glossary.
  * Settings is a utility dialog, not a fourth destination.
  */
 import { useEffect, useMemo, useState } from 'react'
@@ -16,6 +17,8 @@ import { BookPage } from './pages/book.tsx'
 import { SettingsDialog } from './pages/settings.tsx'
 import { ImportDialog } from './components/import.tsx'
 import { Toast, TopNav, type TopTab } from './components/ui.tsx'
+import { api } from './api.ts'
+import { PLUGIN_VERSION } from '../core/version.ts'
 
 type View =
   | { kind: 'library' }
@@ -33,8 +36,19 @@ export function StudyApp(): ReactElement {
   const [dialog, setDialog] = useState<'import' | 'settings' | 'goal' | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
+  const [hostVersion, setHostVersion] = useState<string | null>(null)
 
   const bump = (): void => setRefreshToken(value => value + 1)
+
+  useEffect(() => {
+    api<{ version: string }>('/health')
+      .then(value => setHostVersion(value.version))
+      .catch(() => setHostVersion(null))
+  }, [])
+
+  // The panel and the Host are reloaded separately: an older Host is worth a
+  // visible warning, because its API predates this panel's shape.
+  const staleHost = hostVersion !== null && hostVersion !== PLUGIN_VERSION
 
   useEffect(() => {
     if (toast === null) return
@@ -50,17 +64,17 @@ export function StudyApp(): ReactElement {
         : 'insights'
 
   const subtitle = useMemo(() => {
-    if (view.kind === 'library') return '知识库：书与论文统一管理，勾选即记录首次学习'
-    if (view.kind === 'material') return '目录、原文、精读、练习与提炼，都在同一页'
-    if (view.kind === 'learn' && view.tab === 'today') return '只给三件事：下一步、到期复习、一条洞察'
-    if (view.kind === 'learn' && view.tab === 'paths') return '一个目标串起多份资料；页面内直接编排'
-    if (view.kind === 'learn' && view.tab === 'review') return '先复述，再看最小对照，最后评级'
-    if (view.kind === 'plan') return '每一步都指向真实单元；勾掉即推进'
-    if (view.kind === 'book') return '自编书：有目录、有过渡、可连续阅读的独立书稿'
-    if (view.kind === 'insights' && view.tab === 'insights') return '把书读薄：一句话本质、公式、对比与误区'
-    if (view.kind === 'insights' && view.tab === 'concepts') return '跨资料共享掌握度；点开概念跳到所有出现位置'
-    if (view.kind === 'insight') return '一条洞察的全部来源与相关概念'
-    return '同一个概念在不同资料里的所有位置'
+    if (view.kind === 'library') return '书都在这儿。点一本就开始，不点也不欠谁。'
+    if (view.kind === 'material') return '原文、引导、练习，都在这一页。'
+    if (view.kind === 'learn' && view.tab === 'today') return '今天只看三件事：接着读、该复习、练最弱的。'
+    if (view.kind === 'learn' && view.tab === 'paths') return '一个目标串起好几本；每一步都落到真实的一节。'
+    if (view.kind === 'learn' && view.tab === 'review') return '先自己说一遍，再看最小的对照，最后评个级。'
+    if (view.kind === 'plan') return '做完一步，推进一步；够了就结案。'
+    if (view.kind === 'book') return '自编书（实验）：有目录、有过渡，能一直读下去。'
+    if (view.kind === 'insights' && view.tab === 'insights') return '笔记（实验）：把一本书读成一句话、一条公式、一处对比。'
+    if (view.kind === 'insights' && view.tab === 'concepts') return '同一个概念在很多书里出现过，这里是它的全部位置。'
+    if (view.kind === 'insight') return '一条笔记的全部出处和相关概念。'
+    return '这个概念在每份资料里的位置。'
   }, [view])
 
   const openUnit = (mid: string, uid: string, planId?: string): void => {
@@ -72,9 +86,16 @@ export function StudyApp(): ReactElement {
 
   return (
     <div data-dsh-study="" className="study-page">
-      <div className="study-shell">
+      <div className={view.kind === 'material' ? 'study-shell is-reader' : 'study-shell'}>
         <div className="study-head">
           <h1>书桌</h1>
+          <span
+            className={staleHost ? 'study-version is-stale' : 'study-version'}
+            title={staleHost ? 'Host 仍在跑旧代码：重载插件后再刷新页面' : '插件版本'}
+          >
+            v{PLUGIN_VERSION}
+            {staleHost ? ' · Host 需重载' : ''}
+          </span>
           <span className="study-sub">{subtitle}</span>
           <div className="study-head-nav">
             <TopNav
@@ -117,6 +138,7 @@ export function StudyApp(): ReactElement {
             onBack={() => setView(view.planId === undefined ? { kind: 'library' } : { kind: 'plan', pid: view.planId })}
             onOpenConcept={openConcept}
             onOpenInsight={openInsight}
+            onOpenPlan={pid => setView({ kind: 'plan', pid })}
             onChanged={bump}
           />
         ) : null}

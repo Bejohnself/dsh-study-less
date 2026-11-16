@@ -5,7 +5,8 @@
  * jumps by page, and MinerU stays an optional high-fidelity backend for formulas
  * and figures.
  */
-import { getDocument, type PdfDocumentProxy, type PdfOutlineItem, type PdfTextContent } from '../../vendor/pdfjs/pdf.mjs'
+import { getDocument, Util, type PdfDocumentProxy, type PdfOutlineItem, type PdfTextContent } from '../../vendor/pdfjs/pdf.mjs'
+import { layoutPage, type LayoutParagraph, type TextBox } from '../core/layout.ts'
 
 /** One page of extracted text. */
 export interface ExtractedPage {
@@ -104,6 +105,78 @@ export async function extractPdf(data: Uint8Array, signal?: AbortSignal): Promis
     }
     const outline = await readOutline(doc)
     return { numPages: doc.numPages, pages, outline, warnings: [] }
+  } finally {
+    await task.destroy().catch(() => undefined)
+  }
+}
+
+/** One page's paragraph geometry, in 0..1 page units. */
+export interface PageLayout {
+  page: number
+  /** Page size in the units the boxes were measured in. */
+  width: number
+  height: number
+  paragraphs: LayoutParagraph[]
+}
+
+/**
+ * Turn one page's text runs into positioned boxes.
+ *
+ * pdf.js gives each run a transform in PDF space; multiplying by the viewport
+ * transform puts it in page units, and the font height comes from the vertical
+ * part of that matrix, which is why rotated text still gets a sane box.
+ */
+function boxesOf(content: PdfTextContent, viewport: { transform: number[] }): TextBox[] {
+  const boxes: TextBox[] = []
+  for (const item of content.items) {
+    if (!('str' in item)) continue
+    const text = item.str
+    if (text.trim().length === 0) continue
+    const tx = Util.transform(viewport.transform, item.transform)
+    const height = Math.hypot(tx[2]!, tx[3]!) || item.height
+    if (height <= 0) continue
+    boxes.push({
+      str: text,
+      x: tx[4]!,
+      y: tx[5]! - height,
+      w: item.width > 0 ? item.width : text.length * height * 0.5,
+      h: height,
+    })
+  }
+  return boxes
+}
+
+/**
+ * Extract paragraph geometry for the requested pages.
+ *
+ * Only the requested pages are touched: opening a 400-page book to lay out six
+ * pages is fast, and the result is cached per page by the caller.
+ */
+export async function extractLayouts(
+  data: Uint8Array,
+  pages: readonly number[],
+  signal?: AbortSignal,
+): Promise<PageLayout[]> {
+  if (pages.length === 0) return []
+  const task = getDocument({ data, isEvalSupported: false, useSystemFonts: false, verbosity: 0 })
+  try {
+    const doc = await task.promise
+    const out: PageLayout[] = []
+    for (const page of pages) {
+      if (signal?.aborted) throw new Error('import aborted')
+      if (page < 1 || page > doc.numPages) continue
+      const proxy = await doc.getPage(page)
+      const viewport = proxy.getViewport({ scale: 1 })
+      const content = await proxy.getTextContent()
+      out.push({
+        page,
+        width: viewport.width,
+        height: viewport.height,
+        paragraphs: layoutPage(boxesOf(content, viewport), { width: viewport.width, height: viewport.height }),
+      })
+      proxy.cleanup()
+    }
+    return out
   } finally {
     await task.destroy().catch(() => undefined)
   }

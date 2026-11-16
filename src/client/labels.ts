@@ -24,7 +24,7 @@ export const ROLE_LABEL: Record<string, string> = {
 
 /** Display label of a plan step kind. */
 export function stepKindLabel(kind: string): string {
-  return kind === 'unit' ? '精读' : kind === 'paper-pass' ? '论文' : kind === 'drill' ? '练习' : '对比'
+  return kind === 'unit' ? '导读' : kind === 'paper-pass' ? '论文' : kind === 'drill' ? '练习' : '对比'
 }
 
 /** Display label of an insight kind. */
@@ -42,6 +42,29 @@ export function insightKindLabel(kind: string): string {
             : '原理'
 }
 
+/** Display label of a boundary decision. */
+export function coverageLabel(coverage: string): string {
+  return coverage === 'skim' ? '略读' : coverage === 'skip' ? '不读' : '必读'
+}
+
+/** Display label of one minimal attempt move. */
+export function moveLabel(move: string): string {
+  return move === 'assumption'
+    ? '换一条假设'
+    : move === 'constraint'
+      ? '加一条约束'
+      : move === 'counterexample'
+        ? '找一个反例'
+        : move === 'ablation'
+          ? '做一次消融'
+          : '迁移到相邻场景'
+}
+
+/** Display label of how a conclusion was reached. */
+export function provenanceLabel(provenance: string): string {
+  return provenance === 'independent' ? '我独立想到的' : provenance === 'judged' ? '我判断后改的' : 'AI 给的，未验证'
+}
+
 /** Display label of a job status. */
 export function jobStatusLabel(status: string): string {
   return status === 'queued'
@@ -53,4 +76,17 @@ export function jobStatusLabel(status: string): string {
         : status === 'failed'
           ? '失败'
           : '已取消'
+}
+
+/** Display label of what one guiding card asks the reader to do. */
+export const PROMPT_KIND_LABEL: Record<string, string> = {
+  predict: '预测',
+  contrast: '对比',
+  recall: '回忆',
+  transfer: '迁移',
+}
+
+/** Label one guiding card's move. */
+export function promptKindLabel(kind: string): string {
+  return PROMPT_KIND_LABEL[kind] ?? '提问'
 }
