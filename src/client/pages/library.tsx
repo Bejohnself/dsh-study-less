@@ -9,6 +9,7 @@ import type { ReactElement } from 'react'
 import type { BookSummary, MaterialCard, MaterialStateView, TocRow } from '../../core/views.ts'
 import { api, errorText, post } from '../api.ts'
 import { isDone, typeLabel } from '../labels.ts'
+import { BookCover } from '../components/cover.tsx'
 import { UnitReader } from '../components/reader.tsx'
 import { EmptyState, Toast } from '../components/ui.tsx'
 
@@ -113,10 +114,15 @@ export function LibraryPage({
           <div className="study-book-shelf-grid">
             {books.map(book => (
               <button key={book.id} type="button" className="study-book-mini" onClick={() => onOpenBook(book.id)}>
-                <span className="study-insight-kind">自编书</span>
-                <span className="study-book-title">{book.title}</span>
-                <span className="study-item-meta">
-                  {book.done}/{book.chapters} 章已生成 · {book.status === 'ready' ? '可读' : '编排中'}
+                <span className="study-book-mini-cover" aria-hidden="true">
+                  {book.title.slice(0, 2)}
+                </span>
+                <span className="study-book-mini-main">
+                  <span className="study-insight-kind">自编书</span>
+                  <span className="study-book-title">{book.title}</span>
+                  <span className="study-item-meta">
+                    {book.done}/{book.chapters} 章已生成 · {book.status === 'ready' ? '可读' : '编排中'}
+                  </span>
                 </span>
               </button>
             ))}
@@ -131,24 +137,29 @@ export function LibraryPage({
           {filtered.map(card => {
             const percent = card.units === 0 ? 0 : Math.round((card.learnedUnits / card.units) * 100)
             return (
-              <button key={card.id} type="button" className="study-book" onClick={() => onOpen(card.id)}>
-                <span className="study-book-top">
-                  <span className={`study-badge study-badge-${card.type}`}>{typeLabel(card.type)}</span>
-                  {card.archived === true ? <span className="study-badge study-badge-archive">已归档</span> : null}
+              <button key={card.id} type="button" className="study-cover-card" onClick={() => onOpen(card.id)}>
+                <BookCover mid={card.id} title={card.title} type={card.type} />
+                <span className="study-cover-badges">
+                  <span className="study-cover-badges-left">
+                    <span className={`study-badge study-badge-${card.type}`}>{typeLabel(card.type)}</span>
+                    {card.archived === true ? <span className="study-badge study-badge-archive">已归档</span> : null}
+                  </span>
                   {card.dueCount > 0 ? <span className="study-due-badge">{card.dueCount} 待复习</span> : null}
                 </span>
-                <span className="study-book-title">{card.title}</span>
-                <span className="study-book-meta">
-                  {[card.authors.slice(0, 2).join(' · '), card.year, `${card.pages} 页`, `${card.units} 单元`]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </span>
-                <span className="study-progress">
-                  <span className="study-progress-bar">
-                    <span style={{ width: `${percent}%` }} />
+                <span className="study-cover-foot">
+                  <span className="study-cover-title">{card.title}</span>
+                  <span className="study-cover-meta">
+                    {[card.authors.slice(0, 2).join(' · '), card.year, `${card.pages} 页`, `${card.units} 单元`]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </span>
-                  <span className="study-progress-text">
-                    {card.learnedUnits}/{card.units} 已学 · {card.verifiedUnits} 节已校验
+                  <span className="study-cover-progress">
+                    <span className="study-progress-bar">
+                      <span style={{ width: `${percent}%` }} />
+                    </span>
+                    <span className="study-cover-progress-text">
+                      {card.learnedUnits}/{card.units} 已学{card.verifiedUnits > 0 ? ` · ${card.verifiedUnits} 节已校验` : ''}
+                    </span>
                   </span>
                 </span>
               </button>
