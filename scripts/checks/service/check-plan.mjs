@@ -5,15 +5,15 @@
 import assert from 'node:assert/strict'
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { upsertJudgementCard } from '../src/core/cards.ts'
-import { LibraryPaths } from '../src/core/paths.ts'
-import { addDays } from '../src/core/time.ts'
-import { StudyService } from '../src/host/service.ts'
+import { upsertJudgementCard } from '../../../src/core/cards.ts'
+import { LibraryPaths } from '../../../src/core/paths.ts'
+import { addDays } from '../../../src/core/time.ts'
+import { StudyService } from '../../../src/host/service.ts'
 
-const root = fileURLToPath(new URL('../.test-plan', import.meta.url))
+const root = fileURLToPath(new URL('../../../.tmp/checks/plan', import.meta.url))
 await rm(root, { recursive: true, force: true })
 const service = new StudyService(new LibraryPaths(root))
-const imported = await service.import({ filePath: fileURLToPath(new URL('../samples/attention.pdf', import.meta.url)) })
+const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 const mid = imported.manifest.id
 const state = await service.materialState(mid)
 const sections = state.toc.filter(row => row.kind === 'section').slice(0, 3)

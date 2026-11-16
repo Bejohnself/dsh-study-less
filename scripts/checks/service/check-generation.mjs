@@ -7,17 +7,17 @@
  */
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { LibraryPaths } from '../src/core/paths.ts'
-import { settingsView } from '../src/core/settings.ts'
-import { BookService } from '../src/host/books.ts'
-import { GenerationService } from '../src/host/generation.ts'
-import { InsightService } from '../src/host/insights.ts'
-import { JobQueue } from '../src/host/jobs.ts'
-import { QuizSessionService } from '../src/host/quizSessions.ts'
-import { StudyService } from '../src/host/service.ts'
-import { SettingsService } from '../src/host/settings.ts'
+import { LibraryPaths } from '../../../src/core/paths.ts'
+import { settingsView } from '../../../src/core/settings.ts'
+import { BookService } from '../../../src/host/books.ts'
+import { GenerationService } from '../../../src/host/generation.ts'
+import { InsightService } from '../../../src/host/insights.ts'
+import { JobQueue } from '../../../src/host/jobs.ts'
+import { QuizSessionService } from '../../../src/host/quizSessions.ts'
+import { StudyService } from '../../../src/host/service.ts'
+import { SettingsService } from '../../../src/host/settings.ts'
 
-const root = fileURLToPath(new URL('../.test-generation', import.meta.url))
+const root = fileURLToPath(new URL('../../../.tmp/checks/generation', import.meta.url))
 await rm(root, { recursive: true, force: true })
 const paths = new LibraryPaths(root)
 const service = new StudyService(paths)
@@ -156,7 +156,7 @@ const books = new BookService(paths, service)
 const quizSessions = new QuizSessionService(paths, service, books)
 const generation = new GenerationService(paths, { service, insights, settings, jobs, books, textProvider: () => fake })
 
-const imported = await service.import({ filePath: fileURLToPath(new URL('../samples/attention.pdf', import.meta.url)) })
+const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 materialId = imported.manifest.id
 const node = imported.manifest.structure.find(candidate => candidate.kind === 'section') ?? imported.manifest.structure[0]
 unitId = node.uid

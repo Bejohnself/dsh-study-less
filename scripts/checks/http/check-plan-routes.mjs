@@ -4,11 +4,11 @@
  */
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { LibraryPaths } from '../src/core/paths.ts'
-import { StudyService } from '../src/host/service.ts'
-import { makeStudyRoutes } from '../src/host/routes.ts'
+import { LibraryPaths } from '../../../src/core/paths.ts'
+import { StudyService } from '../../../src/host/service.ts'
+import { makeStudyRoutes } from '../../../src/host/routes.ts'
 
-const service = new StudyService(new LibraryPaths('.test-plan'))
+const service = new StudyService(new LibraryPaths('.tmp/checks/plan'))
 const routes = makeStudyRoutes(service)
 const server = createServer((req, res) => {
   void routes[0].handler(req, res)

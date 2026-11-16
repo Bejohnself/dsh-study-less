@@ -6,14 +6,14 @@ import assert from 'node:assert/strict'
 import { rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
-import { LibraryPaths } from '../src/core/paths.ts'
-import { StudyService } from '../src/host/service.ts'
-import { makeStudyRoutes } from '../src/host/routes.ts'
+import { LibraryPaths } from '../../../src/core/paths.ts'
+import { StudyService } from '../../../src/host/service.ts'
+import { makeStudyRoutes } from '../../../src/host/routes.ts'
 
-const root = fileURLToPath(new URL('../.test-pdf', import.meta.url))
+const root = fileURLToPath(new URL('../../../.tmp/checks/pdf-route', import.meta.url))
 await rm(root, { recursive: true, force: true })
 const service = new StudyService(new LibraryPaths(root))
-const imported = await service.import({ filePath: fileURLToPath(new URL('../samples/attention.pdf', import.meta.url)) })
+const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 const mid = imported.manifest.id
 const routes = makeStudyRoutes(service)
 const server = createServer((req, res) => {

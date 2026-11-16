@@ -5,16 +5,16 @@
 import assert from 'node:assert/strict'
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { LibraryPaths } from '../src/core/paths.ts'
-import { StudyService } from '../src/host/service.ts'
-import { GenerationService } from '../src/host/generation.ts'
-import { InsightService } from '../src/host/insights.ts'
-import { BookService } from '../src/host/books.ts'
-import { JobQueue } from '../src/host/jobs.ts'
-import { SettingsService } from '../src/host/settings.ts'
-import { addDays } from '../src/core/time.ts'
+import { LibraryPaths } from '../../../src/core/paths.ts'
+import { StudyService } from '../../../src/host/service.ts'
+import { GenerationService } from '../../../src/host/generation.ts'
+import { InsightService } from '../../../src/host/insights.ts'
+import { BookService } from '../../../src/host/books.ts'
+import { JobQueue } from '../../../src/host/jobs.ts'
+import { SettingsService } from '../../../src/host/settings.ts'
+import { addDays } from '../../../src/core/time.ts'
 
-const rootPath = fileURLToPath(new URL('../.test-judge', import.meta.url))
+const rootPath = fileURLToPath(new URL('../../../.tmp/checks/judge', import.meta.url))
 await rm(rootPath, { recursive: true, force: true })
 const paths = new LibraryPaths(rootPath)
 const service = new StudyService(paths)
@@ -42,7 +42,7 @@ const generation = new GenerationService(paths, {
   textProvider: () => stub,
 })
 
-const imported = await service.import({ filePath: fileURLToPath(new URL('../samples/attention.pdf', import.meta.url)) })
+const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 const mid = imported.manifest.id
 const state = await service.materialState(mid)
 const created = await service.createPlan({

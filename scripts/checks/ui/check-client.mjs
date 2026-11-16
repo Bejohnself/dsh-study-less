@@ -8,7 +8,7 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
-const bundlePath = fileURLToPath(new URL('../lib/client.js', import.meta.url))
+const bundlePath = fileURLToPath(new URL('../../../lib/client.js', import.meta.url))
 const source = await readFile(bundlePath, 'utf8')
 
 const react = {

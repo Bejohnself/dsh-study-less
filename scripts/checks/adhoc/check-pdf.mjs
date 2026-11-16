@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-const { getDocument } = await import('../vendor/pdfjs/pdf.mjs')
+const { getDocument } = await import('../../../vendor/pdfjs/pdf.mjs')
 const data = new Uint8Array(await readFile('samples/attention.pdf'))
 const doc = await getDocument({ data, isEvalSupported: false, useSystemFonts: false }).promise
 console.log('pages:', doc.numPages)

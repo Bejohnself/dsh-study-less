@@ -11,4 +11,5 @@ lib/
 .npm-cache/
 *.log
 .test-blocks/
+.tmp/
 figure/out/

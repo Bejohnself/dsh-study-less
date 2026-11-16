@@ -1,7 +1,7 @@
 # 文案口径（VOICE）
 
 > 这份文件管「怎么说」，不管「做什么」。功能与红线见 [POSITIONING.md](POSITIONING.md)。
-> 改任何面向读者的文字前先读这里；`node scripts/check-voice.mjs` 会拦住最明显的那几类跑偏。
+> 改任何面向读者的文字前先读这里；`node scripts/checks/ui/check-voice.mjs` 会拦住最明显的那几类跑偏。
 
 ## 一句话
 

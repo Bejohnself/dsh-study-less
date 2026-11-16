@@ -7,10 +7,11 @@
 
 **完整定位见 [docs/POSITIONING.md](docs/POSITIONING.md)——它是本仓库的规范文件，加功能前先读第八节「不做什么」。**
 **面向读者的文字怎么说话，见 [docs/VOICE.md](docs/VOICE.md)。**
+**改代码前先读 [AGENTS.md](AGENTS.md)——工程地图、改动导航、验证矩阵与阅读预算。**
 
 ## 当前实现状态
 
-这个仓库目前是 **阶段 1（v0.5.0）**：核心回路已闭环——目标交付物 → 裁剪单三态 → 独立尝试与归因 → 卡点 → **AI 判定你写下的答案** → 结案门；复习队列只由「判定没过」生成，结案即归档。原文面是**原文件 PDF**（Range 流式，浏览器自带预览器），从「今天」进来会带目标上下文。旧的按节复习作为「旧账」保留在复习页底部。
+这个仓库目前是 **阶段 1（v0.6.2）**：核心回路已闭环——目标交付物 → 裁剪单三态 → 独立尝试与归因 → 卡点 → **AI 判定你写下的答案** → 结案门；复习队列只由「判定没过」生成，结案即归档。原文面是**原文件 PDF**（Range 流式，浏览器自带预览器），从「今天」进来会带目标上下文。旧的按节复习作为「旧账」保留在复习页底部。
 
 功能按新定位归位（「实验」= 默认不进主回路）：
 
@@ -83,20 +84,14 @@ Agent 工具与 HTTP 共用同一 service 方法：`study_generate`、`study_job
 ## 开发
 
 ```bash
-node scripts/build.mjs      # 用 vendor 的 esbuild 打包 Host 与 Client
-node --test tests/*.test.ts # 纯逻辑单测
-node scripts/check-service.mjs
-node scripts/check-routes.mjs
-node scripts/check-plan.mjs           # 阶段一闭环：裁剪单 / 尝试 / 判定 / 结案门
-node scripts/check-plan-routes.mjs    # 同一闭环的 HTTP 层
-node scripts/check-judge.mjs          # AI 出题与判定（stub 引擎）：通过/部分/降级/自评
-node scripts/check-judge-route.mjs    # /plan/judge 的正常与降级路径
-node scripts/check-pdf-route.mjs      # 原文件 PDF：Range / HEAD / ETag / 越权
-node scripts/check-generation.mjs
-node scripts/check-blocks.mjs          # 阅读面：分块 / 引导卡 / 并入上一块 / 拒绝解释性过渡句
-node scripts/build-mascot.mjs          # 从 figure/ 的圆形头像重建大肥鱼（写 src/client/mascot.ts）
-node scripts/check-voice.mjs           # 文案口径闸门（见 docs/VOICE.md）
-node scripts/check-api.mjs
+npm run build        # = node scripts/build.mjs：用 vendor 的 esbuild 打包 Host 与 Client
+npm test             # = node --test tests/*.test.ts：纯逻辑单测
+npm run check        # 全量闸门：构建 + 13 项 service / http / ui 检查
+node scripts/checks/service/check-plan.mjs   # 单项检查（部分依赖先生成临时库，见 AGENTS.md）
+node scripts/checks/adhoc/check-pdf.mjs      # 一次性排查，不进闸门
+node scripts/build-mascot.mjs                # 从 figure/ 的圆形头像重建大肥鱼（写 src/client/mascot.ts）
 ```
+
+检查脚本按用途分在 `scripts/checks/`：`service/`（服务层端到端，stub 引擎）、`http/`（路由契约）、`ui/`（构建产物、Markdown、文案口径）、`adhoc/`（样本排查）。临时库统一落在 `.tmp/checks/`（git 忽略），`npm run check` 成功后会清掉。
 
 构建产物在 `lib/`（git 忽略）。插件通过 profile 的 `link:` 安装，改完 Host 后需要重载插件或重启 Host；Client 改动重新 build 后刷新页面。

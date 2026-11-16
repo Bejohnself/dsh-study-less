@@ -11,15 +11,15 @@
  */
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { LibraryPaths } from '../src/core/paths.ts'
-import { BookService } from '../src/host/books.ts'
-import { GenerationService } from '../src/host/generation.ts'
-import { InsightService } from '../src/host/insights.ts'
-import { JobQueue } from '../src/host/jobs.ts'
-import { SettingsService } from '../src/host/settings.ts'
-import { StudyService } from '../src/host/service.ts'
+import { LibraryPaths } from '../../../src/core/paths.ts'
+import { BookService } from '../../../src/host/books.ts'
+import { GenerationService } from '../../../src/host/generation.ts'
+import { InsightService } from '../../../src/host/insights.ts'
+import { JobQueue } from '../../../src/host/jobs.ts'
+import { SettingsService } from '../../../src/host/settings.ts'
+import { StudyService } from '../../../src/host/service.ts'
 
-const root = fileURLToPath(new URL('../.test-blocks', import.meta.url))
+const root = fileURLToPath(new URL('../../../.tmp/checks/blocks', import.meta.url))
 await rm(root, { recursive: true, force: true })
 
 const paths = new LibraryPaths(root)
@@ -77,7 +77,7 @@ const fake = {
 await settings.patch({ text: { kind: 'dsh', model: 'fake' } })
 const generation = new GenerationService(paths, { service, insights, settings, jobs, books, textProvider: () => fake })
 
-const imported = await service.import({ filePath: fileURLToPath(new URL('../samples/attention.pdf', import.meta.url)) })
+const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 const materialId = imported.manifest.id
 const node =
   imported.manifest.structure.find(candidate => candidate.kind === 'section' && candidate.pageEnd > candidate.pageStart) ??
@@ -147,7 +147,7 @@ check(
 )
 
 // 4. The reading surface never writes progress.
-const progress = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('../.test-blocks/progress.json', `file://${root}/`), 'utf8').catch(() => '{}'))
+const progress = JSON.parse(await (await import('node:fs/promises')).readFile(new URL('progress.json', `file://${root}/`), 'utf8').catch(() => '{}'))
 const state = progress.units?.[`${materialId}:${unitId}`]?.state
 check('blocks do not touch progress', state === undefined, String(state))
 

@@ -9,7 +9,7 @@ import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const root = fileURLToPath(new URL('../src/client/', import.meta.url))
+const root = fileURLToPath(new URL('../../../src/client/', import.meta.url))
 
 const BANNED = [
   { phrase: '综上所述', why: '书面腔' },

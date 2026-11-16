@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { extractPdf } from '../src/host/pdf.ts'
+import { extractPdf } from '../../../src/host/pdf.ts'
 const data = new Uint8Array(await readFile('samples/attention.pdf'))
 const result = await extractPdf(data)
 console.log('pages', result.numPages, 'outline entries', result.outline.length)

@@ -1,4 +1,4 @@
-import { renderMarkdown } from '../src/client/markdown.ts'
+import { renderMarkdown } from '../../../src/client/markdown.ts'
 
 const cases = {
   inline: '分数是 $\\frac{a}{b}$ 这样。',
