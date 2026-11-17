@@ -41,7 +41,7 @@ src/
 ├─ host/                 20 个文件：服务、HTTP、agent 工具、生成
 │  ├─ index.ts           插件入口 apply()：组装所有服务并注册路由/工具/提示词
 │  ├─ service.ts         (1736) StudyService：资料/单元/目标/判定/卡/概念/导入/资产
-│  ├─ routes.ts          (1172) /study-api 手写 if 链（60+ 条路径）
+│  ├─ routes.ts          (947) /study-api 手写 if 链（60+ 条路径）
 │  ├─ tools.ts           (771) 20 个 study_* agent 工具
 │  ├─ generation.ts      (1368) 页面内生成：plan/unit/quiz/insight/blocks/book/judge
 │  ├─ jobs.ts            JobQueue：jobs/*.json，queued→running→done/failed
@@ -52,10 +52,10 @@ src/
 │  ├─ goal.ts            无引擎时把 prompt 送回聊天
 │  ├─ generate/          prompts.ts、bookPrompts.ts
 │  └─ providers/         dsh.ts（默认）/ openai.ts / types.ts / index.ts
-├─ client/               20 个文件：React 面板
+├─ client/               21 个文件：React 面板
 │  ├─ index.tsx          注册侧栏行「书桌」+ 主区面板
 │  ├─ app.tsx            (257) View 联合类型与页面切换（无路由库）
-│  ├─ pages/             library(396) learn(1876) book(343) insights(547) settings(334)
+│  ├─ pages/             library(396) learn(845) plan(1048) book(343) insights(547) settings(334)
 │  ├─ components/        reader(1155) cover(159) quiz(252) import(143) ui(224) markdown
 │  ├─ pdf.ts             浏览器端 pdf.js 管线（阅读器与封面共用）
 │  ├─ api.ts             fetch 封装、job 轮询
@@ -88,7 +88,7 @@ npm run check       # 全量闸门：build + 13 个 service/http/ui 检查（见
 | 板块 | 界面入口 | Host 端点 | 主要规则/服务 | 落盘 |
 |---|---|---|---|---|
 | **书架** | `pages/library.tsx`、`components/reader.tsx`、`components/cover.tsx` | `/library` `/material` `/unit` `/layout` `/pdf` `/import*` `/unit/complete` | `service` 资料段 + `import.ts` + `structure.ts` + `pdf.ts` + `core/layout` | `materials/<mid>/**`、`progress.json` |
-| **阅读** | `pages/learn.tsx`（今日/目标/复习） | `/today` `/plans` `/plan/*` `/review` `/cards` `/due` `/quiz/*` | `service` 目标段 + `core/planGate` + `core/cards` + `core/srs` | `plans/`、`cards/`、`quiz-sessions/`、`progress.json` |
+| **阅读** | `pages/learn.tsx`（今日/目标列表/复习）、`pages/plan.tsx`（目标详情） | `/today` `/plans` `/plan/*` `/review` `/cards` `/due` `/quiz/*` | `service` 目标段 + `core/planGate` + `core/cards` + `core/srs` | `plans/`、`cards/`、`quiz-sessions/`、`progress.json` |
 | **笔记（实验）** | `pages/insights.tsx`、`pages/book.tsx` | `/insights` `/concept` `/books` `/book/*` | `insights.ts` + `books.ts` + `core/concepts|insights|books` | `concepts/`、`insights/`、`books/` |
 | 设置/生成 | `pages/settings.tsx` + 各页轮询 | `/settings*` `/generate/*` `/jobs/*` | `generation.ts` + `jobs.ts` + `providers/*` | `settings.json`、`jobs/*.json` |
 
@@ -117,7 +117,7 @@ settings.json            引擎与学习偏好（0600）
 | 阅读器 / PDF 渲染 / 分页 | `client/components/reader.tsx`、`client/pdf.ts` | `host/pdf.ts`、`service.layout`、`core/layout.ts` | `check-pdf-route`、`check-blocks`、`tests/layout.test.ts` |
 | 导入 / 目录切分 / 页码范围 | `host/import.ts`、`host/structure.ts`、`host/pdf.ts` | `core/library.ts`、`core/ids.ts` | `tests/structure.test.ts`；旧库用 `scripts/reclose-ranges.mjs` 干跑 |
 | 今日面板 | `client/pages/learn.tsx`（today） | `service.todayView`、`core/planGate`、`core/progress` | `check-plan` |
-| 目标 / 裁剪 / 判定 / 结案 | `client/pages/learn.tsx`（paths、NewGoalDialog） | `service.createGoal/updatePlan/recordQuestions/recordJudgement/closePlan`、`core/plans`、`core/planGate`、`core/cards` | `check-plan`、`check-judge`、`check-plan-routes` |
+| 目标 / 裁剪 / 判定 / 结案 | `client/pages/plan.tsx`（目标详情）、`client/pages/learn.tsx`（目标列表、NewGoalDialog） | `service.createGoal/updatePlan/recordQuestions/recordJudgement/closePlan`、`core/plans`、`core/planGate`、`core/cards` | `check-plan`、`check-judge`、`check-plan-routes` |
 | 复习 / FSRS | `client/pages/learn.tsx`（review） | `service.review/reviewCard`、`core/srs`、`core/progress`、`core/cards` | `tests/srs.test.ts`、`tests/cards.test.ts` |
 | 笔记 / 概念 / 洞察 | `client/pages/insights.tsx` | `host/insights.ts`、`core/insights`、`core/concepts` | `check-api`、`tests/insight.test.ts` |
 | 自编书 | `client/pages/book.tsx` | `host/books.ts`、`generation.generateBook*`、`core/books` | `check-generation` |
@@ -155,10 +155,11 @@ settings.json            引擎与学习偏好（0600）
 | 文件 | 行数 | 读法 |
 |---|---|---|
 | `src/client/styles.ts` | 1980 | 只在改样式时按 class 名搜 |
-| `src/client/pages/learn.tsx` | 1876 | 按 tab / 组件名跳读 |
+| `src/client/pages/plan.tsx` | 1048 | 目标详情按区块跳读 |
+| `src/client/pages/learn.tsx` | 845 | 按 tab / 组件名跳读 |
 | `src/host/service.ts` | 1736 | 用上面的方法索引定位 |
 | `src/host/generation.ts` | 1368 | 按 `generate*` 方法名定位 |
-| `src/host/routes.ts` | 1172 | 按 path 字符串搜 |
+| `src/host/routes.ts` | 947 | 按 path 字符串搜；PDF/资产在 http/assets.ts |
 | `src/client/components/reader.tsx` | 1155 | 按分块/页/全屏函数名跳读 |
 
 **不要读 / 不要改**：
