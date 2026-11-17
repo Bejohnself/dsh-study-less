@@ -8,7 +8,8 @@ import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { SettingsView } from '../../core/views.ts'
 import { api, errorText, post } from '../api.ts'
-import { ErrorNote, Modal, Toast } from '../components/ui.tsx'
+import { ErrorNote, Modal, THEME_STEPS, Toast, themeLabel } from '../components/ui.tsx'
+import { getPreference, setPreference as applyThemePreference, subscribePreference, type ThemePreference } from '../theme.ts'
 
 type CapabilityKey = 'image' | 'animation' | 'embedding'
 
@@ -19,6 +20,9 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
   const [testResult, setTestResult] = useState<string | null>(null)
+  const [preference, setLocalPreference] = useState<ThemePreference>(getPreference())
+
+  useEffect(() => subscribePreference(setLocalPreference), [])
 
   const [kind, setKind] = useState<'dsh' | 'openai-compatible'>('dsh')
   const [baseURL, setBaseURL] = useState('')
@@ -164,6 +168,23 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
   return (
     <Modal title="书桌设置" subtitle="默认复用 DSH 已配置模型；也可以为文本/图片/动画/嵌入分别指定自定义 API。" onClose={onClose} wide>
       <div className="study-settings">
+        <section className="study-settings-section">
+          <h3>外观</h3>
+          <p className="study-muted">只影响书桌这一面，不动外壳别的面板。这个选择存在当前浏览器里。</p>
+          <div className="study-segmented">
+            {THEME_STEPS.map(step => (
+              <button
+                key={step.id}
+                type="button"
+                className={preference === step.id ? 'is-on' : ''}
+                onClick={() => applyThemePreference(step.id)}
+              >
+                {step.label}
+              </button>
+            ))}
+          </div>
+          <p className="study-muted">现在是「{themeLabel(preference)}」。</p>
+        </section>
         <section className="study-settings-section">
           <h3>文本引擎</h3>
           <p className="study-muted">

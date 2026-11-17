@@ -126,6 +126,7 @@ settings.json            引擎与学习偏好（0600）
 | 自编书 | `client/pages/book.tsx` | `host/books.ts`、`generation.generateBook*`、`core/books` | `check-generation` |
 | 页面内生成 / 任务 | `host/generation.ts`、`host/jobs.ts` | `host/generate/prompts.ts`、`host/providers/*`、`core/jobs`、`core/settings` | `check-generation`、`check-blocks` |
 | 设置 / 引擎 | `client/pages/settings.tsx` | `host/settings.ts`、`core/settings`、`providers/*` | `check-api`、`tests/settings.test.ts` |
+| 主题 / 外观（纸·墨） | `client/theme.ts` | `client/styles.ts` 顶部 token 块、`components/ui.tsx` 的 `ThemeToggle` | `npm run build` + `check-client` |
 | 加一个 HTTP 端点 | `host/routes.ts` | 同一个 service 方法；**同步 `host/tools.ts` 若 agent 也要用** | `check-api` + 对应 route check |
 | 加一个 agent 工具 | `host/tools.ts` | `host/service.ts` 的公开方法（不要另写一套逻辑） | 手动调用 + `check-api` |
 | 文案 / 语气 | `docs/VOICE.md` | 对应 `client/**/*.tsx`、`host/generate/*Prompts.ts` | `check-voice` |

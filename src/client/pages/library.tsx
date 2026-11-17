@@ -138,7 +138,7 @@ export function LibraryPage({
             const percent = card.units === 0 ? 0 : Math.round((card.learnedUnits / card.units) * 100)
             return (
               <button key={card.id} type="button" className="study-cover-card" onClick={() => onOpen(card.id)}>
-                <BookCover mid={card.id} title={card.title} type={card.type} />
+                <BookCover mid={card.id} title={card.title} />
                 <span className="study-cover-badges">
                   <span className="study-cover-badges-left">
                     <span className={`study-badge study-badge-${card.type}`}>{typeLabel(card.type)}</span>

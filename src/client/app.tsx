@@ -18,7 +18,7 @@ import { PracticePage } from './pages/practice.tsx'
 import { BookPage } from './pages/book.tsx'
 import { SettingsDialog } from './pages/settings.tsx'
 import { ImportDialog } from './components/import.tsx'
-import { Toast, TopNav, type TopTab } from './components/ui.tsx'
+import { Toast, TopNav, ThemeToggle, type TopTab } from './components/ui.tsx'
 import { api } from './api.ts'
 import type { TocRow } from '../core/views.ts'
 import { PLUGIN_VERSION } from '../core/version.ts'
@@ -116,6 +116,7 @@ export function StudyApp(): ReactElement {
               }}
             />
             <div className="study-head-actions">
+              <ThemeToggle />
               <button type="button" className="study-ghost" onClick={() => setDialog('import')}>
                 ＋ 导入
               </button>

@@ -4,11 +4,12 @@
  * The shell owns the sidebar and theme; these components only use the plugin's
  * own prefixed classes so a host upgrade cannot blank the page.
  */
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import type { JobView } from '../../core/views.ts'
 import { jobStatusLabel } from '../labels.ts'
 import { renderInlineMarkdown, renderMarkdown } from '../markdown.ts'
+import { getPreference, setPreference, subscribePreference, type ThemePreference } from '../theme.ts'
 
 /** A small toast that disappears on its own. */
 export function Toast({ message, tone }: { message: string; tone: 'ok' | 'error' }): ReactElement {
@@ -62,6 +63,60 @@ export function Modal({
 }
 
 export type TopTab = 'library' | 'learn' | 'insights'
+
+/** The three looks, in the order the header button cycles through them. */
+export const THEME_STEPS: Array<{ id: ThemePreference; label: string; hint: string }> = [
+  { id: 'light', label: '纸', hint: '纸：白底墨字' },
+  { id: 'dark', label: '墨', hint: '墨：黑底纸字' },
+  { id: 'auto', label: '跟随外壳', hint: '跟随外壳' },
+]
+
+/** The current look, as a one-line label (used by the button and the dialog). */
+export function themeLabel(preference: ThemePreference): string {
+  return THEME_STEPS.find(step => step.id === preference)?.hint ?? '跟随外壳'
+}
+
+/** A small glyph per look: sun, moon, half-lit circle. */
+function ThemeGlyph({ preference }: { preference: ThemePreference }): ReactElement {
+  return (
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
+      {preference === 'light' ? (
+        <>
+          <circle cx="8" cy="8" r="3.1" />
+          <path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1.1 1.1M11.4 11.4l1.1 1.1M12.5 3.5l-1.1 1.1M4.6 11.4l-1.1 1.1" />
+        </>
+      ) : preference === 'dark' ? (
+        <path d="M12.9 9.9A5.2 5.2 0 0 1 6.1 3.1a5.3 5.3 0 1 0 6.8 6.8Z" />
+      ) : (
+        <>
+          <circle cx="8" cy="8" r="5.4" />
+          <path d="M8 2.6v10.8a5.4 5.4 0 0 0 0-10.8Z" fill="currentColor" stroke="none" />
+        </>
+      )}
+    </svg>
+  )
+}
+
+/** Header button: one click steps 纸 → 墨 → 跟随外壳. */
+export function ThemeToggle(): ReactElement {
+  const [preference, setLocal] = useState<ThemePreference>(getPreference())
+  useEffect(() => subscribePreference(setLocal), [])
+
+  const index = THEME_STEPS.findIndex(step => step.id === preference)
+  const next = THEME_STEPS[(index + 1) % THEME_STEPS.length]!
+
+  return (
+    <button
+      type="button"
+      className="study-theme-toggle"
+      aria-label={`外观：${themeLabel(preference)}，点击切换到${next.label}`}
+      title={`外观：${themeLabel(preference)}　点击换成「${next.label}」`}
+      onClick={() => setPreference(next.id)}
+    >
+      <ThemeGlyph preference={preference} />
+    </button>
+  )
+}
 
 /** The three top-level sections. */
 export function TopNav({ active, onSelect }: { active: TopTab; onSelect: (tab: TopTab) => void }): ReactElement {

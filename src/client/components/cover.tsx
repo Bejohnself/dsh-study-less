@@ -14,8 +14,6 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { MaterialCard } from '../../core/views.ts'
-import { typeLabel } from '../labels.ts'
 import { loadPdfjs, openPdfDocument, pageRatios } from '../pdf.ts'
 
 /** How many covers may rasterise at once. */
@@ -71,15 +69,7 @@ async function paintFirstPage(
 }
 
 /** First-page cover of one material, or a paper stand-in when it has no file. */
-export function BookCover({
-  mid,
-  title,
-  type,
-}: {
-  mid: string
-  title: string
-  type: MaterialCard['type']
-}): ReactElement {
+export function BookCover({ mid, title }: { mid: string; title: string }): ReactElement {
   const tileRef = useRef<HTMLSpanElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [state, setState] = useState<'waiting' | 'ready' | 'missing'>('waiting')
@@ -151,7 +141,6 @@ export function BookCover({
       {state === 'waiting' ? <span className="study-cover-ghost" /> : null}
       {state === 'missing' ? (
         <span className="study-cover-standin">
-          <span className="study-cover-standin-kind">{typeLabel(type)}</span>
           <span className="study-cover-standin-title">{title}</span>
         </span>
       ) : null}
