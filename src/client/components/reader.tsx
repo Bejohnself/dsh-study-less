@@ -167,7 +167,7 @@ function PdfPage({
                   width: `${String(mark.w * 100)}%`,
                   height: `${String(mark.h * 100)}%`,
                   background: withAlpha(tint, 0.13),
-                  boxShadow: `inset 2px 0 0 ${tint}`,
+                  boxShadow: `inset 0 0 0 1px ${withAlpha(tint, 0.55)}`,
                 }
               : {
                   left: `${String(mark.x * 100)}%`,

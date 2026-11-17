@@ -519,8 +519,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   text-align: left;
   padding: 16px 18px;
   border-radius: 4px;
-  border: 1px solid color-mix(in srgb, var(--s-primary) 26%, var(--s-border));
-  border-left: 3px solid var(--s-primary);
+  border: 1px solid var(--s-border-strong);
   background: var(--s-primary-soft);
 }
 [data-dsh-study] .study-next-card:hover { background: color-mix(in srgb, var(--s-primary-soft) 60%, var(--s-hover)); }
@@ -605,10 +604,8 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   border-radius: 4px;
 }
 [data-dsh-study] .study-toc-row:hover { background: var(--s-surface-2); }
-[data-dsh-study] .study-toc-row.is-active {
-  background: var(--s-primary-soft);
-  box-shadow: inset 2px 0 0 var(--s-primary);
-}
+[data-dsh-study] .study-toc-row.is-active { background: var(--s-surface-3); }
+[data-dsh-study] .study-toc-row.is-active .study-toc-text { font-weight: 650; }
 [data-dsh-study] .study-toc-row.is-pass .study-toc-text { font-weight: 650; }
 [data-dsh-study] .study-check {
   margin-top: 3px;
@@ -669,8 +666,8 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 [data-dsh-study] .study-notes strong { font-weight: 700; color: var(--s-text); }
 [data-dsh-study] .study-notes blockquote {
   margin: 1.1em 0;
-  padding: .2em 0 .2em 1.1em;
-  border-left: 2px solid var(--s-border-strong);
+  padding: .2em 0 .2em 1.2em;
+  border: 0;
   color: var(--s-muted);
   background: none;
   border-radius: 0;
@@ -769,8 +766,8 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 [data-dsh-study] .study-definition {
   margin: 0;
   padding: 16px 18px;
-  border-left: 3px solid var(--s-primary);
-  border-radius: 0 4px 4px 0;
+  border: 1px solid var(--s-border);
+  border-radius: 4px;
   background: var(--s-primary-soft);
   font-size: 13.5px;
   line-height: 1.8;
@@ -1089,8 +1086,8 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 [data-dsh-study] .study-insight-one-liner {
   margin: 6px 0 16px;
   padding: 12px 15px;
-  border-left: 3px solid var(--s-primary);
-  border-radius: 0 4px 4px 0;
+  border: 1px solid var(--s-border);
+  border-radius: 4px;
   background: var(--s-primary-soft);
   color: var(--s-primary-ink);
   font-size: 14px;
@@ -1327,7 +1324,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 [data-dsh-study] .study-book-content h3 { font-family: var(--s-reading-font); line-height: 1.4; margin: 1.5em 0 .6em; }
 [data-dsh-study] .study-book-content h2 { font-size: 19px; color: var(--s-primary-ink); border-bottom: 1px solid var(--s-border); padding-bottom: 6px; }
 [data-dsh-study] .study-book-content p { margin: .8em 0; }
-[data-dsh-study] .study-book-content blockquote { margin: 1em 0; padding: .5em 1em; border-left: 3px solid var(--s-primary); background: var(--s-primary-soft); color: var(--s-muted); }
+[data-dsh-study] .study-book-content blockquote { margin: 1em 0; padding: .2em 0 .2em 1.2em; color: var(--s-muted); }
 [data-dsh-study] .study-book-content math,
 [data-dsh-study] .study-book-content math * { font-family: var(--s-math-font); }
 [data-dsh-study] .study-book-content math { font-size: 1.08em; }
@@ -1380,8 +1377,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 [data-dsh-study] .study-question-feedback {
   font-size: 13px;
   color: var(--s-muted);
-  padding: 8px 10px;
-  border-left: 2px solid var(--s-border-strong);
+  padding: 6px 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1411,7 +1407,6 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   margin-bottom: 12px;
   padding: 10px 14px;
   border: 1px solid var(--s-border);
-  border-left: 3px solid var(--s-primary);
   border-radius: 4px;
   background: var(--s-surface-2);
 }
@@ -2085,7 +2080,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   line-height: 1.6;
   color: var(--s-muted);
   background: var(--s-surface-2);
-  border-left: 2px solid var(--s-border-strong);
+  border: 1px solid var(--s-border);
 }
 
 `
