@@ -1819,11 +1819,51 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 /* 贴边：停在这一侧，没打开时收进边里只探出一点，鼠标来了再整个出来。 */
 [data-dsh-study] .study-guide.is-docked { right: 0; bottom: 12px; }
 [data-dsh-study] .study-guide.is-docked[data-dock='left'] { right: auto; left: 0; }
-[data-dsh-study] .study-guide.is-docked:not(.is-open) { transition: transform 180ms ease; }
-[data-dsh-study] .study-guide.is-docked:not(.is-open) { transform: translateX(14px); }
-[data-dsh-study] .study-guide.is-docked:not(.is-open)[data-dock='left'] { transform: translateX(-14px); }
-[data-dsh-study] .study-guide.is-docked:not(.is-open):hover,
-[data-dsh-study] .study-guide.is-docked:not(.is-open):focus-within { transform: none; }
+/* 贴边但没打开时，锚点本身就收成一条竖排书签，不再是一个圆点 */
+[data-dsh-study] .study-guide.is-docked:not(.is-open) {
+  width: 38px;
+  height: min(42vh, 340px);
+}
+
+[data-dsh-study] .study-guide-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 4px;
+  overflow: hidden;
+  border: 1px solid var(--s-border);
+  border-radius: 4px;
+  background: var(--s-surface);
+  box-shadow: var(--s-shadow-sm);
+  cursor: pointer;
+}
+[data-dsh-study] .study-guide.is-docked[data-dock='right'] .study-guide-strip { border-right: 0; border-radius: 4px 0 0 4px; }
+[data-dsh-study] .study-guide.is-docked[data-dock='left'] .study-guide-strip { border-left: 0; border-radius: 0 4px 4px 0; }
+[data-dsh-study] .study-guide-strip:hover { background: var(--s-surface-2); }
+[data-dsh-study] .study-guide-strip-title {
+  flex: 0 1 auto;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 12px;
+  letter-spacing: .06em;
+  color: var(--s-muted);
+}
+[data-dsh-study] .study-guide-strip:hover .study-guide-strip-title { color: var(--s-text); }
+[data-dsh-study] .study-guide-strip-face {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+}
 
 [data-dsh-study] .study-sprite {
   width: 58px;
@@ -2064,13 +2104,12 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 [data-dsh-study] .study-floatbar-collapse { padding: 5px 9px; color: var(--s-muted); font-size: 14px; line-height: 1; }
 [data-dsh-study] .study-floatbar-collapse:hover { color: var(--s-text); }
 
-/* 收起来之后是屏幕右边中段的一枚窄页签，只留一个「‹」 */
+/* 收起来之后是屏幕右边原位置上的一枚窄页签，只留一个「‹」 */
 [data-dsh-study] .study-floatbar-tab {
-  top: 50%;
+  top: 14px;
   right: 0;
-  transform: translateY(-50%);
   width: 26px;
-  height: 72px;
+  height: 34px;
   padding: 0;
   border-radius: 4px 0 0 4px;
   border-right: 0;

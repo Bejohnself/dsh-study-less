@@ -790,7 +790,9 @@ export function UnitReader({
 
   /** Park the sprite against one edge; the card then opens inward from it. */
   const dockTo = (edge: 'left' | 'right' | null, y: number | null = null): void => {
-    const kept = edge === null || y === null ? null : Math.max(8, Math.min(window.innerHeight - 70, y))
+    // 书签有高度，贴边时按它留出余量，别让顶端把书签顶出屏幕。
+    const stripHeight = Math.min(window.innerHeight * 0.42, 340)
+    const kept = edge === null || y === null ? null : Math.max(8, Math.min(window.innerHeight - stripHeight - 16, y))
     setDock(edge)
     setDockY(kept)
     setCardPos(null)
@@ -809,6 +811,22 @@ export function UnitReader({
       suppressClick.current = moved
       if (moved) window.setTimeout(() => { suppressClick.current = false }, 0)
     })
+  }
+
+  /** Open the card: docked ones open along the edge they are parked on. */
+  const openGuide = (): void => {
+    setSide(
+      dock !== null
+        ? {
+            vertical: dockY !== null && dockY < window.innerHeight * 0.45 ? 'below' : 'above',
+            align: dock === 'left' ? 'start' : 'end',
+          }
+        : {
+            vertical: cardPos !== null && cardPos.y < window.innerHeight * 0.45 ? 'below' : 'above',
+            align: cardPos !== null && cardPos.x < window.innerWidth * 0.5 ? 'start' : 'end',
+          },
+    )
+    setOpen(true)
   }
 
   const openAsk = (paragraph?: { text: string }): void => {
@@ -1123,6 +1141,26 @@ export function UnitReader({
 
               </div>
             </section>
+          ) : dock !== null ? (
+            <button
+              type="button"
+              className="study-guide-strip"
+              onPointerDown={startSpriteDrag}
+              onClick={() => {
+                if (suppressClick.current) {
+                  suppressClick.current = false
+                  return
+                }
+                openGuide()
+              }}
+              title="展开引导（还在这条边上）"
+              aria-label="展开引导"
+            >
+              <span className="study-guide-strip-title">{activeBlock === null ? '引导' : activeBlock.title}</span>
+              <span className="study-guide-strip-face">
+                <Mascot mood={trouble ? 'worried' : 'cute'} />
+              </span>
+            </button>
           ) : (
             <button
               type="button"
@@ -1133,18 +1171,7 @@ export function UnitReader({
                   suppressClick.current = false
                   return
                 }
-                setSide(
-                  dock !== null
-                    ? {
-                        vertical: dockY !== null && dockY < window.innerHeight * 0.45 ? 'below' : 'above',
-                        align: dock === 'left' ? 'start' : 'end',
-                      }
-                    : {
-                        vertical: cardPos !== null && cardPos.y < window.innerHeight * 0.45 ? 'below' : 'above',
-                        align: cardPos !== null && cardPos.x < window.innerWidth * 0.5 ? 'start' : 'end',
-                      },
-                )
-                setOpen(true)
+                openGuide()
               }}
               title="叫醒大肥鱼（它不记你读了多少）"
               aria-label="打开引导"
