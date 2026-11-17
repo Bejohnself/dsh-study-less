@@ -267,6 +267,19 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
           })
           return
         }
+        if (path === '/quiz/sessions') {
+          const sessions = requireService(quizSessions, '练习会话')
+          send(res, 200, {
+            ok: true,
+            value: await sessions.index({
+              material: query.get('mid') ?? undefined,
+              unit: query.get('uid') ?? undefined,
+              book: query.get('bid') ?? undefined,
+              chapter: query.get('cid') ?? undefined,
+            }),
+          })
+          return
+        }
         if (path === '/quiz/session') {
           const sessions = requireService(quizSessions, '练习会话')
           send(res, 200, { ok: true, value: await sessions.get(query.get('sid') ?? '') })
@@ -531,6 +544,7 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
             ...(typeof body.bid === 'string' ? { book: body.bid } : {}),
             ...(typeof body.cid === 'string' ? { chapter: body.cid } : {}),
             ...(typeof body.limit === 'number' ? { limit: body.limit } : {}),
+            ...(body.restart === true ? { restart: true } : {}),
           }),
         })
         return

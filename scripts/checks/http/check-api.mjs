@@ -60,7 +60,11 @@ const fake = {
     if (text.includes('练习题')) {
       return {
         text: JSON.stringify({
-          items: [{ type: 'choice', question: '除以什么？', choices: ['根号 d', 'd'], answerIndex: 0, concepts: ['api/check'], page }],
+          items: [
+            { type: 'choice', question: '除以什么？', choices: ['根号 d', 'd'], answerIndex: 0, concepts: ['api/check'], page, difficulty: 1 },
+            { type: 'choice', question: '为什么要缩放？', choices: ['稳定内积', '加快训练'], answerIndex: 0, concepts: ['api/check'], page, difficulty: 2 },
+            { type: 'choice', question: 'softmax 前做什么？', choices: ['掩码', '归一化'], answerIndex: 0, concepts: ['api/check'], page, difficulty: 3 },
+          ],
         }),
       }
     }
@@ -171,11 +175,69 @@ try {
   const submit = await postJson('/quiz/submit', { mid, uid, answers: [{ itemId: 'q1', answer: 0 }] })
   console.log('quiz submit:', submit.status, submit.body.value.score, submit.body.value.ratingSuggestion)
 
+  const bankCount = unit.body.value.quiz?.items?.length ?? 0
   const sessionStart = await postJson('/quiz/session/start', { mid, uid })
   const sid = sessionStart.body.value.session.id
-  console.log('quiz session start:', sessionStart.status, Boolean(sessionStart.body.value.item), 'answerLeaked', 'answerIndex' in (sessionStart.body.value.item ?? {}))
-  const sessionAnswer = await postJson('/quiz/session/answer', { sid, itemId: sessionStart.body.value.item.id, answer: 0 })
-  console.log('quiz session answer:', sessionAnswer.status, Boolean(sessionAnswer.body.value.feedback), 'summary', Boolean(sessionAnswer.body.value.summary))
+  const firstId = sessionStart.body.value.item?.id
+  if (sessionStart.status !== 200 || firstId === undefined) throw new Error('quiz session start failed')
+  if (sessionStart.body.value.session.limit !== bankCount) {
+    throw new Error(`session limit ${sessionStart.body.value.session.limit} != bank ${bankCount}`)
+  }
+  if ('answerIndex' in (sessionStart.body.value.item ?? {})) throw new Error('quiz session leaked answerIndex')
+  console.log('quiz session start:', sessionStart.status, 'limit', sessionStart.body.value.session.limit, 'item', firstId)
+
+  const sessionAnswer = await postJson('/quiz/session/answer', { sid, itemId: firstId, answer: 0 })
+  if (sessionAnswer.status !== 200) throw new Error('quiz session answer failed')
+  if (sessionAnswer.body.value.history?.length !== 1) throw new Error('quiz session history missing')
+  if (sessionAnswer.body.value.summary !== undefined) throw new Error('quiz session ended too early')
+  const nextId = sessionAnswer.body.value.next?.id
+  if (nextId === undefined) throw new Error('quiz session has no next item')
+  console.log('quiz session answer:', sessionAnswer.status, 'history', sessionAnswer.body.value.history.length, 'next', nextId)
+
+  const sessionView = await call(`/quiz/session?sid=${sid}`)
+  if (sessionView.body.value.item?.id !== nextId) throw new Error('session view current item mismatch')
+  if (sessionView.body.value.history?.length !== 1) throw new Error('session view history mismatch')
+
+  const sessionIndex = await call(`/quiz/sessions?mid=${mid}&uid=${uid}`)
+  if (sessionIndex.body.value.active?.session?.id !== sid) throw new Error('session index active mismatch')
+  if (sessionIndex.body.value.active?.history?.length !== 1) throw new Error('session index history mismatch')
+  console.log('quiz index:', sessionIndex.status, 'active', sessionIndex.body.value.active?.session?.id === sid, 'recent', sessionIndex.body.value.recent?.length)
+
+  const resumed = await postJson('/quiz/session/start', { mid, uid })
+  if (resumed.body.value.session.id !== sid) throw new Error('start did not resume the active session')
+  console.log('quiz session resume:', resumed.body.value.session.id === sid)
+
+  const restarted = await postJson('/quiz/session/start', { mid, uid, restart: true })
+  const sid2 = restarted.body.value.session.id
+  if (sid2 === sid) throw new Error('restart reused the old session')
+  const oldView = await call(`/quiz/session?sid=${sid}`)
+  if (oldView.body.value.session.status !== 'done' || oldView.body.value.session.endedReason !== 'replaced') {
+    throw new Error('old session was not marked replaced')
+  }
+  if (oldView.body.value.history?.length !== 1) throw new Error('old session lost its history')
+  if (restarted.body.value.item?.id !== firstId) throw new Error('question order is not stable across sessions')
+  console.log('quiz session restart:', sid2 !== sid, 'orderStable', restarted.body.value.item?.id === firstId)
+
+  const finishedSession = await postJson('/quiz/session/finish', { sid: sid2 })
+  if (finishedSession.body.value.session.status !== 'done' || finishedSession.body.value.session.endedReason !== 'finished') {
+    throw new Error('finish did not close the session')
+  }
+  const sessionIndex2 = await call(`/quiz/sessions?mid=${mid}&uid=${uid}`)
+  if (!sessionIndex2.body.value.recent?.some(record => record.id === sid2 && record.endedReason === 'finished')) {
+    throw new Error('recent did not include the finished session')
+  }
+  console.log('quiz session finish:', finishedSession.body.value.session.endedReason, 'recent', sessionIndex2.body.value.recent?.length)
+
+  const activeSession = await postJson('/quiz/session/start', { mid, uid })
+  const sid3 = activeSession.body.value.session.id
+  const quizJob = await postJson('/generate/quiz', { mid, uid })
+  const quizDone = await wait(quizJob.body.value.jobId)
+  if (quizDone.status !== 'done') throw new Error('quiz regeneration failed')
+  const stale = await call(`/quiz/session?sid=${sid3}`)
+  if (stale.body.value.session.status !== 'done' || stale.body.value.session.endedReason !== 'bank-changed') {
+    throw new Error('stale session was not closed after the bank changed')
+  }
+  console.log('quiz session bank change:', stale.body.value.session.endedReason)
 
   const insightJob = await postJson('/generate/insight', { mid, uid })
   const insightDone = await wait(insightJob.body.value.jobId)

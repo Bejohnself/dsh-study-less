@@ -671,7 +671,7 @@ export function buildStudyTools(
     tools.push({
       name: 'study_quiz',
       description:
-        '自适应练习：start 开始一节的一组题（默认 8 题），answer 提交当前题并拿下一题，finish 提前结束，get 查看会话。题目提交前不会暴露答案；主观题需要 selfGrade=correct|partial|wrong。',
+        '自适应练习：start 开始或接着上次的一组题（同一节默认续答；restart=true 重开），answer 提交当前题并拿下一题，finish 提前结束，get 查看会话与回答历史。题目提交前不会暴露答案；主观题需要 selfGrade=correct|partial|wrong。',
       parameters: objectSchema({
         action: { type: 'string', enum: ['start', 'answer', 'finish', 'get'] },
         mid: { type: 'string' },
@@ -683,6 +683,7 @@ export function buildStudyTools(
         answer: {},
         selfGrade: { type: 'string', enum: ['correct', 'partial', 'wrong'] },
         limit: { type: 'number' },
+        restart: { type: 'boolean', description: 'true 时结束这一节旧的活跃组并开新组' },
       }, ['action']),
       output: { schema: {}, render: renderJson },
       async execute(args) {
@@ -697,6 +698,7 @@ export function buildStudyTools(
           answer?: unknown
           selfGrade?: 'correct' | 'partial' | 'wrong'
           limit?: number
+          restart?: boolean
         }
         try {
           if (input.action === 'start') {
@@ -711,6 +713,7 @@ export function buildStudyTools(
                 ...(input.bid === undefined ? {} : { book: input.bid }),
                 ...(input.cid === undefined ? {} : { chapter: input.cid }),
                 ...(input.limit === undefined ? {} : { limit: input.limit }),
+                ...(input.restart === true ? { restart: true } : {}),
               })),
             }
           }

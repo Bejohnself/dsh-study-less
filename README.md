@@ -22,7 +22,7 @@
 | 目标、裁剪单、尝试与结案（旧称「学习之路」） | 阶段一已实现 | 交付物/期限/受众 → 必读·略读·不读 → 独立尝试与卡点 → **AI 出判定题、你作答、AI 判定** → 结案门 |
 | FSRS 复习 | 已改粒度 | 新卡来自判定题答错；旧的按节到期单元标为「旧账」并列在同一页 |
 | 写好的导读（旧称「精读稿」） | 实验 | 属于「替你读」那一层；入口在阅读页「⋯」里的「导读（实验）」，主流程不再默认生成 |
-| 自编书、洞察卡、自适应练习 | 实验 | 默认不进主回路；判据是它们能否落成最小卡 |
+| 自编书、洞察卡、自适应练习 | 实验 | 默认不进主回路；过关测试可续答、保留本轮记录；判据是它们能否落成最小卡 |
 | 概念图 | 实验 | 从导读登记的概念，未与摘录打通 |
 
 ## 三块（界面上的现状）
@@ -61,7 +61,7 @@ library root/
 | 动画 | 关闭 | 先做文生 SVG/HTML，视频 API 预留 |
 | 嵌入 | 关闭 | 语义检索/相关推荐，不是导入加速 |
 
-练习使用 `quiz-sessions` 单题会话；书籍章节练习存在 `books/<bid>/chapters/<cid>.quiz.json`。
+练习使用 `quiz-sessions` 单题会话；同一节默认续答（`/quiz/session/start` 带 `restart: true` 才重开），完成记录保留 90 天。书籍章节练习存在 `books/<bid>/chapters/<cid>.quiz.json`。
 
 任务生命周期：`queued → running → done/failed/cancelled`。同 kind + target 去重；Host 重启后未完成任务标记为中断。浏览器轮询 `GET /study-api/jobs/:id`。
 
@@ -71,11 +71,11 @@ library root/
 
 所有接口在 `/study-api` 下，仅接受本机回环且同源：
 
-- 读：`/library`、`/material`、`/unit`、`/pdf`、`/today`、`/cards`、`/due`、`/concepts`、`/concept`、`/plans`、`/plan`、`/books`、`/book`、`/book/chapter`、`/quiz`、`/quiz/session`、`/insights`、`/insight`、`/jobs`、`/settings`
+- 读：`/library`、`/material`、`/unit`、`/pdf`、`/today`、`/cards`、`/due`、`/concepts`、`/concept`、`/plans`、`/plan`、`/books`、`/book`、`/book/chapter`、`/quiz`、`/quiz/sessions`、`/quiz/session`、`/insights`、`/insight`、`/jobs`、`/settings`
 - 写：`/unit/complete`、`/unit/uncomplete`、`/review`、`/card/review`、`/plan/questions`、`/plan/judge`、`/plan/close`、`/quiz/submit`、`/goal/create`、`/plan/create`、`/plan/update`、`/plan/delete`、`/insight/create|update|delete|pin`、`/material/archive`、`/material/delete`
 - 生成：`/generate/plan|unit|quiz|insight|blocks`、`/generate/book/outline|chapter|continuity`、`/jobs/:id/cancel`、`/settings/test`
 - 阅读面：`/layout`（段落几何，按页缓存到 `materials/<mid>/layout/`）、`/ask`（小窗答疑，答完即走、不落库）、`/blocks/merge`（把一块并入上一块；不提供拆分或编辑器）
-- 练习：`/quiz/session/start|answer|finish`
+- 练习：`/quiz/session/start|answer|finish`（`start` 默认续答，`restart: true` 重开）
 - 书：`/book/export`、`/book/progress`、`/book/delete`
 - 资产：`/asset?mid&uid&name`（HTML/SVG 带 sandbox CSP）
 

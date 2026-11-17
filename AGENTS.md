@@ -18,8 +18,8 @@ DSH Web GUI 的插件（bundle），两个半共享一份本地文件库：
 ```text
 src/
 ├─ core/                 22 个文件：领域规则 + 文件仓库（依赖：只依赖 node 内置）
-│  ├─ types.ts           (677) 所有落盘记录与枚举；改数据结构先看它
-│  ├─ views.ts           (498) 给 UI 的只读视图类型
+│  ├─ types.ts           (701) 所有落盘记录与枚举；改数据结构先看它
+│  ├─ views.ts           (544) 给 UI 的只读视图类型
 │  ├─ paths.ts           数据根与 LibraryPaths（materials/concepts/... 的路径）
 │  ├─ store.ts           JSON 原子写、串行写队列、readJson/writeJsonAtomic
 │  ├─ library.ts         manifest 读写、单元查找
@@ -40,11 +40,11 @@ src/
 │  └─ （core 直接做文件 IO，不是纯模型层）
 ├─ host/                 23 个文件：服务、HTTP、agent 工具、生成
 │  ├─ index.ts           插件入口 apply()：组装所有服务并注册路由/工具/提示词
-│  ├─ service.ts         (1533) StudyService：资料/单元/目标/判定/卡/概念/导入/资产
-│  ├─ routes.ts          (909) /study-api 手写 if 链（60+ 条路径）
+│  ├─ service.ts         (1540) StudyService：资料/单元/目标/判定/卡/概念/导入/资产
+│  ├─ routes.ts          (923) /study-api 手写 if 链（60+ 条路径）
 │  ├─ http/assets.ts     PDF / 单元资产 / pdf.js 资源路由
 │  ├─ service/           views.ts（只读视图）、prompts.ts（聊天回退提示）
-│  ├─ tools.ts           (771) 20 个 study_* agent 工具
+│  ├─ tools.ts           (774) 20 个 study_* agent 工具
 │  ├─ generation.ts      (1368) 页面内生成：plan/unit/quiz/insight/blocks/book/judge
 │  ├─ jobs.ts            JobQueue：jobs/*.json，queued→running→done/failed
 │  ├─ books.ts / insights.ts / quizSessions.ts / settings.ts
@@ -54,14 +54,14 @@ src/
 │  ├─ goal.ts            无引擎时把 prompt 送回聊天
 │  ├─ generate/          prompts.ts、bookPrompts.ts
 │  └─ providers/         dsh.ts（默认）/ openai.ts / types.ts / index.ts
-├─ client/               21 个文件：React 面板
+├─ client/               22 个文件：React 面板
 │  ├─ index.tsx          注册侧栏行「书桌」+ 主区面板
-│  ├─ app.tsx            (257) View 联合类型与页面切换（无路由库）
-│  ├─ pages/             library(396) learn(841) plan(1048) book(343) insights(547) settings(334)
-│  ├─ components/        reader(1155) cover(159) quiz(252) import(143) ui(224) markdown
+│  ├─ app.tsx            (290) View 联合类型与页面切换（无路由库）
+│  ├─ pages/             library(400) learn(841) plan(1048) practice(41) book(347) insights(547) settings(334)
+│  ├─ components/        reader(1137) cover(159) quiz(732) import(143) ui(224) markdown
 │  ├─ pdf.ts             浏览器端 pdf.js 管线（阅读器与封面共用）
 │  ├─ api.ts             fetch 封装、job 轮询
-│  ├─ styles.ts          (1980) 全部 CSS
+│  ├─ styles.ts          (2006) 全部 CSS
 │  └─ actions.ts / labels.ts / theme.ts / mascot.ts
 ├─ scripts/              构建、检查、迁移（见第 9 节）
 ├─ tests/                12 个 node:test 纯逻辑单测
@@ -121,6 +121,7 @@ settings.json            引擎与学习偏好（0600）
 | 今日面板 | `client/pages/learn.tsx`（today） | `service.todayView`、`core/planGate`、`core/progress` | `check-plan` |
 | 目标 / 裁剪 / 判定 / 结案 | `client/pages/plan.tsx`（目标详情）、`client/pages/learn.tsx`（目标列表、NewGoalDialog） | `service.createGoal/updatePlan/recordQuestions/recordJudgement/closePlan`、`core/plans`、`core/planGate`、`core/cards` | `check-plan`、`check-judge`、`check-plan-routes` |
 | 复习 / FSRS | `client/pages/learn.tsx`（review） | `service.review/reviewCard`、`core/srs`、`core/progress`、`core/cards` | `tests/srs.test.ts`、`tests/cards.test.ts` |
+| 过关测试 / 练习会话 | `client/pages/practice.tsx`、`client/components/quiz.tsx` | `host/quizSessions.ts`、`core/quiz.ts`、`core/types.ts`/`views.ts` | `check-api`、`tests/quiz-adaptive.test.ts` |
 | 笔记 / 概念 / 洞察 | `client/pages/insights.tsx` | `host/insights.ts`、`core/insights`、`core/concepts` | `check-api`、`tests/insight.test.ts` |
 | 自编书 | `client/pages/book.tsx` | `host/books.ts`、`generation.generateBook*`、`core/books` | `check-generation` |
 | 页面内生成 / 任务 | `host/generation.ts`、`host/jobs.ts` | `host/generate/prompts.ts`、`host/providers/*`、`core/jobs`、`core/settings` | `check-generation`、`check-blocks` |
@@ -129,13 +130,13 @@ settings.json            引擎与学习偏好（0600）
 | 加一个 agent 工具 | `host/tools.ts` | `host/service.ts` 的公开方法（不要另写一套逻辑） | 手动调用 + `check-api` |
 | 文案 / 语气 | `docs/VOICE.md` | 对应 `client/**/*.tsx`、`host/generate/*Prompts.ts` | `check-voice` |
 
-### StudyService 方法索引（按域，避免通读 1533 行）
+### StudyService 方法索引（按域，避免通读 1540 行）
 
 - 资料/单元：`library` `materialState` `pdfSource` `pdfAvailable` `unit` `unitMaterial` `complete` `uncomplete` `layout` `mergeBlock` `import` `structureSet` `archiveMaterial` `deleteMaterial` `manifest`
 - 目标：`createGoal` `promptPlanInChat` `planList` `planView` `createPlan` `updatePlan` `closePlan` `recordQuestions` `recordJudgement` `setPlanGeneration` `deletePlan`
 - 复习/卡：`due` `review` `dueCardList` `reviewCard`
 - 概念/笔记：`concepts` `conceptView` `attachInsights`
-- 题库/练习/块：`quiz` `writeQuiz` `submitQuiz` `writeBlocks`
+- 题库/练习/块：`hasNotes` `quiz` `writeQuiz` `submitQuiz` `writeBlocks`
 - 写作/校验：`writeUnit` `verifyUnit`
 
 ### GenerationService 方法索引
@@ -156,13 +157,14 @@ settings.json            引擎与学习偏好（0600）
 
 | 文件 | 行数 | 读法 |
 |---|---|---|
-| `src/client/styles.ts` | 1980 | 只在改样式时按 class 名搜 |
+| `src/client/styles.ts` | 2006 | 只在改样式时按 class 名搜 |
 | `src/client/pages/plan.tsx` | 1048 | 目标详情按区块跳读 |
 | `src/client/pages/learn.tsx` | 841 | 按 tab / 组件名跳读 |
-| `src/host/service.ts` | 1533 | 用上面的方法索引定位 |
+| `src/host/service.ts` | 1540 | 用上面的方法索引定位 |
 | `src/host/generation.ts` | 1368 | 按 `generate*` 方法名定位 |
-| `src/host/routes.ts` | 909 | 按 path 字符串搜；PDF/资产在 http/assets.ts |
-| `src/client/components/reader.tsx` | 1155 | 按分块/页/全屏函数名跳读 |
+| `src/host/routes.ts` | 923 | 按 path 字符串搜；PDF/资产在 http/assets.ts |
+| `src/client/components/reader.tsx` | 1137 | 按分块/页/全屏函数名跳读 |
+| `src/client/components/quiz.tsx` | 732 | 按状态（index/answer/summary/history）跳读 |
 
 **不要读 / 不要改**：
 

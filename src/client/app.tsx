@@ -14,16 +14,19 @@ import type { LearnTab } from './pages/learn.tsx'
 import { LearnPage, NewGoalDialog } from './pages/learn.tsx'
 import { PlanDetailPage } from './pages/plan.tsx'
 import { LibraryPage, MaterialPage } from './pages/library.tsx'
+import { PracticePage } from './pages/practice.tsx'
 import { BookPage } from './pages/book.tsx'
 import { SettingsDialog } from './pages/settings.tsx'
 import { ImportDialog } from './components/import.tsx'
 import { Toast, TopNav, type TopTab } from './components/ui.tsx'
 import { api } from './api.ts'
+import type { TocRow } from '../core/views.ts'
 import { PLUGIN_VERSION } from '../core/version.ts'
 
 type View =
   | { kind: 'library' }
   | { kind: 'material'; mid: string; uid?: string; planId?: string }
+  | { kind: 'practice'; mid: string; unit: TocRow; planId?: string }
   | { kind: 'learn'; tab: LearnTab }
   | { kind: 'plan'; pid: string }
   | { kind: 'book'; bid: string; cid?: string; pid?: string }
@@ -58,15 +61,20 @@ export function StudyApp(): ReactElement {
   }, [toast])
 
   const top: TopTab =
-    view.kind === 'library' || (view.kind === 'material' && view.planId === undefined)
-      ? 'library'
-      : view.kind === 'learn' || view.kind === 'plan' || view.kind === 'book' || view.kind === 'material'
-        ? 'learn'
-        : 'insights'
+    view.kind === 'practice'
+      ? view.planId === undefined
+        ? 'library'
+        : 'learn'
+      : view.kind === 'library' || (view.kind === 'material' && view.planId === undefined)
+        ? 'library'
+        : view.kind === 'learn' || view.kind === 'plan' || view.kind === 'book' || view.kind === 'material'
+          ? 'learn'
+          : 'insights'
 
   const subtitle = useMemo(() => {
     if (view.kind === 'library') return '书都在这儿。点一本就开始，不点也不欠谁。'
     if (view.kind === 'material') return '原文、引导、练习，都在这一页。'
+    if (view.kind === 'practice') return '一次一题。答完判分，下一题按你答得怎么样来挑。'
     if (view.kind === 'learn' && view.tab === 'today') return '今天只看三件事：接着读、该复习、练最弱的。'
     if (view.kind === 'learn' && view.tab === 'paths') return '一个目标串起好几本；每一步都落到真实的一节。'
     if (view.kind === 'learn' && view.tab === 'review') return '先自己说一遍，再看最小的对照，最后评个级。'
@@ -87,7 +95,7 @@ export function StudyApp(): ReactElement {
 
   return (
     <div data-dsh-study="" className="study-page">
-      <div className={view.kind === 'material' ? 'study-shell is-reader' : 'study-shell'}>
+      <div className={view.kind === 'material' || view.kind === 'practice' ? 'study-shell is-reader' : 'study-shell'}>
         <div className="study-head">
           <h1>书桌</h1>
           <span
@@ -140,6 +148,30 @@ export function StudyApp(): ReactElement {
             onOpenConcept={openConcept}
             onOpenInsight={openInsight}
             onOpenPlan={pid => setView({ kind: 'plan', pid })}
+            onOpenQuiz={(mid, unit, planId) =>
+              setView({
+                kind: 'practice',
+                mid,
+                unit,
+                ...(planId === undefined ? {} : { planId }),
+              })
+            }
+            onChanged={bump}
+          />
+        ) : null}
+
+        {view.kind === 'practice' ? (
+          <PracticePage
+            mid={view.mid}
+            unit={view.unit}
+            onBack={() =>
+              setView({
+                kind: 'material',
+                mid: view.mid,
+                uid: view.unit.uid,
+                ...(view.planId === undefined ? {} : { planId: view.planId }),
+              })
+            }
             onChanged={bump}
           />
         ) : null}

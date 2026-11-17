@@ -225,6 +225,7 @@ export function MaterialPage({
   onOpenConcept,
   onOpenInsight,
   onOpenPlan,
+  onOpenQuiz,
   onChanged,
   refreshToken,
 }: {
@@ -236,6 +237,8 @@ export function MaterialPage({
   onOpenInsight: (iid: string) => void
   /** Jump to the goal this range belongs to. */
   onOpenPlan?: (pid: string) => void
+  /** Leave the reader for the unit's practice page. */
+  onOpenQuiz?: (mid: string, unit: TocRow, planId?: string) => void
   onChanged?: () => void
   refreshToken?: number
 }): ReactElement {
@@ -386,6 +389,7 @@ export function MaterialPage({
           onOpenConcept={onOpenConcept}
           onOpenInsight={onOpenInsight}
           {...(onOpenPlan === undefined ? {} : { onOpenPlan })}
+          {...(onOpenQuiz === undefined ? {} : { onOpenQuiz: unit => onOpenQuiz(mid, unit, planId) })}
           onChanged={onChanged}
         />
       )}

@@ -831,7 +831,7 @@ export class GenerationService {
 
   private async runQuizInternal(materialId: string, unitId: string, context: JobContext, base: number): Promise<QuizBank> {
     const unit = await this.deps.service.unit(materialId, unitId)
-    if (unit.notes === null) throw new StudyError('invalid', '这一节还没有精读稿，先写精读再出题')
+    if (unit.notes === null) throw new StudyError('invalid', '这一节还没有导读（实验），先写导读再出题')
     const node = unit.unit
     const prompt = quizPrompt({
       materialTitle: unit.material.title,
@@ -860,7 +860,7 @@ export class GenerationService {
 
   private async runUnitInsightsInternal(materialId: string, unitId: string, context: JobContext, base: number): Promise<string[]> {
     const unit = await this.deps.service.unit(materialId, unitId)
-    if (unit.notes === null) throw new StudyError('invalid', '这一节还没有精读稿，先写精读再提炼')
+    if (unit.notes === null) throw new StudyError('invalid', '这一节还没有导读（实验），先写导读再提炼')
     const node = unit.unit
     const prompt = insightPrompt({
       materialTitle: unit.material.title,

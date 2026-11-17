@@ -1194,6 +1194,13 @@ export class StudyService {
     await writeJsonAtomic(this.paths.unitMetaFile(materialId, unitId), meta)
   }
 
+  /** Whether one unit already has a 导读 (notes.md). */
+  async hasNotes(materialId: string, unitId: string): Promise<boolean> {
+    const manifest = await this.manifest(materialId)
+    structureNodeOf(manifest, unitId)
+    return (await this.readNotes(materialId, unitId)) !== null
+  }
+
   /** The quiz bank of one unit, when it exists. */
   async quiz(materialId: string, unitId: string): Promise<QuizBank | null> {
     const manifest = await this.manifest(materialId)

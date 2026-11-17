@@ -549,7 +549,17 @@ export type QuizSessionScope =
 /** A user's self-grade for a subjective question. */
 export type QuizSelfGrade = 'correct' | 'partial' | 'wrong'
 
-/** One answered question in a session. */
+/** Why a session stopped. */
+export type QuizEndReason = 'completed' | 'finished' | 'replaced' | 'bank-changed'
+
+/**
+ * One answered question in a session.
+ *
+ * The question/answer snapshots keep history readable after the bank is
+ * regenerated: item ids are reused (`q1..qN`), so ids alone would point at a
+ * different question. Older records lack the snapshots; readers fall back to
+ * the bank and then to the id.
+ */
 export interface QuizSessionEntry {
   itemId: string
   answer?: unknown
@@ -557,11 +567,22 @@ export interface QuizSessionEntry {
   correct: boolean | null
   selfGrade?: QuizSelfGrade
   at: string
+  /** Snapshot of what was asked. */
+  question?: string
+  type?: QuizItemType
+  concepts?: string[]
+  /** Human-readable answer: choice text for choices, text otherwise. */
+  answerText?: string
+  /** Reference answer / page, when the item has one. */
+  expected?: string
+  /** Rubric bullets for subjective items. */
+  rubric?: string[]
+  explanation?: string
 }
 
 /** One adaptive practice session (`quiz-sessions/<id>.json`). */
 export interface QuizSession {
-  version: 1
+  version: 2
   id: string
   scope: QuizSessionScope
   status: 'active' | 'done'
@@ -573,6 +594,9 @@ export interface QuizSession {
   startedAt: string
   updatedAt: string
   endedAt?: string
+  /** Bank timestamp when the session started; a change invalidates it. */
+  bankUpdatedAt?: string
+  endedReason?: QuizEndReason
 }
 
 /** Generated notes metadata (`units/<uid>/meta.json`). */

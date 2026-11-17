@@ -21,6 +21,9 @@ import type {
   MaterialType,
   Coverage,
   QuizBank,
+  QuizEndReason,
+  QuizItemType,
+  QuizSelfGrade,
   Provenance,
   Rating,
   SufficiencyItem,
@@ -440,11 +443,27 @@ export interface QuizItemView {
 export interface QuizFeedbackView {
   itemId: string
   correct: boolean | null
+  /** Present when the reader graded a subjective answer themselves. */
+  selfGrade?: QuizSelfGrade
   expected?: string
   rubric?: string[]
   explanation?: string
   /** True when a subjective answer needs a self-grade before advancing. */
   needsSelfGrade?: boolean
+}
+
+/** One answered item, rendered from the session's own snapshot. */
+export interface QuizHistoryEntryView {
+  itemId: string
+  question: string
+  type: QuizItemType
+  answerText: string
+  correct: boolean | null
+  selfGrade?: QuizSelfGrade
+  expected?: string
+  rubric?: string[]
+  explanation?: string
+  at: string
 }
 
 /** Progress and current item of one session. */
@@ -456,8 +475,12 @@ export interface QuizSessionView {
     limit: number
     correct: number
     objective: number
+    startedAt: string
+    updatedAt: string
+    endedReason?: QuizEndReason
   }
   item?: QuizItemView
+  history: QuizHistoryEntryView[]
   summary?: QuizSessionSummary
 }
 
@@ -465,8 +488,31 @@ export interface QuizSessionView {
 export interface QuizAnswerView {
   session: QuizSessionView['session']
   feedback: QuizFeedbackView
+  history: QuizHistoryEntryView[]
   next?: QuizItemView
   summary?: QuizSessionSummary
+}
+
+/** One past or active session in a unit's practice index. */
+export interface QuizSessionRecordView {
+  id: string
+  status: 'active' | 'done'
+  asked: number
+  limit: number
+  correct: number
+  objective: number
+  score: number
+  startedAt: string
+  updatedAt: string
+  endedAt?: string
+  endedReason?: QuizEndReason
+}
+
+/** What the practice page needs before it starts: bank state and sessions. */
+export interface QuizSessionIndexView {
+  bank: { items: number; defaultLimit: number; notes: boolean; updatedAt?: string }
+  active: QuizSessionView | null
+  recent: QuizSessionRecordView[]
 }
 
 /** Final summary of one practice session. */

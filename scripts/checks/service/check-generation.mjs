@@ -196,6 +196,8 @@ if (bookQuiz.item !== undefined) {
   const answered = await quizSessions.answer(bookQuiz.session.id, bookQuiz.item.id, 0)
   console.log('book quiz answer:', Boolean(answered.feedback), Boolean(answered.summary))
 }
+const bookIndex = await quizSessions.index({ book: bookId, chapter: 'ch-1' })
+console.log('book quiz index:', bookIndex.bank.items, bookIndex.active === null ? 'no active' : 'active', 'recent', bookIndex.recent.length)
 
 const unitJob = await generation.generateUnit({ material: materialId, unit: unitId })
 const unitDone = await wait(unitJob.jobId)

@@ -1,51 +1,45 @@
 /**
- * Quiz selection and objective grading.
+ * Quiz ordering and objective grading.
  *
- * Selection is deterministic for a given seed, prioritizes weak concepts, and
- * never repeats an item the caller excludes (the UI excludes items answered in
- * the last week).
+ * Practice order is deterministic: weak concepts first, objective items before
+ * subjective ones, easier before harder, and the bank's own order as the final
+ * tie-break. The adaptive step uses the same tie-break, so a resumed session
+ * replays exactly the same sequence instead of reshuffling.
  */
-import { hash32 } from './srs.ts'
-import type { QuizBank, QuizItem } from './types.ts'
+import type { QuizBank, QuizItem, QuizSessionScope } from './types.ts'
+
+/** The most questions one practice session asks by default. */
+export const DEFAULT_SESSION_LIMIT = 8
 
 /** How strongly a weak concept pulls an item to the front. */
 const WEAK_WEIGHT = 3
-/** How strongly a requested concept pulls an item to the front. */
-const REQUESTED_WEIGHT = 2
+/** Objective items are easier to start with and to score. */
+const OBJECTIVE_WEIGHT = 1
 
-/** Options for one selection round. */
-export interface QuizSelectionOptions {
-  /** Concepts the caller wants to practise. */
-  concepts?: readonly string[]
-  /** Concepts currently considered weak. */
-  weakConcepts?: ReadonlySet<string>
-  /** Maximum number of items. */
-  limit?: number
-  /** Seed for the deterministic shuffle. */
-  seed?: string
-  /** Items to skip (recently answered). */
-  excludeIds?: ReadonlySet<string>
+/** Whether an item can be graded without asking the reader to self-assess. */
+export function isObjectiveItem(item: QuizItem): boolean {
+  return item.type !== 'recall' && item.type !== 'apply'
 }
 
-/** Pick quiz items from one bank, weak concepts first. */
-export function selectQuizItems(bank: QuizBank, options: QuizSelectionOptions = {}): QuizItem[] {
-  const limit = Math.max(0, options.limit ?? 5)
-  const requested = new Set(options.concepts ?? [])
+/** How many questions one session should ask for this bank. */
+export function defaultSessionLimit(bank: QuizBank): number {
+  return Math.min(DEFAULT_SESSION_LIMIT, bank.items.length)
+}
+
+/** Stable practice order for one bank. */
+export function orderQuizItems(
+  bank: QuizBank,
+  options: { weakConcepts?: ReadonlySet<string> } = {},
+): QuizItem[] {
   const weak = options.weakConcepts ?? new Set<string>()
-  const excluded = options.excludeIds ?? new Set<string>()
-  const seed = options.seed ?? bank.unit
-
-  const scored = bank.items
-    .filter(item => !excluded.has(item.id))
-    .map(item => {
-      let score = 1
-      if (item.concepts.some(concept => weak.has(concept))) score += WEAK_WEIGHT
-      if (item.concepts.some(concept => requested.has(concept))) score += REQUESTED_WEIGHT
-      return { item, score, order: hash32(`${seed}:${item.id}`) }
-    })
-
-  scored.sort((a, b) => b.score - a.score || a.order - b.order)
-  return scored.slice(0, limit).map(entry => entry.item)
+  const scored = bank.items.map((item, index) => {
+    let score = 0
+    if (item.concepts.some(concept => weak.has(concept))) score += WEAK_WEIGHT
+    if (isObjectiveItem(item)) score += OBJECTIVE_WEIGHT
+    return { item, score, difficulty: difficultyOf(item), index }
+  })
+  scored.sort((a, b) => b.score - a.score || a.difficulty - b.difficulty || a.index - b.index)
+  return scored.map(entry => entry.item)
 }
 
 /** Normalize a free-text answer for comparison. */
@@ -89,7 +83,6 @@ export function gradeQuizItem(item: QuizItem, answer: unknown): GradeVerdict {
   }
 }
 
-
 /** The effective difficulty of an item (older banks default to normal). */
 export function difficultyOf(item: QuizItem): 1 | 2 | 3 {
   return item.difficulty ?? 2
@@ -101,13 +94,25 @@ export function sharesConcept(a: QuizItem, b: QuizItem): boolean {
   return a.concepts.some(concept => concepts.has(concept))
 }
 
+/** Whether two sessions draw from the same bank. */
+export function sameQuizScope(a: QuizSessionScope, b: QuizSessionScope): boolean {
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'unit' && b.kind === 'unit') {
+    return a.material === b.material && a.unit === b.unit
+  }
+  if (a.kind === 'book' && b.kind === 'book') {
+    return a.book === b.book && (a.chapter ?? '') === (b.chapter ?? '')
+  }
+  return false
+}
+
 /**
  * Pick the next adaptive item.
  *
  * Wrong answers retreat to the same concept at an equal-or-easier difficulty;
  * right answers move to the same concept at an equal-or-harder difficulty; if
- * neither exists, any unattempted item is used. Selection is deterministic for
- * a seed so a refresh cannot reshuffle a session unpredictably.
+ * neither exists, any unattempted item is used. Ties follow the bank's order,
+ * so a resumed session cannot reshuffle the sequence.
  */
 export function pickAdaptiveNext(
   items: readonly QuizItem[],
@@ -115,18 +120,17 @@ export function pickAdaptiveNext(
     asked: ReadonlySet<string>
     current: QuizItem
     correct: boolean | null
-    seed?: string
   },
 ): QuizItem | undefined {
-  const candidates = items.filter(item => item.id !== options.current.id && !options.asked.has(item.id))
+  const candidates = items
+    .map((item, index) => ({ item, index }))
+    .filter(entry => entry.item.id !== options.current.id && !options.asked.has(entry.item.id))
   if (candidates.length === 0) return undefined
-  const seed = options.seed ?? options.current.id
   const currentDifficulty = difficultyOf(options.current)
-  const objective = (item: QuizItem): boolean => item.type !== 'recall' && item.type !== 'apply'
 
   const score = (item: QuizItem): number => {
     let value = 0
-    if (objective(item)) value += 1
+    if (isObjectiveItem(item)) value += 1
     if (sharesConcept(item, options.current)) value += 4
     const difficulty = difficultyOf(item)
     if (options.correct === false) {
@@ -140,7 +144,7 @@ export function pickAdaptiveNext(
   }
 
   const ranked = candidates
-    .map(item => ({ item, score: score(item), order: hash32(`${seed}:${item.id}`) }))
-    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .map(entry => ({ item: entry.item, index: entry.index, score: score(entry.item) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
   return ranked[0]?.item
 }

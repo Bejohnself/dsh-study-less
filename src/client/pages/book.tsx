@@ -238,7 +238,11 @@ export function BookPage({
         {chapter.quiz === null ? null : (
           <>
             <h3 className="study-section-title">本章练习</h3>
-            <QuizRunner scope={{ kind: 'book', bid, cid: chapter.chapter.id }} />
+            <QuizRunner
+              scope={{ kind: 'book', bid, cid: chapter.chapter.id }}
+              showRecent={false}
+              onChanged={onChanged}
+            />
           </>
         )}
 

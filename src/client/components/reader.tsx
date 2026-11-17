@@ -20,7 +20,6 @@ import { loadPdfjs, openPdfDocument, pageRatios, ratioOf, type PdfRenderTask } f
 import { MASCOT, type MascotMood } from '../mascot.ts'
 import { promptKindLabel } from '../labels.ts'
 import { EmptyState, JobBanner, Markdown, Toast } from './ui.tsx'
-import { QuizRunner } from './quiz.tsx'
 
 /* ------------------------------------------------------------- one page ----- */
 
@@ -486,6 +485,7 @@ export function UnitReader({
   onOpenConcept,
   onOpenInsight,
   onOpenPlan,
+  onOpenQuiz,
   onChanged,
 }: {
   mid: string
@@ -497,6 +497,8 @@ export function UnitReader({
   onOpenConcept?: (cid: string) => void
   onOpenInsight?: (iid: string) => void
   onOpenPlan?: (pid: string) => void
+  /** Leave the reader for this unit's practice page. */
+  onOpenQuiz?: (unit: TocRow) => void
   onChanged?: () => void
 }): ReactElement {
   const [unit, setUnit] = useState<UnitView | null>(null)
@@ -507,7 +509,6 @@ export function UnitReader({
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
   const [menu, setMenu] = useState(false)
   const [tocOpen, setTocOpen] = useState(false)
-  const [quizOpen, setQuizOpen] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [ask, setAsk] = useState(false)
   const [askSeed, setAskSeed] = useState<string | undefined>(undefined)
@@ -711,6 +712,13 @@ export function UnitReader({
   }
 
   const generateQuiz = (): void => {
+    if (
+      unit !== null &&
+      unit.quiz !== null &&
+      !window.confirm('这一节已有练习题，重新生成会覆盖；正在答的那一组也会结束。继续？')
+    ) {
+      return
+    }
     void runJob('/generate/quiz', { mid, uid }, '正在出题…')
   }
 
@@ -873,7 +881,7 @@ export function UnitReader({
           <button type="button" className="study-floatbar-btn" onClick={() => setTocOpen(true)}>
             目录
           </button>
-          <button type="button" className="study-floatbar-btn" onClick={() => setQuizOpen(true)}>
+          <button type="button" className="study-floatbar-btn" onClick={() => onOpenQuiz?.(unit.unit)}>
             过关测试
           </button>
           <button type="button" className="study-floatbar-btn is-primary" onClick={() => setFull(false)}>
@@ -921,12 +929,12 @@ export function UnitReader({
                     导读（实验）
                   </button>
                   <button type="button" onClick={() => { setMenu(false); generateQuiz() }} disabled={busy !== null}>
-                    生成练习题
+                    {unit.quiz === null ? '生成练习题' : '重新生成练习题'}
                   </button>
                 </div>
               ) : null}
             </div>
-            <button type="button" className="study-primary study-primary-tight" onClick={() => setQuizOpen(true)}>
+            <button type="button" className="study-primary study-primary-tight" onClick={() => onOpenQuiz?.(unit.unit)}>
               过关测试
             </button>
           </div>
@@ -1104,32 +1112,6 @@ export function UnitReader({
                 </button>
               ))}
             </nav>
-          </div>
-        </div>
-      ) : null}
-
-      {quizOpen ? (
-        <div className="study-overlay" onClick={() => setQuizOpen(false)}>
-          <div className="study-drawer study-drawer-wide" onClick={event => event.stopPropagation()}>
-            <div className="study-drawer-head">
-              <h3>过关测试</h3>
-              <button type="button" className="study-ghost" onClick={() => setQuizOpen(false)}>
-                关闭
-              </button>
-            </div>
-            {unit.quiz === null ? (
-              <EmptyState
-                title="还没有练习题。"
-                hint="过关测试按本节的引导块出题；先生成一组，再回来作答。"
-                action={
-                  busy === null
-                    ? { label: '生成练习题', onClick: generateQuiz }
-                    : { label: '正在出题…', onClick: () => undefined }
-                }
-              />
-            ) : (
-              <QuizRunner scope={{ kind: 'unit', mid, uid }} />
-            )}
           </div>
         </div>
       ) : null}
