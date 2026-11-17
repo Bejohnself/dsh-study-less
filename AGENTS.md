@@ -38,10 +38,12 @@ src/
 │  ├─ settings.ts        引擎与学习偏好
 │  ├─ ids.ts / time.ts / jobs.ts / version.ts
 │  └─ （core 直接做文件 IO，不是纯模型层）
-├─ host/                 20 个文件：服务、HTTP、agent 工具、生成
+├─ host/                 23 个文件：服务、HTTP、agent 工具、生成
 │  ├─ index.ts           插件入口 apply()：组装所有服务并注册路由/工具/提示词
-│  ├─ service.ts         (1736) StudyService：资料/单元/目标/判定/卡/概念/导入/资产
-│  ├─ routes.ts          (947) /study-api 手写 if 链（60+ 条路径）
+│  ├─ service.ts         (1533) StudyService：资料/单元/目标/判定/卡/概念/导入/资产
+│  ├─ routes.ts          (909) /study-api 手写 if 链（60+ 条路径）
+│  ├─ http/assets.ts     PDF / 单元资产 / pdf.js 资源路由
+│  ├─ service/           views.ts（只读视图）、prompts.ts（聊天回退提示）
 │  ├─ tools.ts           (771) 20 个 study_* agent 工具
 │  ├─ generation.ts      (1368) 页面内生成：plan/unit/quiz/insight/blocks/book/judge
 │  ├─ jobs.ts            JobQueue：jobs/*.json，queued→running→done/failed
@@ -55,7 +57,7 @@ src/
 ├─ client/               21 个文件：React 面板
 │  ├─ index.tsx          注册侧栏行「书桌」+ 主区面板
 │  ├─ app.tsx            (257) View 联合类型与页面切换（无路由库）
-│  ├─ pages/             library(396) learn(845) plan(1048) book(343) insights(547) settings(334)
+│  ├─ pages/             library(396) learn(841) plan(1048) book(343) insights(547) settings(334)
 │  ├─ components/        reader(1155) cover(159) quiz(252) import(143) ui(224) markdown
 │  ├─ pdf.ts             浏览器端 pdf.js 管线（阅读器与封面共用）
 │  ├─ api.ts             fetch 封装、job 轮询
@@ -127,7 +129,7 @@ settings.json            引擎与学习偏好（0600）
 | 加一个 agent 工具 | `host/tools.ts` | `host/service.ts` 的公开方法（不要另写一套逻辑） | 手动调用 + `check-api` |
 | 文案 / 语气 | `docs/VOICE.md` | 对应 `client/**/*.tsx`、`host/generate/*Prompts.ts` | `check-voice` |
 
-### StudyService 方法索引（按域，避免通读 1736 行）
+### StudyService 方法索引（按域，避免通读 1533 行）
 
 - 资料/单元：`library` `materialState` `pdfSource` `pdfAvailable` `unit` `unitMaterial` `complete` `uncomplete` `layout` `mergeBlock` `import` `structureSet` `archiveMaterial` `deleteMaterial` `manifest`
 - 目标：`createGoal` `promptPlanInChat` `planList` `planView` `createPlan` `updatePlan` `closePlan` `recordQuestions` `recordJudgement` `setPlanGeneration` `deletePlan`
@@ -156,10 +158,10 @@ settings.json            引擎与学习偏好（0600）
 |---|---|---|
 | `src/client/styles.ts` | 1980 | 只在改样式时按 class 名搜 |
 | `src/client/pages/plan.tsx` | 1048 | 目标详情按区块跳读 |
-| `src/client/pages/learn.tsx` | 845 | 按 tab / 组件名跳读 |
-| `src/host/service.ts` | 1736 | 用上面的方法索引定位 |
+| `src/client/pages/learn.tsx` | 841 | 按 tab / 组件名跳读 |
+| `src/host/service.ts` | 1533 | 用上面的方法索引定位 |
 | `src/host/generation.ts` | 1368 | 按 `generate*` 方法名定位 |
-| `src/host/routes.ts` | 947 | 按 path 字符串搜；PDF/资产在 http/assets.ts |
+| `src/host/routes.ts` | 909 | 按 path 字符串搜；PDF/资产在 http/assets.ts |
 | `src/client/components/reader.tsx` | 1155 | 按分块/页/全屏函数名跳读 |
 
 **不要读 / 不要改**：

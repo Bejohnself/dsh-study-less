@@ -12,14 +12,14 @@ import { pipeline } from 'node:stream/promises'
 import { validateBlocks } from '../core/blocks.ts'
 import { assertConceptId, assertSegment, slugify, splitUnitKey, uniqueSlug, unitKey } from '../core/ids.ts'
 import { deleteInsight, insightCard, listInsights, readInsight, writeInsight } from '../core/insights.ts'
-import { listManifests, readManifest, structureNodeOf, unitMetaOf, writeManifest } from '../core/library.ts'
+import { listManifests, readManifest, structureNodeOf, writeManifest } from '../core/library.ts'
 import type { LibraryPaths } from '../core/paths.ts'
 import { upsertConcept, writeConcept } from '../core/concepts.ts'
 import { dueUnits, emptyProgress, isWeak, markLearned, readProgress, recordAttempts, recordReview, unmarkLearned } from '../core/progress.ts'
 import { listConcepts, readConcept } from '../core/concepts.ts'
 import { deletePlan as removePlanFile, listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../core/plans.ts'
-import { deleteCard, dueCards, judgementCardId, listCards, overdueDays, retirePlanCards, reviewCardOnce, upsertJudgementCard } from '../core/cards.ts'
-import { coverageOf, deriveStuckPoints, gateStatus, planProgress, summarizeBoundary, thresholdOf } from '../core/planGate.ts'
+import { deleteCard, dueCards, judgementCardId, listCards, retirePlanCards, reviewCardOnce, upsertJudgementCard } from '../core/cards.ts'
+import { deriveStuckPoints, gateStatus, planProgress, summarizeBoundary, thresholdOf } from '../core/planGate.ts'
 import { gradeQuizItem } from '../core/quiz.ts'
 import { normalizeSettings } from '../core/settings.ts'
 import { hash32 } from '../core/srs.ts'
@@ -32,14 +32,12 @@ import type {
   BlockFile,
   BlockInput,
   BlockRecord,
-  CardRecord,
   PageLayoutFile,
   ParagraphRecord,
   Coverage,
   MaterialManifest,
   PlanGeneration,
   PlanRecord,
-  PlanStep,
   PlanStepKind,
   Provenance,
   ProgressFile,
@@ -55,11 +53,9 @@ import type {
   CardView,
   ConceptCard,
   ConceptDetailView,
-  ExtraAsset,
   NextStepView,
   PlanBrief,
   PlanDetailView,
-  PlanStepView,
   PlanSummary,
   QuizSubmitView,
   TodayView,
@@ -67,6 +63,8 @@ import type {
 import { ORIGINAL_PAGE_CAP, type CompleteOptions, type CompleteResult, type DueItem, type MaterialCard, type MaterialStateView, type PageSlice, type TocRow, type UnitView } from '../core/views.ts'
 import { extractLayouts } from './pdf.ts'
 import { importMaterial, titleFromName, type ImportRequest, type ImportResult } from './import.ts'
+import { goalPrompt } from './service/prompts.ts'
+import { cardOf, cardView, extrasOf, planTargets, rowOf, stepView } from './service/views.ts'
 
 /** A domain refusal with a stable machine code. */
 export class StudyError extends Error {
@@ -141,7 +139,7 @@ export class StudyService {
     const [manifests, progress] = await Promise.all([listManifests(this.paths), readProgress(this.paths)])
     return manifests
       .filter(manifest => includeArchived || manifest.archived !== true)
-      .map(manifest => this.cardOf(manifest, progress))
+      .map(manifest => cardOf(manifest, progress, this.today()))
   }
 
   /** One material with its table of contents and due list. */
@@ -151,11 +149,11 @@ export class StudyService {
     const dueKeys = new Set(dueUnits(progress, today).map(entry => entry.key))
     const toc: TocRow[] = manifest.structure.map(node => {
       const key = unitKey(materialId, node.uid)
-      return this.rowOf(materialId, node, manifest, progress, dueKeys.has(key))
+      return rowOf(materialId, node, manifest, progress, dueKeys.has(key))
     })
     const next = toc.find(row => row.state === 'new')?.uid
     return {
-      material: this.cardOf(manifest, progress),
+      material: cardOf(manifest, progress, this.today()),
       toc,
       due: toc.filter(row => dueKeys.has(unitKey(materialId, row.uid))).map(row => row.uid),
       next,
@@ -198,7 +196,7 @@ export class StudyService {
       this.readNotes(materialId, unitId),
     ])
     const node = structureNodeOf(manifest, unitId)
-    const row = this.rowOf(materialId, node, manifest, progress, false)
+    const row = rowOf(materialId, node, manifest, progress, false)
     const original = await this.readPages(materialId, node.pageStart, node.pageEnd)
     const meta = await readJson<UnitMetaFile | null>(this.paths.unitMetaFile(materialId, unitId), null)
     const quiz = await readJson<QuizBank | null>(this.paths.quizFile(materialId, unitId), null)
@@ -209,14 +207,14 @@ export class StudyService {
       if (record !== null) insights.push(insightCard(record))
     }
     return {
-      material: this.cardOf(manifest, progress),
+      material: cardOf(manifest, progress, this.today()),
       unit: { ...row, concepts: meta?.concepts ?? row.concepts },
       notes,
       pdfAvailable: await this.pdfAvailable(materialId),
       original: original.pages,
       truncated: original.truncated,
       quiz,
-      extras: this.extrasOf(materialId, unitId, meta),
+      extras: extrasOf(materialId, unitId, meta),
       insights,
       // A page-based blocks file from an older version is not readable by the
       // paragraph rail: treat it as "not generated" so the rail offers a rebuild.
@@ -224,34 +222,6 @@ export class StudyService {
     }
   }
 
-  /** Build the media list of one unit from its metadata. */
-  private extrasOf(materialId: string, unitId: string, meta: UnitMetaFile | null): ExtraAsset[] {
-    const extras = meta?.extras
-    if (extras === undefined) return []
-    const names = [...(extras.image ?? []), ...(extras.anim ?? []), ...(extras.media ?? []), ...(extras.code ?? [])]
-    const assets: ExtraAsset[] = []
-    const seen = new Set<string>()
-    for (const name of names) {
-      if (seen.has(name) || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(name) || name.includes('..')) continue
-      seen.add(name)
-      const lower = name.toLowerCase()
-      const kind: ExtraAsset['kind'] = /\.(png|jpe?g|webp|gif|svg)$/.test(lower)
-        ? 'image'
-        : /\.(html?|svg)$/.test(lower)
-          ? 'animation'
-          : /\.(mp4|webm|mov)$/.test(lower)
-            ? 'video'
-            : /\.(js|ts|py|json|txt|md|css)$/.test(lower)
-              ? 'code'
-              : 'other'
-      assets.push({
-        name,
-        kind,
-        url: `/study-api/asset?mid=${encodeURIComponent(materialId)}&uid=${encodeURIComponent(unitId)}&name=${encodeURIComponent(name)}`,
-      })
-    }
-    return assets
-  }
 
   /** Everything an authoring agent needs to write one unit. */
   async unitMaterial(materialId: string, unitId: string, maxChars = 12_000): Promise<UnitMaterial> {
@@ -281,7 +251,7 @@ export class StudyService {
     if (before.units[key] !== undefined && before.units[key]!.state !== 'new') {
       const current = before.units[key]!
       return {
-        unit: this.rowOf(materialId, node, manifest, before, false),
+        unit: rowOf(materialId, node, manifest, before, false),
         due: current.due ?? addDays(this.today(), 1),
         revision: before.revision,
         note: '这一节此前已经打过勾。',
@@ -292,7 +262,7 @@ export class StudyService {
       today: options.today ?? this.today(),
     })
     return {
-      unit: this.rowOf(materialId, node, manifest, progress, false),
+      unit: rowOf(materialId, node, manifest, progress, false),
       due: unit.due ?? addDays(this.today(), 1),
       revision: progress.revision,
       note: `已记下首次学习，明天进入复习队列（${unit.due}）。`,
@@ -504,7 +474,7 @@ export class StudyService {
       maxIntervalDays: preferences.maxIntervalDays,
     })
     return {
-      unit: this.rowOf(materialId, node, manifest, progress, false),
+      unit: rowOf(materialId, node, manifest, progress, false),
       due: unit.due ?? addDays(this.today(), 1),
       revision: progress.revision,
       note: `已记录评级 ${options.rating}，下次复习 ${unit.due}。`,
@@ -554,7 +524,7 @@ export class StudyService {
     }
     await writePlan(this.paths, plan)
 
-    const prompt = this.goalPrompt(plan, chosen, input.depth ?? 'deep')
+    const prompt = goalPrompt(plan, chosen, input.depth ?? 'deep')
     if (input.sessionId === undefined || this.deps.promptSession === undefined) {
       return { planId, prompted: false, prompt }
     }
@@ -583,7 +553,7 @@ export class StudyService {
       .map(id => manifests.find(manifest => manifest.id === id))
       .filter((manifest): manifest is MaterialManifest => manifest !== undefined)
     if (chosen.length === 0) throw new StudyError('not-found', '计划的资料都不存在了')
-    const prompt = this.goalPrompt(plan, chosen, 'deep')
+    const prompt = goalPrompt(plan, chosen, 'deep')
     if (sessionId === undefined || this.deps.promptSession === undefined) {
       return { prompted: false, prompt }
     }
@@ -597,36 +567,6 @@ export class StudyService {
     }
   }
 
-  /** The instruction queued into the conversation for one goal. */
-  private goalPrompt(plan: PlanRecord, manifests: readonly MaterialManifest[], depth: 'deep' | 'overview'): string {
-    const catalogue = manifests
-      .map(manifest => {
-        const rows = manifest.structure.slice(0, 60).map(node => `    - ${node.uid}｜${node.title}（p${node.pageStart}${node.pageEnd > node.pageStart ? `–${node.pageEnd}` : ''}）`)
-        const more = manifest.structure.length > 60 ? `    …共 ${manifest.structure.length} 个单元` : ''
-        return `- ${manifest.id}｜《${manifest.title}》｜${manifest.type}｜${manifest.units.length} 单元\n${rows.join('\n')}${more}`
-      })
-      .join('\n')
-    const hours = plan.budget?.hoursPerWeek === undefined ? '未指定' : `每周约 ${plan.budget.hoursPerWeek} 小时`
-    const mode = depth === 'deep' ? '精读（逐节重写）' : '速览（只做总览、论文关键节与对比）'
-    return [
-      '用户在学习桌里新建了一个学习目标，请在本次会话中完成「编排 + 重写」。',
-      '',
-      `目标：${plan.goal}`,
-      ...(plan.brief === undefined ? [] : [`补充说明：${plan.brief}`]),
-      `深度：${mode}`,
-      `时间预算：${hours}`,
-      `计划 id：${plan.id}`,
-      '',
-      '只用这些选定资料：',
-      catalogue,
-      '',
-      '请按顺序执行：',
-      `1. 用 study_library 确认资料与单元；然后用 study_plan_update 把计划 ${plan.id} 的步骤写出来（unit / paper-pass / drill / compare，每步 why 必须呼应目标，只选真正相关的单元）。Host 会在步骤写入后把它转为 active。`,
-      '2. 从最核心的单元开始：study_unit_material → 按目标重写精读稿（保留固定八节，其中「逐步讲解」优先展开与目标相关的部分，并在「常见误区」后加一段「与目标的关系」）→ study_unit_write → study_unit_verify。',
-      '3. 先做 1 节样例，让我确认风格，再继续其余单元；不要一次生成整本书。',
-      '4. 全部完成后用三句话总结这条路径与下一步。',
-    ].join('\n')
-  }
 
   /**
    * Import an uploaded PDF: the bytes stream to a temp file, import, delete.
@@ -713,7 +653,7 @@ export class StudyService {
       listConcepts(this.paths),
     ])
     const conceptById = new Map(concepts.map(concept => [concept.id, concept]))
-    const steps = plan.steps.map(step => this.stepView(step, manifests, conceptById, progress))
+    const steps = plan.steps.map(step => stepView(step, manifests, conceptById, progress))
     const bounds = planProgress(plan)
     const pageOf = (target: string): { pageStart: number; pageEnd: number } | null => {
       try {
@@ -728,7 +668,7 @@ export class StudyService {
     const goalById = new Map([[plan.id, plan.goal]])
     const cards = (await listCards(this.paths))
       .filter(card => card.planId === plan.id)
-      .map(card => this.cardView(card, this.today(), goalById))
+      .map(card => cardView(card, this.today(), goalById))
     return {
       plan: {
         id: plan.id,
@@ -894,7 +834,7 @@ export class StudyService {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    const issues = validatePlan(plan, this.planTargets(manifests, concepts))
+    const issues = validatePlan(plan, planTargets(manifests, concepts))
     if (issues.length > 0) throw new StudyError('invalid', '计划未通过校验', { issues })
     await writePlan(this.paths, plan)
     return this.planView(plan.id)
@@ -1060,7 +1000,7 @@ export class StudyService {
     }
 
     const [manifests, concepts] = await Promise.all([listManifests(this.paths), listConcepts(this.paths)])
-    const issues = validatePlan(plan, this.planTargets(manifests, concepts))
+    const issues = validatePlan(plan, planTargets(manifests, concepts))
     if (issues.length > 0) throw new StudyError('invalid', '计划未通过校验', { issues })
     await writePlan(this.paths, plan)
     return this.planView(planId)
@@ -1097,28 +1037,12 @@ export class StudyService {
     await writePlan(this.paths, plan)
   }
 
-  /** Resolve one card for the panel. */
-  private cardView(card: CardRecord, today: string, goalById: ReadonlyMap<string, string>): CardView {
-    const goal = card.planId === undefined ? undefined : goalById.get(card.planId)
-    return {
-      id: card.id,
-      kind: card.kind,
-      ...(card.planId === undefined ? {} : { planId: card.planId }),
-      ...(goal === undefined ? {} : { goal }),
-      prompt: card.prompt,
-      ...(card.detail === undefined ? {} : { detail: card.detail }),
-      due: card.due ?? today,
-      overdueDays: overdueDays(card.due, today),
-      reps: card.srs.reps,
-      ...(card.srs.lastRating === undefined ? {} : { lastRating: card.srs.lastRating }),
-    }
-  }
 
   /** Cards due today or earlier, most overdue first. */
   async dueCardList(date = this.today()): Promise<CardView[]> {
     const [cards, plans] = await Promise.all([listCards(this.paths), listPlans(this.paths)])
     const goalById = new Map(plans.map(plan => [plan.id, plan.goal]))
-    return dueCards(cards, date).map(card => this.cardView(card, date, goalById))
+    return dueCards(cards, date).map(card => cardView(card, date, goalById))
   }
 
   /** Record one rating on a card and return its next due date. */
@@ -1133,82 +1057,10 @@ export class StudyService {
     })
     const plans = await listPlans(this.paths)
     const goalById = new Map(plans.map(plan => [plan.id, plan.goal]))
-    return { card: this.cardView(card, today, goalById), due: card.due ?? today }
+    return { card: cardView(card, today, goalById), due: card.due ?? today }
   }
 
-  /** Resolve one plan step into human labels. */
-  private stepView(
-    step: PlanStep,
-    manifests: readonly MaterialManifest[],
-    conceptById: ReadonlyMap<string, { id: string; name: string }>,
-    progress: ProgressFile,
-  ): PlanStepView {
-    const view: PlanStepView = {
-      n: step.n,
-      kind: step.kind,
-      why: step.why,
-      done: step.done,
-      coverage: coverageOf(step),
-      ...(step.skipReason === undefined ? {} : { skipReason: step.skipReason }),
-    }
-    if (step.target !== undefined) {
-      try {
-        const { materialId, unitId } = splitUnitKey(step.target)
-        const manifest = manifests.find(candidate => candidate.id === materialId)
-        const node = manifest?.structure.find(candidate => candidate.uid === unitId)
-        if (manifest !== undefined && node !== undefined) {
-          view.target = {
-            materialId,
-            unitId,
-            title: node.title,
-            materialTitle: manifest.title,
-            pageStart: node.pageStart,
-            pageEnd: node.pageEnd,
-          }
-        }
-      } catch {
-        // A stale target is dropped from the view; validatePlan refuses new ones.
-      }
-    }
-    if (step.concepts !== undefined) {
-      view.concepts = step.concepts.map(id => ({
-        id,
-        name: conceptById.get(id)?.name ?? id,
-        mastery: progress.concepts[id]?.mastery ?? 0.5,
-      }))
-    }
-    if (step.materials !== undefined) {
-      view.materials = step.materials.map(id => ({
-        id,
-        title: manifests.find(manifest => manifest.id === id)?.title ?? id,
-      }))
-    }
-    return view
-  }
 
-  /** Target resolver used by plan validation. */
-  private planTargets(
-    manifests: readonly MaterialManifest[],
-    concepts: ReadonlyArray<{ id: string }>,
-  ): { hasUnit(key: string): boolean; hasConcept(id: string): boolean; hasMaterial(id: string): boolean } {
-    const conceptIds = new Set(concepts.map(concept => concept.id))
-    return {
-      hasUnit: key => {
-        let materialId: string
-        let unitId: string
-        try {
-          const parts = splitUnitKey(key)
-          materialId = parts.materialId
-          unitId = parts.unitId
-        } catch {
-          return false
-        }
-        return manifests.some(manifest => manifest.id === materialId && manifest.structure.some(node => node.uid === unitId))
-      },
-      hasConcept: id => conceptIds.has(id),
-      hasMaterial: id => manifests.some(manifest => manifest.id === id),
-    }
-  }
 
   /** Import one PDF. */
   async import(request: ImportRequest): Promise<ImportResult> {
@@ -1638,62 +1490,7 @@ export class StudyService {
     }
   }
 
-  /** Build the library card of one material. */
-  private cardOf(manifest: MaterialManifest, progress: ProgressFile): MaterialCard {
-    const today = this.today()
-    const dueKeys = new Set(dueUnits(progress, today).map(entry => entry.key))
-    let learned = 0
-    let due = 0
-    for (const unit of manifest.units) {
-      const key = unitKey(manifest.id, unit.uid)
-      const entry = progress.units[key]
-      if (entry !== undefined && (entry.state === 'learned' || entry.state === 'reviewing')) learned += 1
-      if (dueKeys.has(key)) due += 1
-    }
-    const verified = manifest.units.filter(unit => unit.status === 'verified').length
-    return {
-      id: manifest.id,
-      type: manifest.type,
-      title: manifest.title,
-      ...(manifest.subtitle === undefined ? {} : { subtitle: manifest.subtitle }),
-      authors: manifest.authors,
-      ...(manifest.year === undefined ? {} : { year: manifest.year }),
-      ...(manifest.venue === undefined ? {} : { venue: manifest.venue }),
-      pages: manifest.source.pages,
-      importedAt: manifest.source.importedAt,
-      units: manifest.units.length,
-      verifiedUnits: verified,
-      learnedUnits: learned,
-      dueCount: due,
-      status: learned === 0 ? 'new' : learned >= manifest.units.length ? 'done' : 'learning',
-      tags: manifest.tags,
-      ...(manifest.archived === true ? { archived: true } : {}),
-    }
-  }
 
-  /** Build one TOC row. */
-  private rowOf(
-    materialId: string,
-    node: StructureNode,
-    manifest: MaterialManifest,
-    progress: ProgressFile,
-    due: boolean,
-  ): TocRow {
-    const meta = unitMetaOf(manifest, node.uid)
-    const entry: UnitProgress | undefined = progress.units[unitKey(materialId, node.uid)]
-    return {
-      uid: node.uid,
-      title: node.title,
-      kind: node.kind,
-      ...(node.pass === undefined ? {} : { pass: node.pass }),
-      pageStart: node.pageStart,
-      pageEnd: node.pageEnd,
-      status: meta?.status ?? 'new',
-      state: entry?.state ?? 'new',
-      ...(entry?.due === undefined ? {} : { due: entry.due }),
-      concepts: meta?.concepts ?? [],
-    }
-  }
 
   /** Read notes, or null when none exist. */
   private async readNotes(materialId: string, unitId: string): Promise<string | null> {
