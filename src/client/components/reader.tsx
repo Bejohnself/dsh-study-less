@@ -425,7 +425,7 @@ function GoalStrip({
 /* ------------------------------------------------------------- the reader --- */
 
 /** Tints so consecutive blocks are told apart at a glance. */
-const BLOCK_TINTS = ['#2563eb', '#0f9d6e', '#b45309', '#7c3aed', '#0891b2', '#be123c', '#4d7c0f']
+const BLOCK_TINTS = ['#3f5c6b', '#4e6449', '#7a6140', '#5f5570', '#416a68', '#7a4a44', '#5a6240']
 
 /** Stable tint for one block id. */
 function tintOf(id: string): string {
