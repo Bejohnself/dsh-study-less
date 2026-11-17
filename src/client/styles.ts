@@ -1620,15 +1620,16 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   overflow: hidden;
 }
 [data-dsh-study] .study-pdf-canvas { display: block; }
+/* 页码印在纸上，所以永远是墨色、纸底，不跟主题走 */
 [data-dsh-study] .study-pdf-page-no {
   position: absolute;
   right: 8px;
   bottom: 6px;
   font-size: 11px;
-  color: var(--s-faint);
-  background: var(--s-surface);
+  color: #6b6457;
+  background: rgba(255, 255, 255, 0.82);
   padding: 0 4px;
-  border-radius: 4px;
+  border-radius: 2px;
 }
 [data-dsh-study] .study-pdf-fail {
   position: absolute;
