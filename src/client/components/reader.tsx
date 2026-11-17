@@ -19,7 +19,7 @@ import { api, errorText, post, waitForJob } from '../api.ts'
 import { loadPdfjs, openPdfDocument, pageRatios, ratioOf, type PdfRenderTask } from '../pdf.ts'
 import { MASCOT, type MascotMood } from '../mascot.ts'
 import { promptKindLabel } from '../labels.ts'
-import { EmptyState, JobBanner, Markdown, Toast } from './ui.tsx'
+import { EmptyState, InlineMarkdown, JobBanner, Markdown, Toast } from './ui.tsx'
 
 /* ------------------------------------------------------------- one page ----- */
 
@@ -221,8 +221,12 @@ function Rail({
         <p className="study-rail-empty">这一块没配问题。</p>
       ) : (
         <>
-          <p className="study-rail-transition">{prompt.transition}</p>
-          <p className="study-rail-question">{prompt.question}</p>
+          <p className="study-rail-transition">
+            <InlineMarkdown source={prompt.transition} />
+          </p>
+          <p className="study-rail-question">
+            <InlineMarkdown source={prompt.question} />
+          </p>
         </>
       )}
       {/*
@@ -1078,7 +1082,9 @@ export function UnitReader({
                 <span className="study-companion-avatar">
                   <Mascot mood={mood} thinking={thinking} />
                 </span>
-                <span className="study-companion-title">{activeBlock === null ? '引导' : activeBlock.title}</span>
+                <span className="study-companion-title">
+                  {activeBlock === null ? '引导' : <InlineMarkdown source={activeBlock.title} />}
+                </span>
                 {activeBlock?.prompt === undefined ? null : (
                   <span className="study-rail-kind">{promptKindLabel(activeBlock.prompt.kind)}</span>
                 )}

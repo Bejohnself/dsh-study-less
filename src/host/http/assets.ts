@@ -165,6 +165,45 @@ globalThis.__studyPdfjs = pdfjs
 globalThis.dispatchEvent(new Event('study-pdfjs-ready'))
 `
 
+/** File types the KaTeX stylesheet and fonts need. */
+const KATEX_TYPES: Record<string, string> = {
+  '.css': 'text/css; charset=utf-8',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+}
+
+/**
+ * Serve the KaTeX stylesheet or one of its fonts.
+ *
+ * Same reason as pdf.js: the panel renders formulas itself and cannot reach a
+ * CDN, so the stylesheet and fonts ship with the bundle.
+ *
+ * @param res - response owned by this call.
+ * @param name - `katex.min.css` or `fonts/<file>`.
+ */
+async function sendKatexAsset(res: ServerResponse, name: string): Promise<void> {
+  if (!/^(fonts\/)?[A-Za-z0-9._-]+$/.test(name)) throw new StudyError('invalid', `未知的公式字体资源：${name}`)
+  const file = fileURLToPath(new URL(`./katex/${name}`, import.meta.url))
+  let bytes: Buffer
+  try {
+    bytes = await readFile(file)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw new StudyError('not-found', '公式样式没有随插件打包，请重新构建插件')
+    }
+    throw error
+  }
+  res.writeHead(200, {
+    'content-type': KATEX_TYPES[extname(name).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': bytes.byteLength,
+    // 字体不会变，长缓存；文件名内没有版本号，改版本时换 URL 即可。
+    'cache-control': 'private, max-age=86400',
+    'x-content-type-options': 'nosniff',
+  })
+  res.end(bytes)
+}
+
 /** Directory groups the in-panel PDF viewer may fetch; nothing else is exposed. */
 const PDFJS_DIRECTORIES = new Set(['wasm', 'cmaps', 'standard_fonts'])
 
@@ -251,6 +290,10 @@ export async function handleAssetRoute(
 ): Promise<boolean> {
   if (path.startsWith('/pdfjs/')) {
     await sendPdfJsAsset(res, path.slice('/pdfjs/'.length))
+    return true
+  }
+  if (path.startsWith('/katex/')) {
+    await sendKatexAsset(res, path.slice('/katex/'.length))
     return true
   }
   if (path === '/pdf') {

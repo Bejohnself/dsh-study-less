@@ -698,6 +698,20 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 [data-dsh-study] .study-notes img { max-width: 100%; border-radius: 2px; }
 [data-dsh-study] .study-notes hr { border: 0; border-top: 1px solid var(--s-border); margin: 2em 0; }
 [data-dsh-study] .study-notes .katex { display: inline-block; max-width: 100%; }
+/* KaTeX 默认 1.21em：在 16px 正文里略大，收一点，公式和汉字才齐平 */
+[data-dsh-study] .study-notes .katex,
+[data-dsh-study] .study-book-content .katex { font-size: 1.06em; }
+[data-dsh-study] .study-rail-card .katex,
+[data-dsh-study] .study-companion .katex { font-size: 1em; }
+/* 问题句加粗时，公式不该跟着变粗：KaTeX 的粗细由它自己的字体决定 */
+[data-dsh-study] .study-rail-card .katex,
+[data-dsh-study] .study-rail-card .katex .mord,
+[data-dsh-study] .study-rail-card .katex .mbin,
+[data-dsh-study] .study-rail-card .katex .mrel,
+[data-dsh-study] .study-rail-card .katex .mopen,
+[data-dsh-study] .study-rail-card .katex .mclose,
+[data-dsh-study] .study-rail-card .katex .mpunct,
+[data-dsh-study] .study-rail-card .katex .minner { font-weight: 400; }
 [data-dsh-study] .study-display-math {
   display: flex;
   justify-content: flex-start;
@@ -2165,4 +2179,12 @@ export function ensureStudyStyles(): void {
   style.setAttribute('data-dsh-study-style', '')
   style.textContent = STUDY_CSS
   document.head.append(style)
+  // KaTeX 自己的样式表与字体由 Host 提供，公式才长得像大家见过的样子。
+  if (document.querySelector('link[data-dsh-study-katex]') === null) {
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = '/study-api/katex/katex.min.css'
+    link.setAttribute('data-dsh-study-katex', '')
+    document.head.append(link)
+  }
 }

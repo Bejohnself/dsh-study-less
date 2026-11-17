@@ -67,10 +67,10 @@ src/
 ├─ tests/                12 个 node:test 纯逻辑单测
 ├─ vendor/               pdfjs / marked / katex（第三方，勿改）
 ├─ tooling/              esbuild 二进制（勿改）
-└─ figure/ samples/      mascot 源图、样张 PDF（attention.pdf）
+└─ figure/ samples/      mascot 源图、样张 PDF（attention.pdf）；vendor/katex/dist 是公式样式与字体
 ```
 
-构建产物在 `lib/`（git 忽略）：`lib/index.js`（Host ESM）、`lib/client.js`（浏览器 CJS 包装）、`lib/pdfjs/*`。
+构建产物在 `lib/`（git 忽略）：`lib/index.js`（Host ESM）、`lib/client.js`（浏览器 CJS 包装）、`lib/pdfjs/*`、`lib/katex/*`（公式样式与字体）。
 `package.json` 的 `main` / `exports` 与 `dsh.client` 指向这里；`cordis.patch.yml` 把 `study-desk` 行插进 Web profile。
 
 ## 2. 启动与构建

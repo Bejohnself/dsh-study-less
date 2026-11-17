@@ -2,8 +2,9 @@
  * Markdown rendering for study notes, with LaTeX math.
  *
  * Raw HTML is escaped (notes are generated content rendered into the app
- * origin), while math is protected before escaping and rendered by KaTeX to
- * self-contained MathML — no fonts, no stylesheet, no external assets.
+ * origin), while math is protected before escaping and rendered by KaTeX's own
+ * HTML output. The stylesheet and its fonts ship with the bundle (see
+ * `ensureStudyStyles`), so formulas look the way KaTeX looks everywhere else.
  */
 import { marked } from '../../vendor/marked/marked.mjs'
 import katex from '../../vendor/katex/katex.mjs'
@@ -20,7 +21,7 @@ function renderTex(tex: string, display: boolean): string {
     const normalized = tex.replace(/\\mathrm\{([A-Za-z][A-Za-z0-9]*)\}(?=\s*(?:\\left\s*)?\()/g, '\\operatorname{$1}')
     const html = katex.renderToString(normalized.trim(), {
       displayMode: display,
-      output: 'mathml',
+      output: 'htmlAndMathml',
       throwOnError: false,
       strict: false,
     })

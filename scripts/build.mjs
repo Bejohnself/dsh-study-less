@@ -83,5 +83,9 @@ for (const directory of ['wasm', 'cmaps', 'standard_fonts']) {
     { recursive: true },
   )
 }
+// 公式走 KaTeX 的 HTML 输出，字体和样式表随包走，不引 CDN。
+await cp(new URL('../vendor/katex/dist', import.meta.url), new URL('../lib/katex', import.meta.url), {
+  recursive: true,
+})
 await unlink(new URL('../lib/client.body.cjs', import.meta.url))
 console.log(`built lib/index.js and lib/client.js (${wrapped.length} bytes client)`)
