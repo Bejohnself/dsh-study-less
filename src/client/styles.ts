@@ -1522,7 +1522,9 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   [data-dsh-study] button,
   [data-dsh-study] .study-book,
   [data-dsh-study] .study-plan-card,
-  [data-dsh-study] .study-concept-card { transition: none; }
+  [data-dsh-study] .study-concept-card,
+  [data-dsh-study] .study-guide,
+  [data-dsh-study] .study-floatbar { transition: none; }
   [data-dsh-study] button:active { transform: none; }
   /* 状态仍由文字说明，动画只是装饰 */
   [data-dsh-study] .study-mascot,
@@ -1814,6 +1816,15 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   height: 58px;
 }
 
+/* 贴边：停在这一侧，没打开时收进边里只探出一点，鼠标来了再整个出来。 */
+[data-dsh-study] .study-guide.is-docked { right: 0; bottom: 12px; }
+[data-dsh-study] .study-guide.is-docked[data-dock='left'] { right: auto; left: 0; }
+[data-dsh-study] .study-guide.is-docked:not(.is-open) { transition: transform 180ms ease; }
+[data-dsh-study] .study-guide.is-docked:not(.is-open) { transform: translateX(14px); }
+[data-dsh-study] .study-guide.is-docked:not(.is-open)[data-dock='left'] { transform: translateX(-14px); }
+[data-dsh-study] .study-guide.is-docked:not(.is-open):hover,
+[data-dsh-study] .study-guide.is-docked:not(.is-open):focus-within { transform: none; }
+
 [data-dsh-study] .study-sprite {
   width: 58px;
   height: 58px;
@@ -2020,7 +2031,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   align-items: center;
   gap: 6px;
   padding: 6px 8px 6px 12px;
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--s-surface);
   background: color-mix(in srgb, var(--s-surface) 88%, transparent);
   border: 1px solid var(--s-border);
@@ -2038,7 +2049,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 }
 [data-dsh-study] .study-floatbar-btn {
   padding: 5px 11px;
-  border-radius: 999px;
+  border-radius: 3px;
   font-size: 12px;
   color: var(--s-text);
   background: transparent;
@@ -2050,6 +2061,27 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   background: var(--s-primary);
 }
 [data-dsh-study] .study-floatbar-btn.is-primary:hover { background: var(--s-primary-strong); }
+[data-dsh-study] .study-floatbar-collapse { padding: 5px 9px; color: var(--s-muted); font-size: 14px; line-height: 1; }
+[data-dsh-study] .study-floatbar-collapse:hover { color: var(--s-text); }
+
+/* 收起来之后是屏幕右边中段的一枚窄页签，只留一个「‹」 */
+[data-dsh-study] .study-floatbar-tab {
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 72px;
+  padding: 0;
+  border-radius: 4px 0 0 4px;
+  border-right: 0;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--s-muted);
+  cursor: pointer;
+}
+[data-dsh-study] .study-floatbar-tab:hover { color: var(--s-text); background: var(--s-surface); }
 
 /* The paragraph the rail is talking about: a hint, not a highlighter. */
 [data-dsh-study] .study-mark {

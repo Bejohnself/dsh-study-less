@@ -517,6 +517,12 @@ export function UnitReader({
   // The guide is a sprite in the corner: closed it is one round button, open it
   // is a card. Its position is a point, not a width.
   const [cardPos, setCardPos] = useState<{ x: number; y: number } | null>(null)
+  // 贴边：锚点交给 CSS，位置不再由拖拽决定；左右两边都支持。
+  const [dock, setDock] = useState<'left' | 'right' | null>(null)
+  // 贴边时保留原来的高度：拖到右上角就往右上角贴，不往回掉。
+  const [dockY, setDockY] = useState<number | null>(null)
+  // 全屏功能栏可以收成边缘页签，少挡一点正文。
+  const [barOpen, setBarOpen] = useState(true)
   const [open, setOpen] = useState(false)
   // Set when a generation or a merge fails: the mascot is the only thing on
   // screen that can show "something went wrong" without a dialog.
@@ -588,6 +594,10 @@ export function UnitReader({
     const timer = window.setTimeout(() => setToast(null), 3600)
     return () => window.clearTimeout(timer)
   }, [toast])
+
+  useEffect(() => {
+    if (full) setBarOpen(true)
+  }, [full])
 
   useEffect(() => {
     if (!full) return
@@ -744,15 +754,24 @@ export function UnitReader({
     const startX = event.clientX
     const startY = event.clientY
     let moved = false
+    let last: { x: number; y: number } | null = null
     const move = (moveEvent: PointerEvent): void => {
       if (!moved && Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 5) return
       moved = true
-      setCardPos(clampPos(moveEvent.clientX - dx, moveEvent.clientY - dy))
+      const next = clampPos(moveEvent.clientX - dx, moveEvent.clientY - dy)
+      last = next
+      setDock(null)
+      setCardPos(next)
     }
     const stop = (): void => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
       document.body.style.userSelect = ''
+      // 松手时压在边上的，就贴上去：读的时候不用再管它挡不挡字。
+      if (last !== null) {
+        if (last.x <= 40) dockTo('left', last.y)
+        else if (last.x + 58 >= window.innerWidth - 40) dockTo('right', last.y)
+      }
       onDone?.(moved)
     }
     document.body.style.userSelect = 'none'
@@ -769,8 +788,23 @@ export function UnitReader({
     beginDrag(event, anchor.getBoundingClientRect())
   }
 
+  /** Park the sprite against one edge; the card then opens inward from it. */
+  const dockTo = (edge: 'left' | 'right' | null, y: number | null = null): void => {
+    const kept = edge === null || y === null ? null : Math.max(8, Math.min(window.innerHeight - 70, y))
+    setDock(edge)
+    setDockY(kept)
+    setCardPos(null)
+    setSide({
+      // 贴在上半屏时卡片朝下开，否则会顶出屏幕
+      vertical: kept !== null && kept < window.innerHeight * 0.45 ? 'below' : 'above',
+      align: edge === 'left' ? 'start' : 'end',
+    })
+  }
+
   const startSpriteDrag = (event: ReactPointerEvent<HTMLButtonElement>): void => {
-    beginDrag(event, event.currentTarget.getBoundingClientRect(), moved => {
+    // 贴边时 sprite 有位移，量锚点才能让拖拽不跳。
+    const anchor = event.currentTarget.closest('.study-guide') ?? event.currentTarget
+    beginDrag(event, anchor.getBoundingClientRect(), moved => {
       // A drag must not also open the card: the click arrives right after.
       suppressClick.current = moved
       if (moved) window.setTimeout(() => { suppressClick.current = false }, 0)
@@ -875,18 +909,39 @@ export function UnitReader({
     <div className={full ? 'study-reader2 is-full' : 'study-reader2'}>
       {/* Fullscreen keeps only what reading needs: the page, and three actions. */}
       {full ? (
-        <div className="study-floatbar">
-          <span className="study-floatbar-title">{unit.unit.title}</span>
-          <button type="button" className="study-floatbar-btn" onClick={() => setTocOpen(true)}>
-            目录
+        barOpen ? (
+          <div className="study-floatbar">
+            <span className="study-floatbar-title">{unit.unit.title}</span>
+            <button type="button" className="study-floatbar-btn" onClick={() => setTocOpen(true)}>
+              目录
+            </button>
+            <button type="button" className="study-floatbar-btn" onClick={() => onOpenQuiz?.(unit.unit)}>
+              过关测试
+            </button>
+            <button type="button" className="study-floatbar-btn is-primary" onClick={() => setFull(false)}>
+              退出全屏
+            </button>
+            <button
+              type="button"
+              className="study-floatbar-btn study-floatbar-collapse"
+              onClick={() => setBarOpen(false)}
+              title="把功能栏收到屏幕边上"
+              aria-label="收起功能栏"
+            >
+              ›
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="study-floatbar study-floatbar-tab"
+            onClick={() => setBarOpen(true)}
+            title="展开功能栏"
+            aria-label="展开功能栏"
+          >
+            ‹
           </button>
-          <button type="button" className="study-floatbar-btn" onClick={() => onOpenQuiz?.(unit.unit)}>
-            过关测试
-          </button>
-          <button type="button" className="study-floatbar-btn is-primary" onClick={() => setFull(false)}>
-            退出全屏
-          </button>
-        </div>
+        )
       ) : null}
       <div className="study-reader2-top">
         {planId === undefined ? null : (
@@ -971,8 +1026,17 @@ export function UnitReader({
           when the card closes — both live at the same point. */}
       {ask ? null : (
         <div
-          className={open ? 'study-guide is-open' : 'study-guide'}
-          style={cardPos === null ? undefined : { left: `${String(cardPos.x)}px`, top: `${String(cardPos.y)}px`, right: 'auto', bottom: 'auto' }}
+          className={`study-guide${open ? ' is-open' : ''}${dock === null ? '' : ' is-docked'}`}
+          {...(dock === null ? {} : { 'data-dock': dock })}
+          style={
+            dock !== null
+              ? dockY === null
+                ? undefined
+                : { top: `${String(dockY)}px`, bottom: 'auto' }
+              : cardPos === null
+                ? undefined
+                : { left: `${String(cardPos.x)}px`, top: `${String(cardPos.y)}px`, right: 'auto', bottom: 'auto' }
+          }
         >
           {open ? (
             <section
@@ -1000,6 +1064,19 @@ export function UnitReader({
                 {activeBlock?.prompt === undefined ? null : (
                   <span className="study-rail-kind">{promptKindLabel(activeBlock.prompt.kind)}</span>
                 )}
+                <button
+                  type="button"
+                  className="study-companion-toggle"
+                  onPointerDown={event => event.stopPropagation()}
+                  onClick={() => dockTo(dock === null ? 'right' : null, cardPos?.y ?? null)}
+                  title={dock === null ? '贴到屏幕边上' : '回到原来的角落'}
+                  aria-label={dock === null ? '贴到屏幕边上' : '取消贴边'}
+                >
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M9.5 3.2 5.8 8l3.7 4.8" />
+                    <path d="M13 2.5v11" />
+                  </svg>
+                </button>
                 <button
                   type="button"
                   className="study-companion-toggle"
@@ -1056,10 +1133,17 @@ export function UnitReader({
                   suppressClick.current = false
                   return
                 }
-                setSide({
-                  vertical: cardPos !== null && cardPos.y < window.innerHeight * 0.45 ? 'below' : 'above',
-                  align: cardPos !== null && cardPos.x < window.innerWidth * 0.5 ? 'start' : 'end',
-                })
+                setSide(
+                  dock !== null
+                    ? {
+                        vertical: dockY !== null && dockY < window.innerHeight * 0.45 ? 'below' : 'above',
+                        align: dock === 'left' ? 'start' : 'end',
+                      }
+                    : {
+                        vertical: cardPos !== null && cardPos.y < window.innerHeight * 0.45 ? 'below' : 'above',
+                        align: cardPos !== null && cardPos.x < window.innerWidth * 0.5 ? 'start' : 'end',
+                      },
+                )
                 setOpen(true)
               }}
               title="叫醒大肥鱼（它不记你读了多少）"
