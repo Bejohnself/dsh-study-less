@@ -201,7 +201,7 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         if (path === '/health') {
           send(res, 200, {
             ok: true,
-            plugin: 'dsh-study',
+            plugin: 'dsh-study-less',
             version: PLUGIN_VERSION,
             hostTime: new Date().toISOString(),
           })

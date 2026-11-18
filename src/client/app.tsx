@@ -3,6 +3,7 @@
  *
  * Three top-level sections share one reader and one refresh token:
  * 书架 (library), 阅读 (today/paths/review) and 笔记（实验，insights）.
+ * The 笔记（实验）entry can be hidden from settings.
  * Positioning lives in docs/POSITIONING.md; the copy here follows its glossary.
  * Settings is a utility dialog, not a fourth destination.
  */
@@ -20,7 +21,7 @@ import { SettingsDialog } from './pages/settings.tsx'
 import { ImportDialog } from './components/import.tsx'
 import { Toast, TopNav, ThemeToggle, type TopTab } from './components/ui.tsx'
 import { api } from './api.ts'
-import type { TocRow } from '../core/views.ts'
+import type { SettingsView, TocRow } from '../core/views.ts'
 import { PLUGIN_VERSION } from '../core/version.ts'
 
 type View =
@@ -41,6 +42,8 @@ export function StudyApp(): ReactElement {
   const [refreshToken, setRefreshToken] = useState(0)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
   const [hostVersion, setHostVersion] = useState<string | null>(null)
+  const [showInsights, setShowInsights] = useState(true)
+  const [settingsToken, setSettingsToken] = useState(0)
 
   const bump = (): void => setRefreshToken(value => value + 1)
 
@@ -49,6 +52,20 @@ export function StudyApp(): ReactElement {
       .then(value => setHostVersion(value.version))
       .catch(() => setHostVersion(null))
   }, [])
+
+  // 笔记（实验）can be folded away in settings; a failed read keeps it visible.
+  useEffect(() => {
+    api<SettingsView>('/settings')
+      .then(value => setShowInsights(value.study.showInsights !== false))
+      .catch(() => undefined)
+  }, [settingsToken])
+
+  // With the entry hidden, landing on the notes list falls back to 阅读; the
+  // concept/insight detail pages stay reachable through their deep links.
+  useEffect(() => {
+    if (showInsights || view.kind !== 'insights') return
+    setView({ kind: 'learn', tab: 'today' })
+  }, [showInsights, view])
 
   // The panel and the Host are reloaded separately: an older Host is worth a
   // visible warning, because its API predates this panel's shape.
@@ -109,6 +126,7 @@ export function StudyApp(): ReactElement {
           <div className="study-head-nav">
             <TopNav
               active={top}
+              showInsights={showInsights}
               onSelect={tab => {
                 if (tab === 'library') setView({ kind: 'library' })
                 else if (tab === 'learn') setView({ kind: 'learn', tab: 'today' })
@@ -263,6 +281,7 @@ export function StudyApp(): ReactElement {
             onClose={() => setDialog(null)}
             onSaved={() => {
               bump()
+              setSettingsToken(value => value + 1)
             }}
           />
         ) : null}

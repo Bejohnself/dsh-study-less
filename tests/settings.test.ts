@@ -30,3 +30,12 @@ test('study preferences are clamped', () => {
   assert.equal(settings.study.maxIntervalDays, 3650)
   assert.equal(settings.study.dailyNewUnits, 0)
 })
+
+test('study preferences keep the panel toggle', () => {
+  assert.equal(normalizeSettings({}).study.showInsights, true)
+  const off = patchSettings(defaultSettings(), { study: { showInsights: false } })
+  assert.equal(off.study.showInsights, false)
+  assert.equal(settingsView(off).study.showInsights, false)
+  // An omitted field in a later patch must not flip it back.
+  assert.equal(patchSettings(off, {}).study.showInsights, false)
+})

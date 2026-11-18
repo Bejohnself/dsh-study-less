@@ -595,7 +595,7 @@ export class StudyService {
     const response = await fetch(`https://arxiv.org/pdf/${id}`, {
       redirect: 'follow',
       signal: AbortSignal.timeout(120_000),
-      headers: { 'user-agent': 'dsh-study/0.1 (local study library)' },
+      headers: { 'user-agent': 'dsh-study-less/0.1 (local study library)' },
     })
     if (!response.ok || response.body === null) {
       throw new StudyError('invalid', `arXiv 下载失败（HTTP ${response.status}）`)

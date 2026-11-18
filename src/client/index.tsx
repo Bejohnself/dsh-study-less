@@ -1,5 +1,5 @@
 /**
- * Browser half of the dsh-study bundle.
+ * Browser half of the dsh-study-less bundle.
  *
  * Contributes the sidebar row and the center-column page. All state comes from
  * the Host through /study-api; this half never writes files.
@@ -104,7 +104,7 @@ export function apply(ctx: ClientContext): void {
       )
     } catch (error) {
       // A shell that cannot serve the seats degrades this plugin, never the GUI.
-      console.error('[dsh-study] panel registration failed:', error)
+      console.error('[dsh-study-less] panel registration failed:', error)
     }
     return () => {
       for (const dispose of disposers.splice(0)) dispose()

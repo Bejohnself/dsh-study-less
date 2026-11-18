@@ -1,5 +1,5 @@
 /**
- * Build both halves of the dsh-study bundle.
+ * Build both halves of the dsh-study-less bundle.
  *
  * The build uses the standalone esbuild binary under tooling/ so it never needs
  * a package manager: every runtime dependency is bundled into lib/, and the only

@@ -1,5 +1,5 @@
 /**
- * Host half of the dsh-study bundle.
+ * Host half of the dsh-study-less bundle.
  *
  * Owns the library (files under `$DSH_HOME/study`), the learning ledger, the
  * browser API and the agent tools. Both halves drive the same StudyService, so
@@ -43,7 +43,7 @@ const SECTION_ORDER = 200
 
 /** Model-facing announcement of the study desk. */
 export const STUDY_GUIDANCE = [
-  '本机已安装 dsh-study 插件（DSH Web GUI 的「书桌」），分为三块：书架（知识库）、阅读（今日/目标/复习）、笔记（实验，概念与洞察）。侧栏面板行「书桌」。',
+  '本机已安装 dsh-study-less 插件（DSH Web GUI 的「书桌」），分为三块：书架（知识库）、阅读（今日/目标/复习）、笔记（实验，概念与洞察）。侧栏面板行「书桌」。',
   '定位规范见 docs/POSITIONING.md，核心是「允许你不读完」：目标 → 裁剪边界（必读/略读/不读）→ 独立尝试与卡点 → 结案。精读稿（现称导读）、自编书、洞察卡属于实验功能，不要默认批量生成。',
   '工具：study_library / study_import_book / study_structure_set / study_unit_material / study_unit_write / study_unit_verify / study_concept_link / study_concept / study_today / study_plans / study_plan_create / study_plan_update / study_due / study_review / study_generate / study_jobs / study_insight / study_delete / study_quiz / study_book。',
   '导入流程：study_import_book(path) → 看返回的单元 → 必要时 study_structure_set 修正 → 逐节 study_unit_material → study_unit_write（精读稿）→ study_unit_verify。',
@@ -72,7 +72,7 @@ export interface Config {
 export const inject = ['webServer']
 
 /** Plugin identity reported by the health endpoint. */
-export const PLUGIN_ID = 'dsh-study'
+export const PLUGIN_ID = 'dsh-study-less'
 
 /** Plugin version is owned by core/version.ts and injected at build time. */
 export { PLUGIN_VERSION }
@@ -162,7 +162,7 @@ export function apply(ctx: HostContext, config: Config = {}): void {
       return () => dispose()
     })
   } catch (error) {
-    console.error('[dsh-study] prompt section unavailable:', error)
+    console.error('[dsh-study-less] prompt section unavailable:', error)
   }
   if (promptFeed !== undefined) {
     ctx.effect(() => () => promptFeed?.dispose(), 'study-desk: prompt section')
@@ -186,7 +186,7 @@ export function apply(ctx: HostContext, config: Config = {}): void {
       }
     })
   } catch (error) {
-    console.error('[dsh-study] agent tools unavailable:', error)
+    console.error('[dsh-study-less] agent tools unavailable:', error)
   }
   if (toolsFeed !== undefined) {
     ctx.effect(() => () => toolsFeed?.dispose(), 'study-desk: agent tools')

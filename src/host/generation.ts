@@ -676,7 +676,7 @@ export class GenerationService {
       return await accept(parseJsonObject(second.text))
     } catch (error) {
       const issues = issuesOf(error)
-      console.error('[dsh-study] generation validation failed:', issues, '\nraw:', second.text.slice(0, 4000))
+      console.error('[dsh-study-less] generation validation failed:', issues, '\nraw:', second.text.slice(0, 4000))
       throw new StudyError('invalid', '模型输出未通过校验', { issues })
     }
   }

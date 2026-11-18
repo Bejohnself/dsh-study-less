@@ -47,6 +47,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
   const [autoQuiz, setAutoQuiz] = useState(true)
   const [autoInsight, setAutoInsight] = useState(true)
   const [verifyNotes, setVerifyNotes] = useState(false)
+  const [showInsights, setShowInsights] = useState(true)
 
   useEffect(() => {
     let alive = true
@@ -83,6 +84,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
         setAutoQuiz(value.study.autoQuiz)
         setAutoInsight(value.study.autoInsight)
         setVerifyNotes(value.study.verifyNotes)
+        setShowInsights(value.study.showInsights !== false)
       })
       .catch(reason => {
         if (alive) setError(errorText(reason))
@@ -148,6 +150,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
           autoQuiz,
           autoInsight,
           verifyNotes,
+          showInsights,
         },
       })
       setView(value)
@@ -184,6 +187,13 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
             ))}
           </div>
           <p className="study-muted">现在是「{themeLabel(preference)}」。</p>
+          <p className="study-muted">「笔记（实验）」暂时用不上就收起来；已存的笔记和概念都保留，随时可以再打开。</p>
+          <div className="study-settings-toggles">
+            <label className="study-inline-check">
+              <input type="checkbox" checked={showInsights} onChange={event => setShowInsights(event.target.checked)} />
+              显示「笔记（实验）」入口
+            </label>
+          </div>
         </section>
         <section className="study-settings-section">
           <h3>文本引擎</h3>

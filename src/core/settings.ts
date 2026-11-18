@@ -22,6 +22,7 @@ export const DEFAULT_STUDY: StudyPreferences = {
   autoQuiz: true,
   autoInsight: true,
   verifyNotes: false,
+  showInsights: true,
   concurrency: 1,
   requestTimeoutMs: 120_000,
 }
@@ -126,6 +127,7 @@ function normalizeStudy(value: unknown): StudyPreferences {
     autoQuiz: bool(input.autoQuiz, DEFAULT_STUDY.autoQuiz),
     autoInsight: bool(input.autoInsight, DEFAULT_STUDY.autoInsight),
     verifyNotes: bool(input.verifyNotes, DEFAULT_STUDY.verifyNotes),
+    showInsights: bool(input.showInsights, DEFAULT_STUDY.showInsights),
     concurrency: clamp(Math.round(concurrency ?? DEFAULT_STUDY.concurrency), 1, 4),
     requestTimeoutMs: clamp(Math.round(timeout ?? DEFAULT_STUDY.requestTimeoutMs), 5_000, 600_000),
   }

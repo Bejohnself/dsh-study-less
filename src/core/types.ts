@@ -242,6 +242,8 @@ export interface StudyPreferences {
   autoQuiz: boolean
   autoInsight: boolean
   verifyNotes: boolean
+  /** Whether the desk shell shows the 笔记（实验）top-level entry. */
+  showInsights: boolean
   concurrency: number
   requestTimeoutMs: number
 }

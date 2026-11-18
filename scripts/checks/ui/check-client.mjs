@@ -72,7 +72,7 @@ const run = new Function('window', 'document', 'fetch', 'console', source)
 run(globalThis.window, undefined, () => Promise.reject(new Error('no network in the stub')), console)
 
 if (loaded === undefined) throw new Error('bundle did not call __ModuleLoader__.load')
-if (loaded.id !== 'dsh-study') throw new Error(`unexpected id: ${loaded.id}`)
+if (loaded.id !== 'dsh-study-less') throw new Error(`unexpected id: ${loaded.id}`)
 
 const exports = loaded.factory(request => {
   if (!(request in stubs)) throw new Error(`unexpected module request: ${request}`)

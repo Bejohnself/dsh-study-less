@@ -118,12 +118,20 @@ export function ThemeToggle(): ReactElement {
   )
 }
 
-/** The three top-level sections. */
-export function TopNav({ active, onSelect }: { active: TopTab; onSelect: (tab: TopTab) => void }): ReactElement {
+/** The top-level sections; the experimental 笔记 entry can be hidden in settings. */
+export function TopNav({
+  active,
+  onSelect,
+  showInsights = true,
+}: {
+  active: TopTab
+  onSelect: (tab: TopTab) => void
+  showInsights?: boolean
+}): ReactElement {
   const items: Array<{ id: TopTab; label: string }> = [
     { id: 'library', label: '书架' },
     { id: 'learn', label: '阅读' },
-    { id: 'insights', label: '笔记（实验）' },
+    ...(showInsights ? [{ id: 'insights' as TopTab, label: '笔记（实验）' }] : []),
   ]
   return (
     <div className="study-nav" role="tablist">
