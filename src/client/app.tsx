@@ -26,7 +26,7 @@ import { PLUGIN_VERSION } from '../core/version.ts'
 type View =
   | { kind: 'library' }
   | { kind: 'material'; mid: string; uid?: string; planId?: string }
-  | { kind: 'practice'; mid: string; unit: TocRow; planId?: string }
+  | { kind: 'practice'; mid: string; unit: TocRow; planId?: string; concept?: string }
   | { kind: 'learn' }
   | { kind: 'plan'; pid: string }
   | { kind: 'book'; bid: string; cid?: string; pid?: string }
@@ -90,6 +90,14 @@ export function StudyApp(): ReactElement {
     setView({ kind: 'material', mid, uid, ...(planId === undefined ? {} : { planId }) })
   }
   const openConcept = (cid: string): void => setView({ kind: 'concept', cid })
+  const openReview = async (mid: string, uid: string, conceptId: string): Promise<void> => {
+    try {
+      const value = await api<{ unit: TocRow }>(`/unit?mid=${encodeURIComponent(mid)}&uid=${encodeURIComponent(uid)}`)
+      setView({ kind: 'practice', mid, unit: value.unit, concept: conceptId })
+    } catch (reason) {
+      setToast({ message: reason instanceof Error ? reason.message : '这一节读不出来', tone: 'error' })
+    }
+  }
   const openInsight = (iid: string): void => setView({ kind: 'insight', iid })
   const openBook = (bid: string, planId?: string): void => setView({ kind: 'book', bid, ...(planId === undefined ? {} : { pid: planId }) })
 
@@ -195,6 +203,7 @@ export function StudyApp(): ReactElement {
             onOpenUnit={openUnit}
             onOpenConcept={openConcept}
             onOpenPlan={pid => setView({ kind: 'plan', pid })}
+            onReviewConcept={(mid, uid, conceptId) => void openReview(mid, uid, conceptId)}
             onOpenLibrary={() => setView({ kind: 'library' })}
             refreshToken={refreshToken}
           />

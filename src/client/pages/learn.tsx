@@ -29,12 +29,14 @@ export function LearnPage({
   onOpenUnit,
   onOpenConcept,
   onOpenPlan,
+  onReviewConcept,
   onOpenLibrary,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenConcept: (cid: string) => void
   onOpenPlan: (pid: string) => void
+  onReviewConcept: (mid: string, uid: string, conceptId: string) => void
   onOpenLibrary: () => void
   refreshToken: number
 }): ReactElement {
@@ -44,6 +46,7 @@ export function LearnPage({
         onOpenUnit={onOpenUnit}
         onOpenConcept={onOpenConcept}
         onOpenPlan={onOpenPlan}
+        onReviewConcept={onReviewConcept}
         onOpenLibrary={onOpenLibrary}
         refreshToken={refreshToken}
       />
@@ -55,12 +58,14 @@ function TodayPanel({
   onOpenUnit,
   onOpenConcept,
   onOpenPlan,
+  onReviewConcept,
   onOpenLibrary,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenConcept: (cid: string) => void
   onOpenPlan: (pid: string) => void
+  onReviewConcept: (mid: string, uid: string, conceptId: string) => void
   onOpenLibrary: () => void
   refreshToken: number
 }): ReactElement {
@@ -167,7 +172,17 @@ function TodayPanel({
             <ul className="study-list">
               {dueKnowledge.slice(0, 6).map(entry => (
                 <li key={entry.conceptId}>
-                  <button type="button" className="study-item" onClick={() => onOpenConcept(entry.conceptId)}>
+                  <button
+                    type="button"
+                    className="study-item"
+                    onClick={() => {
+                      if (entry.materialId !== undefined && entry.unitId !== undefined) {
+                        onReviewConcept(entry.materialId, entry.unitId, entry.conceptId)
+                      } else {
+                        onOpenConcept(entry.conceptId)
+                      }
+                    }}
+                  >
                     <span className="study-item-title">{entry.name}</span>
                     <span className="study-item-meta">
                       掌握 {Math.round(entry.mastery * 100)}% / 目标 {Math.round(entry.target * 100)}%

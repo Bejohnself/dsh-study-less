@@ -28,7 +28,7 @@ import { EmptyState, InlineMarkdown, Markdown, ProgressBar } from './ui.tsx'
 
 /** The adaptive practice runner for one unit bank or one book chapter. */
 export type QuizRunnerScope =
-  | { kind: 'unit'; mid: string; uid: string }
+  | { kind: 'unit'; mid: string; uid: string; concept?: string }
   | { kind: 'book'; bid: string; cid: string }
   | { kind: 'plan'; pid: string; mid: string; uid: string }
 
@@ -117,7 +117,7 @@ export function QuizRunner({
     try {
       const body =
         scope.kind === 'unit'
-          ? { mid: scope.mid, uid: scope.uid }
+          ? { mid: scope.mid, uid: scope.uid, ...(scope.concept === undefined ? {} : { concept: scope.concept }) }
           : scope.kind === 'book'
             ? { bid: scope.bid, cid: scope.cid }
             : { pid: scope.pid, mid: scope.mid, uid: scope.uid }

@@ -239,6 +239,9 @@ export interface KnowledgeToday {
     overdueDays: number
     mastery: number
     target: number
+    /** First place this concept appears, for a focused review. */
+    materialId?: string
+    unitId?: string
   }>
   below: Array<{
     conceptId: string

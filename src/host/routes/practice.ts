@@ -55,6 +55,7 @@ export async function postPractice(ctx: RouteContext, body: Record<string, unkno
         ...(typeof body.pid === 'string' ? { plan: body.pid } : {}),
         ...(typeof body.limit === 'number' ? { limit: body.limit } : {}),
         ...(body.restart === true ? { restart: true } : {}),
+        ...(typeof body.concept === 'string' && body.concept.trim().length > 0 ? { concept: body.concept.trim() } : {}),
       }),
     })
     return

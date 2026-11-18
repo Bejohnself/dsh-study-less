@@ -177,6 +177,8 @@ export class QuizSessionService {
     plan?: string
     limit?: number
     restart?: boolean
+    /** Focus one concept (review); unit scope only. */
+    concept?: string
   }): Promise<QuizSessionView> {
     await this.recover()
     const scope = this.scopeOf(input)
@@ -187,9 +189,22 @@ export class QuizSessionService {
     // practice: it asks questions but writes no progress.
     const goal = scope.kind === 'unit' ? activePlan(await listPlans(this.paths)) : undefined
     let free = scope.kind === 'unit' && goal === undefined
+    let review = false
     let thresholds: Record<string, number> = {}
     let targets: string[]
-    if (scope.kind === 'unit' && goal !== undefined) {
+    if (scope.kind === 'unit' && input.concept !== undefined) {
+      // Review one due concept: ask it again even if it is above target, and
+      // close as soon as this point passes.
+      review = true
+      targets = [input.concept]
+      const level = goal === undefined ? undefined : goalTargetsForUnit(goal, `${scope.material}:${scope.unit}`).get(input.concept)?.level
+      const state = (await ensureKnowledge(this.paths)).concepts[input.concept]
+      thresholds = {
+        [input.concept]:
+          level === undefined ? (state === undefined ? DEFAULT_TARGET : targetOf(state)) : thresholdForLevel(level),
+      }
+      free = goal === undefined
+    } else if (scope.kind === 'unit' && goal !== undefined) {
       const map = goalTargetsForUnit(goal, `${scope.material}:${scope.unit}`)
       if (map.size > 0) {
         targets = [...map.keys()]
@@ -271,7 +286,7 @@ export class QuizSessionService {
     // A new run only asks what is still open: a concept already at the goal's
     // threshold does not come back until review says it decayed.
     const knowledge = await ensureKnowledge(this.paths)
-    if (!free) {
+    if (!free && !review) {
       const stillOpen = targets.filter(conceptId => {
         const state = knowledge.concepts[conceptId]
         return state === undefined || decayedMastery(state, localDate()) < (thresholds[conceptId] ?? DEFAULT_TARGET)
@@ -283,7 +298,8 @@ export class QuizSessionService {
     }
 
     const requested = Number.isFinite(input.limit) ? Math.round(input.limit as number) : undefined
-    const limit = Math.max(1, Math.min(20, requested ?? this.limitFor(bank, targets)))
+    const fallback = review ? 2 : this.limitFor(bank, targets)
+    const limit = Math.max(1, Math.min(20, requested ?? fallback))
     const weak = new Set(
       (await this.service.concepts()).filter(concept => concept.weak).map(concept => concept.id),
     )

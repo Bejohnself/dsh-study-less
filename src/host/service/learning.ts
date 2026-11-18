@@ -44,13 +44,22 @@ export async function due(svc: StudyService, today = svc.today()): Promise<DueIt
 
 export async function todayView(svc: StudyService): Promise<TodayView> {
   const date = svc.today()
-  const [manifests, progress, concepts, plans, knowledge] = await Promise.all([
+  const [manifests, progress, concepts, plans, knowledge, records] = await Promise.all([
     listManifests(svc.paths),
     readProgress(svc.paths),
     svc.concepts(),
     listPlans(svc.paths),
     ensureKnowledge(svc.paths),
+    listConcepts(svc.paths),
   ])
+  const places = new Map(
+    records.map(record => [
+      record.id,
+      record.occurrences[0] === undefined
+        ? undefined
+        : { materialId: record.occurrences[0].material, unitId: record.occurrences[0].unit },
+    ]),
+  )
   const active = activePlan(plans)
   const goalMap = active === undefined ? new Map<string, 1 | 2 | 3 | 4>() : goalConcepts(active)
   const thresholdOf = (conceptId: string): number =>
@@ -60,11 +69,15 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
   const inScope = (conceptId: string): boolean => goalMap.size === 0 || goalMap.has(conceptId)
   const knowledgeDue = dueConcepts(knowledge, date)
     .filter(entry => inScope(entry.conceptId))
-    .map(entry => ({
-      ...entry,
-      name: names.get(entry.conceptId) ?? entry.conceptId,
-      target: thresholdOf(entry.conceptId),
-    }))
+    .map(entry => {
+      const place = places.get(entry.conceptId)
+      return {
+        ...entry,
+        name: names.get(entry.conceptId) ?? entry.conceptId,
+        target: thresholdOf(entry.conceptId),
+        ...(place === undefined ? {} : place),
+      }
+    })
   const knowledgeBelow = concepts
     .filter(concept => inScope(concept.id))
     .map(concept => {

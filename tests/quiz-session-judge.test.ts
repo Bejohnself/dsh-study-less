@@ -265,3 +265,32 @@ test('a section whose points already passed does not reopen a run', async () => 
   )
   await deletePlan(paths, 'p-active')
 })
+
+test('a due concept can be reviewed on its own even when already at target', async () => {
+  await seedGoal('m5:u5', ['dp/review'])
+  const today = '2026-03-01'
+  await writeKnowledge(paths, {
+    version: 1,
+    updatedAt: today,
+    concepts: {
+      'dp/review': {
+        mastery: 0.95,
+        peak: 0.95,
+        streak: 0,
+        attempts: 4,
+        correct: 4,
+        due: '2026-02-20',
+        srs: { S: 20, D: 3, reps: 4, lapses: 0, lastRating: 4 },
+        evidence: {},
+      },
+    },
+  })
+  const sessions = new QuizSessionService(paths, choiceService(choiceBank(2, 'dp/review').items))
+  const started = await sessions.start({ material: 'm5', unit: 'u5', concept: 'dp/review' })
+  assert.equal(started.session.limit, 2, 'a review asks at most two questions')
+  assert.equal(started.session.targetsTotal, 1, 'only the due concept is in scope')
+  const answered = await sessions.answer(started.session.id, started.item!.id, 0)
+  assert.equal(answered.session.status, 'done')
+  assert.equal(answered.summary?.verdict, 'passed')
+  await deletePlan(paths, 'p-active')
+})
