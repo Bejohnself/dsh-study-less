@@ -79,6 +79,7 @@ function fakeJudge(verdict: 'pass' | 'fail'): { judge: QuizEngine; generated: Ma
       confidence: 0.9,
       engine: 'fake',
     }),
+    extractConcepts: async () => [],
     moreQuizItems: async () => [],
   }
   return { judge, generated }

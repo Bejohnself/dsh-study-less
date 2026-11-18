@@ -19,7 +19,7 @@ import { StudyError } from './service/error.ts'
 import { library, materialState, pdfSource, pdfAvailable, unit, unitMaterial, complete, uncomplete, importOp, importUpload, importFromUrl, structureSet, layout, mergeBlock, manifest, archiveMaterial, deleteMaterial } from './service/library.ts'
 import { due, todayView, review, dueCardList, reviewCard, concepts, conceptView } from './service/learning.ts'
 import { createGoal, promptPlanInChat, planList, planView, createPlan, updatePlan, closePlan, setPlanGeneration, recordQuestions, recordJudgement, deletePlan } from './service/plans.ts'
-import { writeUnit, verifyUnit, hasNotes, quiz, writeQuiz, writeBlocks, submitQuiz, attachInsights } from './service/authoring.ts'
+import { writeUnit, verifyUnit, writeConcepts, hasNotes, quiz, writeQuiz, writeBlocks, submitQuiz, attachInsights } from './service/authoring.ts'
 
 export { StudyError }
 
@@ -309,6 +309,14 @@ export class StudyService {
 
   async quiz(materialId: string, unitId: string): Promise<QuizBank | null> {
     return quiz(this, materialId, unitId)
+  }
+
+  async writeConcepts(
+    materialId: string,
+    unitId: string,
+    concepts: ReadonlyArray<{ id: string; name: string; definition?: string; page?: number }>,
+  ): Promise<string[]> {
+    return writeConcepts(this, materialId, unitId, concepts)
   }
 
   async writeQuiz(materialId: string, unitId: string, items: readonly QuizItem[]): Promise<QuizBank> {

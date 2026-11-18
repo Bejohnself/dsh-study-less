@@ -180,6 +180,22 @@ export class QuizSessionService {
     if (scope.kind === 'plan') return this.startPlan(scope, input)
     let bank = await this.tryBankOf(scope)
     let targets = await targetsOf(this.service, scope, bank)
+    if (scope.kind === 'unit' && targets.length === 0 && this.engine !== undefined) {
+      // A section without knowledge points cannot be measured. Extract them
+      // once, inline: the practice page is already waiting.
+      try {
+        const extracted = await this.engine.extractConcepts({
+          material: scope.material,
+          unit: scope.unit,
+        })
+        if (extracted.length > 0) {
+          await this.service.writeConcepts(scope.material, scope.unit, extracted)
+          targets = await targetsOf(this.service, scope, bank)
+        }
+      } catch {
+        // Fall back to the bank's concept labels; extraction is retryable.
+      }
+    }
     if (bank === null || bank.items.length === 0) {
       // No bank yet: open the round with one question written on demand, so a
       // session never starts from a prefabricated batch.

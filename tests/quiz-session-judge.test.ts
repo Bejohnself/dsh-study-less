@@ -64,6 +64,7 @@ function scriptedJudge(verdicts: QuizJudgeVerdict[]): { judge: QuizEngine; calls
       confidence: 0.9,
       engine: 'fake',
     }),
+    extractConcepts: async () => [],
     moreQuizItems: async () => [],
   }
   return { judge, calls }

@@ -90,6 +90,55 @@ export async function writeUnit(svc: StudyService,
   }
 }
 
+/**
+ * Register the knowledge points extracted for one unit.
+ *
+ * Merges with what the unit already has: re-extracting must never drop a
+ * concept that earlier answers already refer to. Occurrences point at the page
+ * the extractor named, or the unit start when it did not.
+ */
+export async function writeConcepts(
+  svc: StudyService,
+  materialId: string,
+  unitId: string,
+  concepts: ReadonlyArray<{ id: string; name: string; definition?: string; page?: number }>,
+): Promise<string[]> {
+  if (concepts.length === 0) return []
+  const manifest = await svc.manifest(materialId)
+  const node = structureNodeOf(manifest, unitId)
+  for (const concept of concepts) assertConceptId(concept.id)
+  const previous = await readJson<UnitMetaFile | null>(svc.paths.unitMetaFile(materialId, unitId), null)
+  const ids = [...new Set([...(previous?.concepts ?? []), ...concepts.map(concept => concept.id)])]
+  const meta: UnitMetaFile = {
+    version: 1,
+    material: materialId,
+    unit: unitId,
+    title: node.title,
+    concepts: ids,
+    pageRefs: previous?.pageRefs ?? [],
+    ...(previous?.generatedBy === undefined ? {} : { generatedBy: previous.generatedBy }),
+    ...(previous?.verification === undefined ? {} : { verification: previous.verification }),
+    ...(previous?.insights === undefined ? {} : { insights: previous.insights }),
+    ...(previous?.extras === undefined ? {} : { extras: previous.extras }),
+  }
+  await writeJsonAtomic(svc.paths.unitMetaFile(materialId, unitId), meta)
+  for (const concept of concepts) {
+    const page = concept.page !== undefined && concept.page >= node.pageStart && concept.page <= node.pageEnd
+      ? concept.page
+      : node.pageStart
+    await upsertConcept(svc.paths, {
+      id: concept.id,
+      name: concept.name,
+      ...(concept.definition === undefined ? {} : { definition: concept.definition }),
+      occurrences: [{ material: materialId, unit: unitId, page, role: 'definition' }],
+    })
+  }
+  const unit = manifest.units.find(candidate => candidate.uid === unitId)
+  if (unit !== undefined) unit.concepts = ids
+  await writeManifest(svc.paths, manifest)
+  return ids
+}
+
 export async function verifyUnit(svc: StudyService, 
   materialId: string,
   unitId: string,

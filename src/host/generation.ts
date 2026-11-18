@@ -22,6 +22,7 @@ import { ask, generateMasteryQuiz, generateQuestions, judgeAnswer, judgeQuizAnsw
 import { generatePlan, retryPlan, runPlan } from './generation/plan.ts'
 import { generateUnit, runUnit } from './generation/unit.ts'
 import { generateQuiz, moreQuizItems, runQuiz, runQuizInternal, type MoreQuizItemsInput } from './generation/quiz.ts'
+import { extractConcepts, type ExtractedConcept } from './generation/concepts.ts'
 import { generateBlocks, runBlocks } from './generation/blocks.ts'
 import { generateInsights, runUnitInsights, runUnitInsightsInternal, runConceptInsights } from './generation/insight.ts'
 import { generateBookOutline, generateBookChapter, generateBookContinuity, runBookOutline, runBookChapter, runBookContinuity } from './generation/book.ts'
@@ -239,6 +240,11 @@ export class GenerationService {
   /** Write extra questions for the points still pending in a session. */
   async moreQuizItems(input: MoreQuizItemsInput): Promise<QuizItem[]> {
     return moreQuizItems(this, input)
+  }
+
+  /** Extract the knowledge points of one unit, so practice has a target list. */
+  async extractConcepts(input: { material: string; unit: string }): Promise<ExtractedConcept[]> {
+    return extractConcepts(this, input)
   }
 
   async testEngine(kind: 'text' | 'image' | 'animation' | 'embedding'): Promise<Record<string, unknown>> {

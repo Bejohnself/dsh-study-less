@@ -590,3 +590,37 @@ export function normalizeBookChapter(
   return { body: finalBody, summary, wordCount: finalBody.length, concepts, exercises }
 }
 
+
+/** Normalize extracted knowledge points for one unit. */
+export function normalizeConcepts(
+  parsed: unknown,
+  range: { pageStart: number; pageEnd: number },
+): Array<{ id: string; name: string; definition?: string; page?: number }> {
+  const body = asRecord(parsed)
+  const raw = asArray(body.concepts, 'concepts')
+  const seen = new Set<string>()
+  const out: Array<{ id: string; name: string; definition?: string; page?: number }> = []
+  for (const entry of raw) {
+    const row = asRecord(entry)
+    const id = typeof row.id === 'string' ? row.id.trim().toLowerCase() : ''
+    if (!/^[a-z0-9][a-z0-9/_-]*$/.test(id) || id.length > 80 || seen.has(id)) continue
+    const name = typeof row.name === 'string' ? row.name.trim() : ''
+    if (name.length === 0 || name.length > 40) continue
+    const definition =
+      typeof row.definition === 'string' && row.definition.trim().length > 0
+        ? row.definition.trim().slice(0, 200)
+        : undefined
+    const page = asNumber(row.page)
+    const inside = page !== undefined && page >= range.pageStart && page <= range.pageEnd
+    seen.add(id)
+    out.push({
+      id,
+      name,
+      ...(definition === undefined ? {} : { definition }),
+      ...(inside ? { page: Math.round(page) } : {}),
+    })
+    if (out.length >= 8) break
+  }
+  if (out.length === 0) throw new StudyError('invalid', '模型没有抽出可用的知识点，稍后重试')
+  return out
+}

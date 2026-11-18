@@ -641,3 +641,47 @@ export function blocksPrompt(input: {
     ].join('\n'),
   }
 }
+
+/** Input of the concept extractor for one unit. */
+export interface ConceptsPromptInput {
+  /** `《资料》· 单元标题` */
+  context: string
+  pageStart: number
+  pageEnd: number
+  /** Original text with `[pN]` markers. */
+  source: string
+  /** Global ids already in the library, so the same idea keeps one id. */
+  existing?: readonly string[]
+}
+
+/** System prompt of the concept extractor. */
+export const CONCEPTS_SYSTEM = [
+  '你是学习桌的知识点抽取器：把一节的内容拆成读者要真正掌握的几个知识点。',
+  '你只输出一个合法 JSON 对象，不要输出 Markdown 代码围栏、解释或前后缀。',
+  '规则：',
+  '1. 抽 3–8 个知识点，覆盖本节的核心概念、方法、结论；不要按段落切，不要抽「本节目标」「小结」「练习」这类结构信息。',
+  '2. id 用全局小写 slug，形如 主题/概念（dp/bellman-equation）；已有的同义概念沿用给定 id。',
+  '3. name 是读者能懂的中文短名；definition 用一句话说明这个概念是什么。',
+  '4. page 必须是原文真实页码，且落在给定范围内；拿不准就省略。',
+  '5. 一个知识点只出现一次；不要把同一个概念拆成两条。',
+].join('\n')
+
+/** Build the concept-extraction prompt. */
+export function conceptsPrompt(input: ConceptsPromptInput): { system: string; user: string } {
+  return {
+    system: CONCEPTS_SYSTEM,
+    user: [
+      `范围：${input.context}，p${input.pageStart}–p${input.pageEnd}`,
+      ...(input.existing === undefined || input.existing.length === 0
+        ? []
+        : ['', '## 已有概念（同义时沿用这些 id）', input.existing.slice(0, 80).join(', ')]),
+      '',
+      '## 原文（按页标注）',
+      input.source,
+      '',
+      '## 输出契约',
+      '输出一个 JSON 对象：',
+      '{"concepts":[{"id":"主题/概念","name":"短名","definition":"一句话定义","page":3}]}',
+    ].join('\n'),
+  }
+}

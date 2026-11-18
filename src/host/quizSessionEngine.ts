@@ -19,6 +19,10 @@ export interface QuizEngine {
   masteryQuiz(input: MasteryQuizPromptInput): Promise<{ items: QuizItem[] }>
   /** Confirm that every knowledge point of a section passed. */
   sectionPassed(input: SectionJudgePromptInput): Promise<JudgeResult>
+  /** Extract the knowledge points of a unit when it has none yet. */
+  extractConcepts(input: { material: string; unit: string }): Promise<
+    Array<{ id: string; name: string; definition?: string; page?: number }>
+  >
   /** Write extra questions for the points still pending in a session. */
   moreQuizItems(input: {
     material: string
