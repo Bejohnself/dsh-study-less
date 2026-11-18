@@ -22,16 +22,7 @@ import { getNotes, postNotes } from './routes/notes.ts'
 import { getPlans, postPlans } from './routes/plans.ts'
 import { getPractice, postPractice } from './routes/practice.ts'
 import { getReading, postReading } from './routes/reading.ts'
-import {
-  isLoopback,
-  readBody,
-  sameOrigin,
-  send,
-  statusOf,
-  type RouteContext,
-  type StudyRoute,
-  type StudyRouteExtras,
-} from './routes/shared.ts'
+import { isLoopback, readBody, sameOrigin, send, statusOf, type RouteContext, type StudyRoute, type StudyRouteExtras } from './routes/shared.ts'
 
 export type { StudyRoute, StudyRouteExtras } from './routes/shared.ts'
 
