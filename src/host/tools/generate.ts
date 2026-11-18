@@ -16,6 +16,9 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
       parameters: objectSchema({
         action: { type: 'string', enum: ['plan', 'unit', 'quiz', 'insight'] },
         goal: { type: 'string', description: 'plan 的目标' },
+        deliverable: { type: 'string', description: 'plan 要交出的东西（目标边界的依据）' },
+        deadline: { type: 'string', description: 'plan 的期限 YYYY-MM-DD（必填）' },
+        audience: { type: 'string', description: 'plan 的读者/受众' },
         brief: { type: 'string', description: 'plan 的补充说明' },
         materials: { type: 'array', items: { type: 'string' }, description: 'plan 选中的资料 id' },
         hoursPerWeek: { type: 'number' },
@@ -30,6 +33,9 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
         const input = args as {
           action: 'plan' | 'unit' | 'quiz' | 'insight'
           goal?: string
+          deliverable?: string
+          deadline?: string
+          audience?: string
           brief?: string
           materials?: string[]
           hoursPerWeek?: number
@@ -44,11 +50,17 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
             if (input.goal === undefined || input.materials === undefined || input.materials.length === 0) {
               throw new StudyError('invalid', 'plan 需要 goal 与 materials')
             }
+            if (input.deadline === undefined || input.deadline.trim().length === 0) {
+              throw new StudyError('invalid', 'plan 需要 deadline（期限必填）')
+            }
             return {
               ok: true,
               ...(await generation.generatePlan({
                 goal: input.goal,
                 materials: input.materials,
+                ...(input.deliverable === undefined ? {} : { deliverable: input.deliverable }),
+                deadline: input.deadline,
+                ...(input.audience === undefined ? {} : { audience: input.audience }),
                 ...(input.brief === undefined ? {} : { brief: input.brief }),
                 ...(input.hoursPerWeek === undefined ? {} : { hoursPerWeek: input.hoursPerWeek }),
                 ...(input.depth === undefined ? {} : { depth: input.depth }),

@@ -204,7 +204,7 @@ const bareDone = await wait(bareQuiz.jobId)
 const bareBank = await service.quiz(materialId, unitId)
 console.log('quiz without notes:', bareDone.status, bareDone.error ?? 'ok', 'items', bareBank?.items.length ?? 0)
 
-const plan = await generation.generatePlan({ goal: '测试路径', materials: [materialId], depth: 'deep' })
+const plan = await generation.generatePlan({ goal: '测试路径', materials: [materialId], depth: 'deep', deadline: '2026-12-31' })
 const planJob = await wait(plan.jobId)
 console.log('plan job:', planJob.status, planJob.error ?? planJob.message)
 const planView = await service.planView(plan.planId)

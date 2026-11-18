@@ -21,6 +21,9 @@ export async function generatePlan(svc: GenerationService, input: GeneratePlanIn
   const goal = input.goal.trim()
   if (goal.length === 0) throw new StudyError('invalid', '目标不能为空')
   if (input.materials.length === 0) throw new StudyError('invalid', '至少选择一份资料')
+  if (input.deadline === undefined || input.deadline.trim().length === 0) {
+    throw new StudyError('invalid', '期限必填：它决定什么时候算完成')
+  }
   const goalResult = await svc.deps.service.createGoal({
     goal,
     ...(input.brief === undefined ? {} : { brief: input.brief }),
