@@ -8,10 +8,12 @@ import { slugify, splitUnitKey, uniqueSlug } from '../../core/ids.ts'
 import { listManifests } from '../../core/library.ts'
 import { readProgress } from '../../core/progress.ts'
 import { listConcepts } from '../../core/concepts.ts'
-import { deletePlan as removePlanFile, listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../../core/plans.ts'
+import { decayedMastery, ensureKnowledge, thresholdForLevel } from '../../core/knowledge.ts'
+import { deletePlan as removePlanFile, goalConcepts, listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../../core/plans.ts'
 import { deleteCard, judgementCardId, listCards, retirePlanCards, upsertJudgementCard } from '../../core/cards.ts'
 import { deriveStuckPoints, gateStatus, planProgress, summarizeBoundary, thresholdOf } from '../../core/planGate.ts'
 import { hash32 } from '../../core/srs.ts'
+import { daysBetween } from '../../core/time.ts'
 import type { AttemptMove, AttemptRecord, Coverage, MaterialManifest, PlanGeneration, PlanRecord, PlanStepKind, Provenance } from '../../core/types.ts'
 import type { PlanDetailView, PlanSummary } from '../../core/views.ts'
 import { goalPrompt } from '../service/prompts.ts'
@@ -124,6 +126,58 @@ export async function planList(svc: StudyService): Promise<PlanSummary[]> {
   })
 }
 
+/**
+ * What still blocks closing this goal, from the knowledge space.
+ *
+ * A goal closes when every concept it targets is at its level threshold and
+ * the next review falls past the deadline rule. Legacy plans without a mastery
+ * map keep the old judgement gate, so old data stays closable.
+ */
+export async function goalProgressOf(
+  svc: StudyService,
+  plan: PlanRecord,
+): Promise<{ passed: number; total: number; ready: boolean; reasons: string[] }> {
+  const mastery = plan.mastery ?? []
+  const map = goalConcepts(plan)
+  if (map.size === 0 && mastery.length === 0) {
+    const gate = gateStatus(plan)
+    return { passed: gate.masteryPassed, total: gate.masteryTotal, ready: gate.ready, reasons: gate.reasons }
+  }
+  const reasons: string[] = []
+  if ((plan.deliverable ?? '').trim().length === 0) {
+    reasons.push('缺少交付物：先写清这次要交出什么')
+  }
+  if ((plan.deadline ?? '').trim().length === 0) {
+    reasons.push('缺少期限：它决定什么时候算完成')
+  }
+  const total = map.size
+  if (total === 0) {
+    return {
+      passed: 0,
+      total: 0,
+      ready: false,
+      reasons: [...reasons, '目标还没有挂知识点：先练一节，或在目标页把范围补上'],
+    }
+  }
+  const knowledge = await ensureKnowledge(svc.paths)
+  const today = svc.today()
+  const horizon = plan.deadline === undefined ? 0 : Math.max(0, daysBetween(today, plan.deadline))
+  let passed = 0
+  let behind = 0
+  let toReview = 0
+  for (const [conceptId, level] of map) {
+    const state = knowledge.concepts[conceptId]
+    const now = state === undefined ? 0 : decayedMastery(state, today)
+    if (now >= thresholdForLevel(level)) passed += 1
+    else behind += 1
+    const dueIn = state?.due === undefined ? -1 : daysBetween(today, state.due)
+    if (dueIn <= Math.max(30, horizon * 1.5)) toReview += 1
+  }
+  if (behind > 0) reasons.push(`知识点 ${passed}/${total}：还有 ${behind} 个没到档位`)
+  if (toReview > 0) reasons.push(`还有 ${toReview} 个知识点需要复习到期限之后`)
+  return { passed, total, ready: reasons.length === 0, reasons }
+}
+
 export async function planView(svc: StudyService, planId: string): Promise<PlanDetailView> {
   const plan = await readPlan(svc.paths, planId)
   if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
@@ -193,6 +247,7 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
     })),
     sufficiency: plan.sufficiency ?? [],
     gate: gateStatus(plan),
+    goalProgress: await goalProgressOf(svc, plan),
     cards,
   }
 }
@@ -464,8 +519,8 @@ export async function updatePlan(svc: StudyService,
 export async function closePlan(svc: StudyService, planId: string, note?: string): Promise<PlanDetailView> {
   const plan = await readPlan(svc.paths, planId)
   if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
-  const gate = gateStatus(plan)
-  if (!gate.ready) throw new StudyError('invalid', '结案门未通过', { issues: gate.reasons })
+  const progress = await goalProgressOf(svc, plan)
+  if (!progress.ready) throw new StudyError('invalid', '结案门未通过', { issues: progress.reasons })
   plan.status = 'done'
   plan.closedAt = new Date().toISOString()
   const reason = note?.trim() ?? ''

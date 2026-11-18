@@ -288,6 +288,7 @@ export function QuizRunner({
             <p className="study-muted">
               这一{scope.kind === 'unit' ? '节' : '章'} {String(index.bank.items)} 题；这一组最多{' '}
               {String(index.bank.defaultLimit)} 题，按你答得怎么样挑题，知识点都过了就收。
+              {index.bank.free === true ? ' 当前没有目标覆盖这一节：自由练习，不写进度。' : ''}
             </p>
             {scope.kind === 'unit' ? (
               <p className="study-rail-foot">题目从这一节的原文与导读里出；答错会更新概念掌握度。</p>
@@ -631,6 +632,7 @@ function SummaryBlock({
           </p>
           <p className="study-muted">
             答了 {summary.asked} 题，有效证据 {summary.objective} 题。
+            {summary.free === true ? ' 自由练习不计进度。' : ''}
           </p>
           {summary.openPoints === undefined ? null : summary.openPoints === 0 ? (
             <p className="study-muted">这一节的掌握点都过了。</p>

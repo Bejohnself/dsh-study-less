@@ -816,7 +816,9 @@ export function PlanDetailPage({
           <span className="study-muted">
             判定通过 {data.gate.passed}/{data.gate.asked}（AI {data.gate.aiJudged} · 自评 {data.gate.selfJudged}） · 阈值{' '}
             {Math.round(data.gate.threshold * 100)}% · 复习卡 {data.cards.length} 张
-            {data.gate.masteryTotal === 0 ? null : ` · 掌握点 ${data.gate.masteryPassed}/${data.gate.masteryTotal}`}
+            {data.goalProgress.total === 0
+              ? ` · 掌握点 ${data.gate.masteryPassed}/${data.gate.masteryTotal}`
+              : ` · 知识点 ${data.goalProgress.passed}/${data.goalProgress.total}`}
           </span>
         </div>
         <div className="study-question-toolbar">
@@ -974,7 +976,7 @@ export function PlanDetailPage({
             </button>
           </div>
         )}
-        {data.plan.meta.closedAt !== undefined ? null : data.gate.ready ? (
+        {data.plan.meta.closedAt !== undefined ? null : data.goalProgress.ready ? (
           <div className="study-gate-ready">
             <p>
               结案门已通过。确认你自己能做到，然后结案——它不再出现在「今天」里。
@@ -995,7 +997,7 @@ export function PlanDetailPage({
           </div>
         ) : (
           <ul className="study-gate-reasons">
-            {data.gate.reasons.map(reason => (
+            {data.goalProgress.reasons.map(reason => (
               <li key={reason}>{reason}</li>
             ))}
           </ul>

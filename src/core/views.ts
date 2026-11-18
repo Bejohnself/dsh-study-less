@@ -348,6 +348,8 @@ export interface PlanDetailView {
   sufficiency: SufficiencyItem[]
   /** Closure gate: what still blocks closing this goal. */
   gate: GateStatus
+  /** Knowledge-space closure: concepts at level threshold + review settled. */
+  goalProgress: { passed: number; total: number; ready: boolean; reasons: string[] }
   /** Cards written by this goal's failed questions; closing retires them. */
   cards: CardView[]
 }
@@ -587,6 +589,8 @@ export interface QuizSessionIndexView {
     updatedAt?: string
     /** Plan-scoped practice: how many points of this unit are still open. */
     mastery?: { open: number; total: number; passed: number }
+    /** Unit practice outside the active goal: questions only, no progress. */
+    free?: boolean
   }
   active: QuizSessionView | null
   recent: QuizSessionRecordView[]

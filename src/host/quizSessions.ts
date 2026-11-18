@@ -146,10 +146,14 @@ export class QuizSessionService {
       .slice(0, RECENT_LIMIT)
       .map(session => recordOf(session))
     const targets = bank === null ? [] : await targetsOf(this.service, scope, bank)
+    const goal = scope.kind === 'unit' ? activePlan(await listPlans(this.paths)) : undefined
+    const inGoal =
+      goal !== undefined && goalTargetsForUnit(goal, `${scope.material}:${scope.unit}`).size > 0
     return {
       bank: {
         items: bank?.items.length ?? 0,
         defaultLimit: bank === null ? 0 : Math.min(20, this.limitFor(bank, targets)),
+        ...(scope.kind === 'unit' && !inGoal ? { free: true } : {}),
         notes: await this.notesOf(scope),
         ...(bank === null ? {} : { updatedAt: bank.updatedAt }),
         ...(scope.kind === 'plan' ? { mastery: await this.masteryOf(scope) } : {}),
