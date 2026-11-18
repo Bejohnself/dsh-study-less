@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LibraryPaths } from '../src/core/paths.ts'
 import { readKnowledge, writeKnowledge } from '../src/core/knowledge.ts'
+import { deletePlan, writePlan } from '../src/core/plans.ts'
 import { readProgress } from '../src/core/progress.ts'
-import type { QuizBank, QuizJudgeVerdict } from '../src/core/types.ts'
+import type { PlanRecord, QuizBank, QuizJudgeVerdict } from '../src/core/types.ts'
 import type { QuizJudgePromptInput } from '../src/host/generate/prompts.ts'
 import { QuizSessionService, type QuizEngine } from '../src/host/quizSessions.ts'
 import type { StudyService } from '../src/host/service.ts'
@@ -71,9 +72,26 @@ function scriptedJudge(verdicts: QuizJudgeVerdict[]): { judge: QuizEngine; calls
 }
 
 const paths = new LibraryPaths(root)
+
+/** An active goal that puts one unit's concept in scope. */
+async function seedGoal(target: string, concepts: string[]): Promise<void> {
+  const now = new Date().toISOString()
+  const goal: PlanRecord = {
+    id: 'p-active',
+    goal: '测试目标',
+    status: 'active',
+    steps: [],
+    mastery: [{ id: 'm1', title: '知识点', standard: '能讲清', target, concepts, level: 2 }],
+    createdAt: now,
+    updatedAt: now,
+  }
+  await writePlan(paths, goal)
+}
+
 const sidOf = (view: { session: { id: string } }): string => view.session.id
 
 test('a written answer is judged by the model and updates concept mastery', async () => {
+  await seedGoal('m1:u1', ['dp/unbounded-cost'])
   const sessions = new QuizSessionService(paths, service, undefined, scriptedJudge(['partial']).judge)
   const started = await sessions.start({ material: 'm1', unit: 'u1' })
   const sid = sidOf(started)
@@ -89,6 +107,7 @@ test('a written answer is judged by the model and updates concept mastery', asyn
   const knowledge = await readKnowledge(paths)
   assert.ok(knowledge.concepts['dp/unbounded-cost'] !== undefined, 'practice writes the knowledge space')
   assert.equal(Object.keys(knowledge.concepts['dp/unbounded-cost']?.evidence ?? {}).length, 1)
+  await deletePlan(paths, 'p-active')
 })
 
 test('an appeal is re-judged from the original answer and the rebuttal', async () => {
@@ -220,6 +239,7 @@ test('a wrong answer keeps the section open', async () => {
 })
 
 test('a section whose points already passed does not reopen a run', async () => {
+  await seedGoal('m4:u4', ['dp/closed'])
   const bank = choiceBank(2, 'dp/closed')
   const sessions = new QuizSessionService(paths, choiceService(bank.items))
   const today = new Date().toISOString()
@@ -241,6 +261,7 @@ test('a section whose points already passed does not reopen a run', async () => 
   })
   await assert.rejects(
     () => sessions.start({ material: 'm4', unit: 'u4' }),
-    /都过了/,
+    /达成了/,
   )
+  await deletePlan(paths, 'p-active')
 })

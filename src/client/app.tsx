@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { InsightTab } from './pages/insights.tsx'
 import { ConceptDetailPage, InsightDetailPage, InsightsPage } from './pages/insights.tsx'
-import { LearnPage } from './pages/learn.tsx'
+import { LearnPage, NewGoalDialog } from './pages/learn.tsx'
 import { PlanDetailPage } from './pages/plan.tsx'
 import { LibraryPage, MaterialPage } from './pages/library.tsx'
 import { PracticePage } from './pages/practice.tsx'
@@ -37,7 +37,7 @@ type View =
 /** The main study desk page. */
 export function StudyApp(): ReactElement {
   const [view, setView] = useState<View>({ kind: 'learn' })
-  const [dialog, setDialog] = useState<'import' | 'settings' | null>(null)
+  const [dialog, setDialog] = useState<'import' | 'settings' | 'goal' | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
   const [hostVersion, setHostVersion] = useState<string | null>(null)
@@ -133,6 +133,11 @@ export function StudyApp(): ReactElement {
               <button type="button" className="study-ghost" onClick={() => setDialog('settings')}>
                 设置
               </button>
+              {focusMode ? null : (
+                <button type="button" className="study-primary study-primary-tight" onClick={() => setDialog('goal')}>
+                  ＋ 新建目标
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -187,15 +192,11 @@ export function StudyApp(): ReactElement {
 
         {view.kind === 'learn' ? (
           <LearnPage
-            tab={view.tab}
-
             onOpenUnit={openUnit}
             onOpenConcept={openConcept}
-            onOpenInsight={openInsight}
             onOpenPlan={pid => setView({ kind: 'plan', pid })}
             onOpenLibrary={() => setView({ kind: 'library' })}
             refreshToken={refreshToken}
-            onChanged={bump}
           />
         ) : null}
 
@@ -271,6 +272,24 @@ export function StudyApp(): ReactElement {
             onClose={() => setDialog(null)}
             onSaved={() => {
               bump()
+            }}
+          />
+        ) : null}
+        {dialog === 'goal' ? (
+          <NewGoalDialog
+            onClose={() => setDialog(null)}
+            onOpenLibrary={() => {
+              setDialog(null)
+              setView({ kind: 'library' })
+            }}
+            onCreated={(planId, jobId) => {
+              bump()
+              setDialog(null)
+              setView({ kind: 'plan', pid: planId })
+              setToast({
+                message: jobId === undefined ? '已创建目标' : '已创建目标，正在页面内编排',
+                tone: 'ok',
+              })
             }}
           />
         ) : null}

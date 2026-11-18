@@ -99,20 +99,22 @@ export function normalizePlanMastery(parsed: unknown): Array<{
   standard: string
   target?: string
   concepts?: string[]
+  level?: 1 | 2 | 3 | 4
 }> {
   const body = asRecord(parsed)
   if (!Array.isArray(body.mastery)) throw new StudyError('invalid', '计划缺少掌握点（mastery）', { issues: ['mastery 必须是数组'] })
   const issues: string[] = []
-  const points: Array<{ title: string; standard: string; target?: string; concepts?: string[] }> = []
+  const points: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }> = []
   body.mastery.forEach((entry, index) => {
     const row = asRecord(entry)
     const title = typeof row.title === 'string' ? row.title.trim() : ''
     const standard = typeof row.standard === 'string' ? row.standard.trim() : ''
     if (title.length === 0) issues.push(`第 ${index + 1} 个掌握点缺少 title`)
     if (standard.length === 0) issues.push(`第 ${index + 1} 个掌握点缺少 standard`)
-    const point: { title: string; standard: string; target?: string; concepts?: string[] } = { title, standard }
+    const point: { title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 } = { title, standard }
     if (typeof row.target === 'string' && row.target.includes(':')) point.target = row.target.trim()
     if (Array.isArray(row.concepts)) point.concepts = row.concepts.map(String)
+    if (row.level === 1 || row.level === 2 || row.level === 3 || row.level === 4) point.level = row.level
     points.push(point)
   })
   if (points.length === 0) issues.push('mastery 为空')
@@ -128,14 +130,14 @@ export function normalizePlanMastery(parsed: unknown): Array<{
  * itself survives if its target is valid.
  */
 export function sanitizeMastery(
-  points: ReadonlyArray<{ title: string; standard: string; target?: string; concepts?: string[] }>,
+  points: ReadonlyArray<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }>,
   validUnits: ReadonlySet<string>,
   validConcepts: ReadonlySet<string>,
 ): {
-  points: Array<{ title: string; standard: string; target?: string; concepts?: string[] }>
+  points: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }>
   issues: string[]
 } {
-  const kept: Array<{ title: string; standard: string; target?: string; concepts?: string[] }> = []
+  const kept: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }> = []
   const issues: string[] = []
   for (const [index, point] of points.entries()) {
     const label = `第 ${index + 1} 个掌握点`
@@ -167,6 +169,7 @@ export function sanitizeMastery(
       standard: standard.slice(0, 500),
       ...(target === undefined ? {} : { target }),
       ...(concepts.length === 0 ? {} : { concepts }),
+      ...(point.level === undefined ? {} : { level: point.level }),
     })
   }
   if (kept.length === 0) issues.push('没有可用的掌握点')

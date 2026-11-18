@@ -31,8 +31,8 @@ import {
   pickAdaptiveNext,
   sameQuizScope,
 } from '../core/quiz.ts'
-import { masteryPointsFor, markMasteryPassed, readPlan } from '../core/plans.ts'
-import { decayedMastery, ensureKnowledge, questionFingerprint, recordEvidence, targetOf } from '../core/knowledge.ts'
+import { activePlan, goalTargetsForUnit, listPlans, masteryPointsFor, markMasteryPassed, readPlan } from '../core/plans.ts'
+import { DEFAULT_TARGET, decayedMastery, ensureKnowledge, questionFingerprint, recordEvidence, targetOf, thresholdForLevel } from '../core/knowledge.ts'
 import { recordAttempts } from '../core/progress.ts'
 import { readJson, writeJsonAtomic } from '../core/store.ts'
 import { localDate } from '../core/time.ts'
@@ -178,7 +178,29 @@ export class QuizSessionService {
     const scope = this.scopeOf(input)
     if (scope.kind === 'plan') return this.startPlan(scope, input)
     let bank = await this.tryBankOf(scope)
-    let targets = await targetsOf(this.service, scope, bank)
+    // A unit run belongs to the active goal: its points decide which concepts
+    // are in scope and how deep they must go. Without a goal it is free
+    // practice: it asks questions but writes no progress.
+    const goal = scope.kind === 'unit' ? activePlan(await listPlans(this.paths)) : undefined
+    let free = scope.kind === 'unit' && goal === undefined
+    let thresholds: Record<string, number> = {}
+    let targets: string[]
+    if (scope.kind === 'unit' && goal !== undefined) {
+      const map = goalTargetsForUnit(goal, `${scope.material}:${scope.unit}`)
+      if (map.size > 0) {
+        targets = [...map.keys()]
+        thresholds = Object.fromEntries(
+          [...map].map(([conceptId, entry]) => [conceptId, thresholdForLevel(entry.level)]),
+        )
+      } else {
+        // A section outside the goal is free practice: questions still work,
+        // but nothing is written to progress.
+        free = true
+        targets = await targetsOf(this.service, scope, bank)
+      }
+    } else {
+      targets = await targetsOf(this.service, scope, bank)
+    }
     if (scope.kind === 'unit' && targets.length === 0 && this.engine !== undefined) {
       // A section without knowledge points cannot be measured. Extract them
       // once, inline: the practice page is already waiting.
@@ -189,7 +211,19 @@ export class QuizSessionService {
         })
         if (extracted.length > 0) {
           await this.service.writeConcepts(scope.material, scope.unit, extracted)
-          targets = await targetsOf(this.service, scope, bank)
+          const ids = extracted.map(concept => concept.id)
+          if (goal !== undefined) {
+            await this.service.attachMasteryConcepts(goal.id, `${scope.material}:${scope.unit}`, ids)
+            const level = (masteryPointsFor(goal, `${scope.material}:${scope.unit}`).reduce(
+              (max, point) => Math.max(max, point.level ?? 2),
+              2,
+            ) ?? 2) as 1 | 2 | 3 | 4
+            targets = ids
+            thresholds = Object.fromEntries(ids.map(conceptId => [conceptId, thresholdForLevel(level)]))
+            free = false
+          } else {
+            targets = await targetsOf(this.service, scope, bank)
+          }
         }
       } catch {
         // Fall back to the bank's concept labels; extraction is retryable.
@@ -230,17 +264,19 @@ export class QuizSessionService {
       }
     }
 
-    // A new run only asks what is still open: a concept already at target does
-    // not come back until review says it decayed.
+    // A new run only asks what is still open: a concept already at the goal's
+    // threshold does not come back until review says it decayed.
     const knowledge = await ensureKnowledge(this.paths)
-    const stillOpen = targets.filter(conceptId => {
-      const state = knowledge.concepts[conceptId]
-      return state === undefined || decayedMastery(state, localDate()) < targetOf(state)
-    })
-    if (targets.length > 0 && stillOpen.length === 0) {
-      throw new StudyError('invalid', '本节的知识点都过了；要再练就从今日面板的到期复习进')
+    if (!free) {
+      const stillOpen = targets.filter(conceptId => {
+        const state = knowledge.concepts[conceptId]
+        return state === undefined || decayedMastery(state, localDate()) < (thresholds[conceptId] ?? DEFAULT_TARGET)
+      })
+      if (targets.length > 0 && stillOpen.length === 0) {
+        throw new StudyError('invalid', '这一节的目标都达成了；要再练就从今日面板的到期复习进')
+      }
+      targets = stillOpen
     }
-    targets = stillOpen
 
     const requested = Number.isFinite(input.limit) ? Math.round(input.limit as number) : undefined
     const limit = Math.max(1, Math.min(20, requested ?? this.limitFor(bank, targets)))
@@ -273,6 +309,8 @@ export class QuizSessionService {
       updatedAt: now,
       bankUpdatedAt: bank.updatedAt,
       ...(targets.length === 0 ? {} : { targets }),
+      ...(free ? { free: true } : {}),
+      ...(Object.keys(thresholds).length === 0 ? {} : { targetThresholds: thresholds }),
     }
     await this.save(session)
     return this.view(session, bank)
@@ -450,7 +488,7 @@ export class QuizSessionService {
     // points are its only progress store. Unit/book practice keeps the global
     // concept signal and now also the knowledge space record; the older
     // progress store is still read by the today page until it moves over.
-    if (session.scope.kind !== 'plan') {
+    if (session.scope.kind !== 'plan' && session.free !== true) {
       const attempts = item.concepts.map(conceptId => ({ conceptId, correct }))
       if (attempts.length > 0) await recordAttempts(this.paths, attempts)
       if (attempts.length > 0 && selfGrade === undefined) {
@@ -551,7 +589,7 @@ export class QuizSessionService {
     const status = targets.length === 0 ? undefined : conceptStatus(session.history, targets)
     // Passing is decided by the knowledge points plus the model's confirmation,
     // never by a question count.
-    if (status?.all === true && (await sectionConfirmed(this.service, this.engine, session, targets))) {
+    if (status?.all === true && (session.free === true || (await sectionConfirmed(this.service, this.engine, session, targets)))) {
       await this.close(session, 'completed')
       return { items: await this.itemsAfter(session) }
     }

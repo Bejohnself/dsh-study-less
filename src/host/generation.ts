@@ -51,6 +51,9 @@ export interface GeneratePlanInput {
   materials: string[]
   hoursPerWeek?: number
   depth?: 'deep' | 'overview'
+  deliverable?: string
+  deadline?: string
+  audience?: string
 }
 
 /** Unit generation input. */

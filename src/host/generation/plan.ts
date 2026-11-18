@@ -26,6 +26,9 @@ export async function generatePlan(svc: GenerationService, input: GeneratePlanIn
     ...(input.brief === undefined ? {} : { brief: input.brief }),
     materials: input.materials,
     ...(input.hoursPerWeek === undefined ? {} : { hoursPerWeek: input.hoursPerWeek }),
+    ...(input.deliverable === undefined ? {} : { deliverable: input.deliverable }),
+    ...(input.deadline === undefined ? {} : { deadline: input.deadline }),
+    ...(input.audience === undefined ? {} : { audience: input.audience }),
     depth: input.depth ?? 'deep',
   })
   const job = await svc.deps.jobs.create('plan', { planId: goalResult.planId }, context =>

@@ -109,6 +109,7 @@ export function sessionMetaOf(session: QuizSession): QuizSessionView['session'] 
     correct: score.correct,
     objective: score.graded,
     ...(status === undefined ? {} : { targetsPassed: status.passed.length, targetsTotal: targets.length }),
+    ...(session.free === true ? { free: true } : {}),
     startedAt: session.startedAt,
     updatedAt: session.updatedAt,
     ...(session.endedReason === undefined ? {} : { endedReason: session.endedReason }),
@@ -167,6 +168,7 @@ export function summaryOf(
     verdict,
     weakConcepts: [...weakIds].map(id => ({ id, name: names.get(id) ?? id })),
     ...(openPoints === undefined ? {} : { openPoints }),
+    ...(session.free === true ? { free: true } : {}),
     ...(status === undefined ? {} : { targets: { passed: status.passed.length, total: targets.length } }),
   }
 }

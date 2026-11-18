@@ -6,10 +6,10 @@
  */
 import { unitKey } from '../../core/ids.ts'
 import { listManifests, structureNodeOf } from '../../core/library.ts'
-import { decayedMastery, dueConcepts, ensureKnowledge, targetOf } from '../../core/knowledge.ts'
+import { decayedMastery, dueConcepts, ensureKnowledge, targetOf, thresholdForLevel } from '../../core/knowledge.ts'
 import { dueUnits, readProgress, recordReview } from '../../core/progress.ts'
 import { listConcepts, readConcept } from '../../core/concepts.ts'
-import { listPlans } from '../../core/plans.ts'
+import { activePlan, goalConcepts, listPlans, nextStep } from '../../core/plans.ts'
 import { dueCards, listCards, reviewCardOnce } from '../../core/cards.ts'
 import { addDays, localDate } from '../../core/time.ts'
 import type { Rating } from '../../core/types.ts'
@@ -44,25 +44,36 @@ export async function due(svc: StudyService, today = svc.today()): Promise<DueIt
 
 export async function todayView(svc: StudyService): Promise<TodayView> {
   const date = svc.today()
-  const [manifests, progress, concepts, knowledge] = await Promise.all([
+  const [manifests, progress, concepts, plans, knowledge] = await Promise.all([
     listManifests(svc.paths),
     readProgress(svc.paths),
     svc.concepts(),
+    listPlans(svc.paths),
     ensureKnowledge(svc.paths),
   ])
+  const active = activePlan(plans)
+  const goalMap = active === undefined ? new Map<string, 1 | 2 | 3 | 4>() : goalConcepts(active)
+  const thresholdOf = (conceptId: string): number =>
+    goalMap.size === 0 ? targetOf(knowledge.concepts[conceptId]) : thresholdForLevel(goalMap.get(conceptId))
+
   const names = new Map(concepts.map(concept => [concept.id, concept.name]))
-  const knowledgeDue = dueConcepts(knowledge, date).map(entry => ({
-    ...entry,
-    name: names.get(entry.conceptId) ?? entry.conceptId,
-  }))
+  const inScope = (conceptId: string): boolean => goalMap.size === 0 || goalMap.has(conceptId)
+  const knowledgeDue = dueConcepts(knowledge, date)
+    .filter(entry => inScope(entry.conceptId))
+    .map(entry => ({
+      ...entry,
+      name: names.get(entry.conceptId) ?? entry.conceptId,
+      target: thresholdOf(entry.conceptId),
+    }))
   const knowledgeBelow = concepts
+    .filter(concept => inScope(concept.id))
     .map(concept => {
       const entry = knowledge.concepts[concept.id]
       return {
         conceptId: concept.id,
         name: concept.name,
         mastery: concept.mastery,
-        target: entry === undefined ? 0.8 : targetOf(entry),
+        target: thresholdOf(concept.id),
         settled: entry?.settledAt !== undefined,
       }
     })
@@ -70,24 +81,61 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     .sort((a, b) => a.mastery - b.mastery)
     .slice(0, 6)
 
-  // The only reading suggestion left in the main loop: the next unfinished
-  // section in book order. Plans and goals are frozen for the MVP.
+  const goalPassed = [...goalMap.keys()].filter(conceptId => {
+    const entry = knowledge.concepts[conceptId]
+    if (entry === undefined) return false
+    return decayedMastery(entry, date) >= thresholdForLevel(goalMap.get(conceptId))
+  }).length
+  const goalBlock =
+    active === undefined
+      ? undefined
+      : {
+          id: active.id,
+          goal: active.goal,
+          ...(active.deliverable === undefined ? {} : { deliverable: active.deliverable }),
+          ...(active.deadline === undefined ? {} : { deadline: active.deadline }),
+          passed: goalPassed,
+          total: goalMap.size,
+          readyToClose: goalMap.size > 0 && goalPassed === goalMap.size,
+        }
+
+  // The next reading suggestion follows the goal's section route; without a
+  // goal it falls back to the next unfinished section in book order.
   let next: NextStepView | null = null
-  for (const manifest of manifests) {
-    const node = manifest.structure.find(candidate => {
-      const entry = progress.units[unitKey(manifest.id, candidate.uid)]
-      return entry === undefined || entry.state === 'new' || entry.state === 'suspended'
-    })
-    if (node !== undefined) {
+  const step = active === undefined ? undefined : nextStep(active)
+  if (step?.target !== undefined && step.coverage !== 'skip') {
+    const [materialId, unitId] = step.target.split(':') as [string, string]
+    const manifest = manifests.find(candidate => candidate.id === materialId)
+    const node = manifest?.structure.find(candidate => candidate.uid === unitId)
+    if (manifest !== undefined && node !== undefined) {
       next = {
-        source: 'material',
-        materialId: manifest.id,
-        unitId: node.uid,
+        source: 'plan',
+        planId: active!.id,
+        materialId,
+        unitId,
         title: node.title,
         materialTitle: manifest.title,
-        why: '书序下一节',
+        why: step.why,
       }
-      break
+    }
+  }
+  if (next === null && active === undefined) {
+    for (const manifest of manifests) {
+      const node = manifest.structure.find(candidate => {
+        const entry = progress.units[unitKey(manifest.id, candidate.uid)]
+        return entry === undefined || entry.state === 'new' || entry.state === 'suspended'
+      })
+      if (node !== undefined) {
+        next = {
+          source: 'material',
+          materialId: manifest.id,
+          unitId: node.uid,
+          title: node.title,
+          materialTitle: manifest.title,
+          why: '书序下一节',
+        }
+        break
+      }
     }
   }
 
@@ -96,6 +144,17 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     const last = entry.lastReviewedAt === undefined ? '' : localDate(new Date(entry.lastReviewedAt))
     return first === date || last === date
   }).length
+
+  const planBriefs = plans
+    .filter(plan => plan.status === 'active')
+    .map(plan => ({
+      id: plan.id,
+      goal: plan.goal,
+      done: plan.steps.filter(candidate => candidate.done).length,
+      total: plan.steps.length,
+      gateReady: goalBlock?.readyToClose === true,
+      ...(plan.deliverable === undefined ? {} : { deliverable: plan.deliverable }),
+    }))
 
   return {
     date,
@@ -113,8 +172,9 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
       }
     }),
     next,
-    plans: [],
+    plans: planBriefs,
     learnedToday,
+    ...(goalBlock === undefined ? {} : { goal: goalBlock }),
     knowledge: {
       total: Object.keys(knowledge.concepts).length,
       settled: Object.values(knowledge.concepts).filter(state => state.settledAt !== undefined).length,

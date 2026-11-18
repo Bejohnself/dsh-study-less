@@ -430,6 +430,8 @@ export interface MasteryPoint {
   target?: string
   /** Global concept ids this point trains. */
   concepts?: string[]
+  /** 1 了解 / 2 会用 / 3 能讲 / 4 创新; absent means 2. */
+  level?: MasteryLevel
   /** Set once after an AI-judged pass; passing is monotonic. */
   passedAt?: string
 }
@@ -679,6 +681,10 @@ export interface QuizSession {
    * book chapters: those end on the question cap instead.
    */
   targets?: string[]
+  /** Per-concept pass threshold, snapshotted from the goal level. */
+  targetThresholds?: Record<string, number>
+  /** Free practice: no goal, no progress writes. */
+  free?: boolean
   /** Last AI confirmation attempt; at most a few per session. */
   sectionCheck?: {
     verdict: QuizJudgeVerdict

@@ -249,10 +249,24 @@ export interface KnowledgeToday {
   }>
 }
 
+/** The active goal as the today panel shows it. */
+export interface GoalToday {
+  id: string
+  goal: string
+  deliverable?: string
+  deadline?: string
+  /** Concepts at their level threshold / concepts in scope. */
+  passed: number
+  total: number
+  readyToClose: boolean
+}
+
 export interface TodayView {
   date: string
   /** Knowledge-point state: what is due and what is below target. */
   knowledge?: KnowledgeToday
+  /** The goal driving today; absent means free practice only. */
+  goal?: GoalToday
   /** Cards written by failed sufficiency questions, most overdue first. */
   dueCards: CardView[]
   due: DueItem[]
@@ -302,6 +316,8 @@ export interface MasteryPointView {
   standard: string
   target?: string
   concepts: string[]
+  /** 1 了解 / 2 会用 / 3 能讲 / 4 创新. */
+  level?: 1 | 2 | 3 | 4
   passedAt?: string
 }
 
@@ -527,6 +543,8 @@ export interface QuizSessionView {
     /** Knowledge points passed / total, when the section has a target list. */
     targetsPassed?: number
     targetsTotal?: number
+    /** Free practice: no goal, no progress writes. */
+    free?: boolean
     startedAt: string
     updatedAt: string
     endedReason?: QuizEndReason
@@ -587,6 +605,8 @@ export interface QuizSessionSummary {
   openPoints?: number
   /** Section practice: how many knowledge points passed. */
   targets?: { passed: number; total: number }
+  /** Free practice: the run wrote no progress. */
+  free?: boolean
 }
 
 /** Settings update body. */

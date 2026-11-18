@@ -783,7 +783,15 @@ export function PlanDetailPage({
                     {point.passedAt === undefined ? '未过' : '已过'}
                   </span>
                   <div className="study-mastery-body">
-                    <div>{point.title}</div>
+                    <div>
+                      {point.title}
+                      {point.level === undefined ? null : (
+                        <span className="study-item-meta">
+                          {' '}
+                          · {['', '了解', '会用', '能讲', '创新'][point.level]}
+                        </span>
+                      )}
+                    </div>
                     <div className="study-item-meta">算掌握：{point.standard}</div>
                   </div>
                   {target === null ? null : (

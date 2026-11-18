@@ -16,6 +16,13 @@ export async function postGenerate(ctx: RouteContext, body: Record<string, unkno
     const goal = requiredString(body, 'goal')
     const materials = body.materials
     if (!Array.isArray(materials) || materials.length === 0) throw new StudyError('invalid', '至少选择一份资料')
+    const deadline = typeof body.deadline === 'string' ? body.deadline.trim() : ''
+    if (deadline.length === 0) throw new StudyError('invalid', '期限必填：它决定什么时候算完成')
+    const extra = {
+      ...(typeof body.deliverable === 'string' ? { deliverable: body.deliverable } : {}),
+      deadline,
+      ...(typeof body.audience === 'string' ? { audience: body.audience } : {}),
+    }
     const serviceGeneration = requireService(generation, '生成引擎')
     try {
       const value = await serviceGeneration.generatePlan({
@@ -24,6 +31,7 @@ export async function postGenerate(ctx: RouteContext, body: Record<string, unkno
         ...(typeof body.brief === 'string' ? { brief: body.brief } : {}),
         ...(typeof body.hoursPerWeek === 'number' ? { hoursPerWeek: body.hoursPerWeek } : {}),
         ...(body.depth === 'deep' || body.depth === 'overview' ? { depth: body.depth } : {}),
+        ...extra,
       })
       send(res, 200, { ok: true, value: { ...value, fallback: false } })
     } catch (error) {
@@ -37,6 +45,7 @@ export async function postGenerate(ctx: RouteContext, body: Record<string, unkno
         ...(typeof body.hoursPerWeek === 'number' ? { hoursPerWeek: body.hoursPerWeek } : {}),
         ...(body.depth === 'deep' || body.depth === 'overview' ? { depth: body.depth } : {}),
         ...(typeof body.sessionId === 'string' ? { sessionId: body.sessionId } : {}),
+        ...extra,
       })
       send(res, 200, { ok: true, value: { planId: fallback.planId, jobId: null, fallback: true, prompted: fallback.prompted, error: fallback.error, prompt: fallback.prompt } })
     }

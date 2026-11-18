@@ -13,10 +13,18 @@ import type { LibraryPaths } from './paths.ts'
 import { initialCard, intervalDays, reviewCard } from './srs.ts'
 import { readJson, updateJson, writeJsonAtomic } from './store.ts'
 import { addDays, daysBetween, localDate } from './time.ts'
-import type { ConceptProgress, ProgressFile, Rating, SrsCard } from './types.ts'
+import type { ConceptProgress, MasteryLevel, ProgressFile, Rating, SrsCard } from './types.ts'
 
-/** Default mastery a concept must reach. */
-export const DEFAULT_TARGET = 0.8
+/** Default mastery a concept must reach (level 2, 会用). */
+export const DEFAULT_TARGET = 0.75
+
+/** Four depth levels a goal can require for one knowledge point. */
+export const MASTERY_LEVELS: ReadonlyArray<{ level: MasteryLevel; label: string; threshold: number }> = [
+  { level: 1, label: '了解', threshold: 0.6 },
+  { level: 2, label: '会用', threshold: 0.75 },
+  { level: 3, label: '能讲', threshold: 0.85 },
+  { level: 4, label: '创新', threshold: 0.95 },
+]
 /** Default horizon (days) used for final settlement until goals carry one. */
 export const DEFAULT_HORIZON_DAYS = 90
 /** Mastery half-life: after this many idle days the gap to the floor halves. */
@@ -181,6 +189,16 @@ export function decayedMastery(state: ConceptState, today: string = localDate())
   const floor = state.peak * DECAY_FLOOR_RATIO
   if (state.mastery <= floor) return state.mastery
   return clamp01(floor + (state.mastery - floor) * Math.pow(0.5, days / DECAY_HALF_LIFE_DAYS))
+}
+
+/** Threshold that a level requires. */
+export function thresholdForLevel(level: MasteryLevel | undefined): number {
+  return MASTERY_LEVELS.find(entry => entry.level === (level ?? 2))?.threshold ?? DEFAULT_TARGET
+}
+
+/** Chinese label of a level. */
+export function levelLabel(level: MasteryLevel | undefined): string {
+  return MASTERY_LEVELS.find(entry => entry.level === (level ?? 2))?.label ?? '会用'
 }
 
 /** Effective target of one concept. */

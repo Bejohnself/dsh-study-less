@@ -26,6 +26,9 @@ export async function createGoal(svc: StudyService, input: {
   hoursPerWeek?: number
   depth?: 'deep' | 'overview'
   sessionId?: string
+  deliverable?: string
+  deadline?: string
+  audience?: string
 }): Promise<{ planId: string; prompted: boolean; error?: string; prompt: string }> {
   const goal = input.goal.trim()
   if (goal.length === 0) throw new StudyError('invalid', '目标不能为空')
@@ -47,6 +50,9 @@ export async function createGoal(svc: StudyService, input: {
     ...(input.brief === undefined || input.brief.trim().length === 0 ? {} : { brief: input.brief.trim() }),
     materials: [...input.materials],
     ...(input.hoursPerWeek === undefined ? {} : { budget: { hoursPerWeek: input.hoursPerWeek } }),
+    ...(input.deliverable === undefined || input.deliverable.trim().length === 0 ? {} : { deliverable: input.deliverable.trim() }),
+    ...(input.deadline === undefined || input.deadline.trim().length === 0 ? {} : { deadline: input.deadline.trim() }),
+    ...(input.audience === undefined || input.audience.trim().length === 0 ? {} : { audience: input.audience.trim() }),
     steps: [],
     generation: { status: 'queued', mode: 'chat' },
     createdAt: now,
@@ -182,12 +188,42 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
       standard: point.standard,
       ...(point.target === undefined ? {} : { target: point.target }),
       concepts: [...(point.concepts ?? [])],
+      ...(point.level === undefined ? {} : { level: point.level }),
       ...(point.passedAt === undefined ? {} : { passedAt: point.passedAt }),
     })),
     sufficiency: plan.sufficiency ?? [],
     gate: gateStatus(plan),
     cards,
   }
+}
+
+/**
+ * Attach extracted concepts to the goal's points on one unit.
+ *
+ * Goal generation runs before any unit has concepts, so its points can be
+ * concept-less. The first practice extracts them; this writes them back so the
+ * goal's target map is real from then on.
+ */
+export async function attachMasteryConcepts(
+  svc: StudyService,
+  planId: string,
+  target: string,
+  conceptIds: readonly string[],
+): Promise<void> {
+  if (conceptIds.length === 0) return
+  const plan = await readPlan(svc.paths, planId)
+  if (plan === null) return
+  const points = plan.mastery ?? []
+  let changed = false
+  for (const point of points) {
+    if (point.target !== target) continue
+    if ((point.concepts ?? []).length > 0) continue
+    point.concepts = [...conceptIds].slice(0, 8)
+    changed = true
+  }
+  if (!changed) return
+  plan.updatedAt = new Date().toISOString()
+  await writePlan(svc.paths, plan)
 }
 
 export async function createPlan(svc: StudyService, input: {
@@ -241,7 +277,7 @@ export async function updatePlan(svc: StudyService,
     setGoal?: string
     replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
     /** Replace the goal's knowledge map (written with the steps). */
-    replaceMastery?: Array<{ title: string; standard: string; target?: string; concepts?: string[] }>
+    replaceMastery?: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }>
     /** Goal facts: deliverable, deadline and audience. null clears a field. */
     setMeta?: { deliverable?: string | null; deadline?: string | null; audience?: string | null; threshold?: number }
     /** Crop one step: read, skim or skip (skip needs a reason). */
@@ -304,6 +340,7 @@ export async function updatePlan(svc: StudyService,
           standard: point.standard.trim().slice(0, 500),
           ...(point.target === undefined || !targets.hasUnit(point.target) ? {} : { target: point.target }),
           ...(linkedConcepts.length === 0 ? {} : { concepts: linkedConcepts }),
+          ...((point.level ?? old?.level) === undefined ? {} : { level: point.level ?? old?.level }),
           ...(old?.passedAt === undefined ? {} : { passedAt: old.passedAt }),
         }
       })

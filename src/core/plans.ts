@@ -158,3 +158,40 @@ export async function markMasteryPassed(
   await writePlan(paths, plan)
   return true
 }
+
+/** The goal currently driving today; newest active wins. */
+export function activePlan(plans: readonly PlanRecord[]): PlanRecord | undefined {
+  return [...plans]
+    .filter(plan => plan.status === 'active')
+    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
+}
+
+/** Concepts one goal requires in one unit, with the deepest required level. */
+export function goalTargetsForUnit(
+  plan: PlanRecord,
+  target: string,
+): Map<string, { level: MasteryLevel; pointId: string }> {
+  const out = new Map<string, { level: MasteryLevel; pointId: string }>()
+  for (const point of plan.mastery ?? []) {
+    if (point.target !== target) continue
+    for (const conceptId of point.concepts ?? []) {
+      const level = point.level ?? 2
+      const existing = out.get(conceptId)
+      if (existing === undefined || level > existing.level) out.set(conceptId, { level, pointId: point.id })
+    }
+  }
+  return out
+}
+
+/** Every concept one goal requires, with its deepest level. */
+export function goalConcepts(plan: PlanRecord): Map<string, MasteryLevel> {
+  const out = new Map<string, MasteryLevel>()
+  for (const point of plan.mastery ?? []) {
+    for (const conceptId of point.concepts ?? []) {
+      const level = point.level ?? 2
+      const existing = out.get(conceptId)
+      if (existing === undefined || level > existing) out.set(conceptId, level)
+    }
+  }
+  return out
+}

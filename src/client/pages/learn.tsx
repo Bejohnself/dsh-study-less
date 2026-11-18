@@ -28,11 +28,13 @@ export type LearnTab = 'today' | 'paths' | 'review'
 export function LearnPage({
   onOpenUnit,
   onOpenConcept,
+  onOpenPlan,
   onOpenLibrary,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenConcept: (cid: string) => void
+  onOpenPlan: (pid: string) => void
   onOpenLibrary: () => void
   refreshToken: number
 }): ReactElement {
@@ -41,6 +43,7 @@ export function LearnPage({
       <TodayPanel
         onOpenUnit={onOpenUnit}
         onOpenConcept={onOpenConcept}
+        onOpenPlan={onOpenPlan}
         onOpenLibrary={onOpenLibrary}
         refreshToken={refreshToken}
       />
@@ -51,11 +54,13 @@ export function LearnPage({
 function TodayPanel({
   onOpenUnit,
   onOpenConcept,
+  onOpenPlan,
   onOpenLibrary,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenConcept: (cid: string) => void
+  onOpenPlan: (pid: string) => void
   onOpenLibrary: () => void
   refreshToken: number
 }): ReactElement {
@@ -116,6 +121,25 @@ function TodayPanel({
       ) : null}
 
       <div className="study-today-grid">
+        <section className="study-panel study-panel-goal">
+          <h3>当前目标</h3>
+          {data.goal === undefined ? (
+            <p className="study-muted">还没有目标。所有练习都只算「随便练」，不写进度。先点右上角「＋ 新建目标」。</p>
+          ) : (
+            <button type="button" className="study-next-card" onClick={() => onOpenPlan(data.goal!.id)}>
+              <span className="study-next-title">{data.goal.goal}</span>
+              <span className="study-item-meta">
+                {data.goal.deliverable === undefined ? '' : `要交出：${data.goal.deliverable}`}
+                {data.goal.deadline === undefined ? '' : ` · 期限 ${data.goal.deadline}`}
+              </span>
+              <span className="study-next-why">
+                知识点 {data.goal.passed}/{data.goal.total}
+                {data.goal.readyToClose ? ' · 可以结案了' : ' · 未达成'}
+              </span>
+            </button>
+          )}
+        </section>
+
         <section className="study-panel study-panel-next">
           <h3>接着读</h3>
           {data.next === null ? (
@@ -591,6 +615,10 @@ export function NewGoalDialog({
       setError('先写清交付物：这次要交出什么？没有交付物，边界就没有依据')
       return
     }
+    if (deadline.trim().length === 0) {
+      setError('期限必填：它决定什么时候算完成')
+      return
+    }
     if (selected.size === 0) {
       setError('至少选一份资料')
       return
@@ -608,21 +636,14 @@ export function NewGoalDialog({
       }>('/generate/plan', {
         goal: goal.trim(),
         brief: brief.trim(),
+        deliverable: deliverable.trim(),
+        deadline: deadline.trim(),
+        audience: audience.trim(),
         materials: [...selected],
         depth,
         ...(hours.trim() === '' ? {} : { hoursPerWeek: Number(hours) }),
         ...(currentSessionId() === undefined ? {} : { sessionId: currentSessionId() }),
       })
-      // The crop list and the closure gate are projected from these three
-      // fields, so they are written before the panel opens.
-      await post('/plan/update', {
-        pid: value.planId,
-        setMeta: {
-          deliverable: deliverable.trim(),
-          deadline: deadline.trim(),
-          audience: audience.trim(),
-        },
-      }).catch(() => undefined)
       if (value.jobId !== undefined && value.jobId !== null) {
         onCreated(value.planId, value.jobId)
         onClose()
@@ -673,7 +694,7 @@ export function NewGoalDialog({
           />
         </div>
         <div className="study-field">
-          <label className="study-field-label">期限</label>
+          <label className="study-field-label">期限（必填）</label>
           <input type="date" className="study-input" value={deadline} disabled={busy} onChange={event => setDeadline(event.target.value)} />
         </div>
         <div className="study-field">
