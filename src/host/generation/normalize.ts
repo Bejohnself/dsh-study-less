@@ -47,16 +47,17 @@ export function sanitizePlanSteps(
     target?: string
     concepts?: string[]
     materials?: string[]
+    coverage?: 'read' | 'skim' | 'skip'
     why: string
   }>,
   validUnits: ReadonlySet<string>,
   validConcepts: ReadonlySet<string>,
   validMaterials: ReadonlySet<string>,
 ): {
-  steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
+  steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; why: string }>
   issues: string[]
 } {
-  const kept: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }> = []
+  const kept: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; why: string }> = []
   const issues: string[] = []
   steps.forEach((step, index) => {
     const label = `第 ${index + 1} 步`
@@ -232,12 +233,13 @@ export function normalizePlanSteps(parsed: unknown): Array<{
   target?: string
   concepts?: string[]
   materials?: string[]
+  coverage?: 'read' | 'skim' | 'skip'
   why: string
 }> {
   const body = asRecord(parsed)
   const raw = asArray(body.steps, 'steps')
   const issues: string[] = []
-  const steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }> = []
+  const steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; why: string }> = []
   raw.forEach((entry, index) => {
     const row = asRecord(entry)
     const kind = row.kind
@@ -247,10 +249,11 @@ export function normalizePlanSteps(parsed: unknown): Array<{
     }
     const why = typeof row.why === 'string' ? row.why.trim() : ''
     if (why.length === 0) issues.push(`第 ${index + 1} 步缺少 why`)
-    const step: { kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string } = {
+    const step: { kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; why: string } = {
       kind: kind as PlanStepKind,
       why,
     }
+    if (row.coverage === 'read' || row.coverage === 'skim' || row.coverage === 'skip') step.coverage = row.coverage
     if (kind === 'unit' || kind === 'paper-pass') {
       if (typeof row.target !== 'string' || !row.target.includes(':')) issues.push(`第 ${index + 1} 步缺少 target`)
       else step.target = row.target.trim()

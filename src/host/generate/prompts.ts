@@ -180,7 +180,7 @@ export function planPrompt(input: {
       '',
       '## 输出契约',
       '输出一个 JSON 对象：',
-      '{"steps":[{"kind":"unit|paper-pass|drill|compare","target":"<material>:<unit>","concepts":["<concept id>"],"materials":["<material id>"],"why":"一句话说明为什么排在这里"}],"mastery":[{"title":"知识点","standard":"达到什么标准算掌握","level":3,"target":"<material>:<unit>","concepts":["<concept id>"]}]}',
+      '{"steps":[{"kind":"unit|paper-pass|drill|compare","target":"<material>:<unit>","concepts":["<concept id>"],"materials":["<material id>"],"coverage":"read|skim|skip","why":"一句话说明为什么排在这里或为什么不读"}],"mastery":[{"title":"知识点","standard":"达到什么标准算掌握","level":3,"target":"<material>:<unit>","concepts":["<concept id>"]}]}',
       `kind 只能是 ${allowedKinds.join('/')}。`,
       'unit 与 paper-pass 的 target 必须逐字复制目录里的 <material>:<unit>；drill 的 concepts 只能从上面「已有概念」逐字选择，列表为空时不要输出 drill；compare 必须带至少两个 materials。',
       '步骤按学习顺序排列，4–12 步；why 必须具体对应该目标，不要空话。',
@@ -189,6 +189,7 @@ export function planPrompt(input: {
       'standard 要写成可判定的标准（能推出、能解释、能指出边界、能构造反例），不要写「理解」「熟悉」。',
       'mastery 的 target 也必须是目录里的 <material>:<unit>；概念从「已有概念」逐字选择，列表为空时 concepts 留空。',
       'mastery 的 level 四档：1 了解（知道是什么）、2 会用（能照着用）、3 能讲（能独立推导/解释）、4 创新（能改造或提出新做法）。按交付物选，不要一律 3。',
+      'coverage 三档：read 必读、skim 略读（只要结论/图）、skip 不读（与目标无关）。目录里与目标无关的节要显式标 skip，并在 why 写清为什么不读；不要把它悄悄留在 read。',
     ].join('\n'),
   }
 }

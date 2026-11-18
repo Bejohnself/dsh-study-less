@@ -310,6 +310,8 @@ export async function createPlan(svc: StudyService, input: {
       ...(step.target === undefined ? {} : { target: step.target }),
       ...(step.concepts === undefined ? {} : { concepts: step.concepts }),
       ...(step.materials === undefined ? {} : { materials: step.materials }),
+      ...(step.coverage === undefined ? {} : { coverage: step.coverage }),
+      ...(step.coverage === 'skip' ? { skipReason: step.why } : {}),
       why: step.why,
       done: false,
       ...(step.coverage === undefined ? {} : { coverage: step.coverage }),
@@ -330,7 +332,7 @@ export async function updatePlan(svc: StudyService,
     setStep?: { n: number; done: boolean }
     setStatus?: 'active' | 'paused' | 'done'
     setGoal?: string
-    replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
+    replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: Coverage; why: string }>
     /** Replace the goal's knowledge map (written with the steps). */
     replaceMastery?: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }>
     /** Goal facts: deliverable, deadline and audience. null clears a field. */
@@ -372,6 +374,8 @@ export async function updatePlan(svc: StudyService,
       ...(step.target === undefined ? {} : { target: step.target }),
       ...(step.concepts === undefined ? {} : { concepts: step.concepts }),
       ...(step.materials === undefined ? {} : { materials: step.materials }),
+      ...(step.coverage === undefined ? {} : { coverage: step.coverage }),
+      ...(step.coverage === 'skip' ? { skipReason: step.why } : {}),
       why: step.why,
       done: false,
     }))
