@@ -7,6 +7,7 @@
 import { splitUnitKey, unitKey } from '../../core/ids.ts'
 import { insightCard, listInsights } from '../../core/insights.ts'
 import { listManifests, structureNodeOf } from '../../core/library.ts'
+import { decayedMastery, dueConcepts, ensureKnowledge, targetOf } from '../../core/knowledge.ts'
 import { dueUnits, isWeak, readProgress, recordReview } from '../../core/progress.ts'
 import { listConcepts, readConcept } from '../../core/concepts.ts'
 import { listPlans, nextStep as nextPlanStep } from '../../core/plans.ts'
@@ -45,13 +46,33 @@ export async function due(svc: StudyService, today = svc.today()): Promise<DueIt
 
 export async function todayView(svc: StudyService): Promise<TodayView> {
   const date = svc.today()
-  const [due, manifests, progress, plans, concepts] = await Promise.all([
+  const [due, manifests, progress, plans, concepts, knowledge] = await Promise.all([
     svc.due(date),
     listManifests(svc.paths),
     readProgress(svc.paths),
     listPlans(svc.paths),
     svc.concepts(),
+    ensureKnowledge(svc.paths),
   ])
+  const names = new Map(concepts.map(concept => [concept.id, concept.name]))
+  const knowledgeDue = dueConcepts(knowledge, date).map(entry => ({
+    ...entry,
+    name: names.get(entry.conceptId) ?? entry.conceptId,
+  }))
+  const knowledgeBelow = concepts
+    .map(concept => {
+      const entry = knowledge.concepts[concept.id]
+      return {
+        conceptId: concept.id,
+        name: concept.name,
+        mastery: concept.mastery,
+        target: entry === undefined ? 0.8 : targetOf(entry),
+        settled: entry?.settledAt !== undefined,
+      }
+    })
+    .filter(entry => !entry.settled && entry.mastery < entry.target)
+    .sort((a, b) => a.mastery - b.mastery)
+    .slice(0, 6)
 
   const activePlans = plans.filter(plan => plan.status === 'active')
   const planBriefs: PlanBrief[] = activePlans.map(plan => {
@@ -138,10 +159,26 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     date,
     dueCards: dueCardViews,
     due,
-    weak: concepts.filter(concept => concept.weak).slice(0, 5),
+    weak: knowledgeBelow.slice(0, 5).map(entry => {
+      const concept = concepts.find(candidate => candidate.id === entry.conceptId)
+      return {
+        id: entry.conceptId,
+        name: entry.name,
+        mastery: entry.mastery,
+        occurrences: concept?.occurrences ?? 0,
+        materials: concept?.materials ?? [],
+        weak: true,
+      }
+    }),
     next,
     plans: planBriefs,
     learnedToday,
+    knowledge: {
+      total: Object.keys(knowledge.concepts).length,
+      settled: Object.values(knowledge.concepts).filter(state => state.settledAt !== undefined).length,
+      due: knowledgeDue,
+      below: knowledgeBelow,
+    },
     ...(pinned === undefined ? {} : { pinnedInsight: insightCard(pinned) }),
   }
 }
@@ -192,16 +229,18 @@ export async function reviewCard(svc: StudyService, cardId: string, rating: Rati
 }
 
 export async function concepts(svc: StudyService): Promise<ConceptCard[]> {
-  const [records, progress] = await Promise.all([listConcepts(svc.paths), readProgress(svc.paths)])
+  const [records, knowledge] = await Promise.all([listConcepts(svc.paths), ensureKnowledge(svc.paths)])
+  const today = svc.today()
   return records.map(record => {
-    const entry = progress.concepts[record.id]
+    const entry = knowledge.concepts[record.id]
+    const mastery = entry === undefined ? 0.5 : decayedMastery(entry, today)
     return {
       id: record.id,
       name: record.name,
-      mastery: entry?.mastery ?? 0.5,
+      mastery,
       occurrences: record.occurrences.length,
       materials: [...new Set(record.occurrences.map(occurrence => occurrence.material))],
-      weak: entry !== undefined && isWeak(entry),
+      weak: entry === undefined ? true : mastery < targetOf(entry) || entry.streak >= 2,
     }
   })
 }

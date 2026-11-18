@@ -227,8 +227,32 @@ export interface CardView {
 }
 
 /** Everything the Today page needs in one read. */
+/** The knowledge-space slice of the today panel. */
+export interface KnowledgeToday {
+  /** Concepts with any recorded state. */
+  total: number
+  settled: number
+  due: Array<{
+    conceptId: string
+    name: string
+    due: string
+    overdueDays: number
+    mastery: number
+    target: number
+  }>
+  below: Array<{
+    conceptId: string
+    name: string
+    mastery: number
+    target: number
+    settled: boolean
+  }>
+}
+
 export interface TodayView {
   date: string
+  /** Knowledge-point state: what is due and what is below target. */
+  knowledge?: KnowledgeToday
   /** Cards written by failed sufficiency questions, most overdue first. */
   dueCards: CardView[]
   due: DueItem[]

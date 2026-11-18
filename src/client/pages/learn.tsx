@@ -113,7 +113,9 @@ function TodayPanel({
   if (error !== null) return <div className="study-empty">无法读取今日面板：{error}</div>
   if (data === null) return <div className="study-empty">正在整理今天的任务…</div>
 
-  const nothing = data.due.length === 0 && data.next === null && data.weak.length === 0 && data.plans.length === 0
+  const dueKnowledge = data.knowledge?.due ?? []
+  const dueCount = dueKnowledge.length + data.dueCards.length + data.due.length
+  const nothing = dueCount === 0 && data.next === null && data.weak.length === 0 && data.plans.length === 0
 
   return (
     <div className="study-today">
@@ -123,16 +125,18 @@ function TodayPanel({
         <span className="study-today-hi">
           {data.next !== null
             ? '先从接着读开始？'
-            : data.dueCards.length + data.due.length > 0
-              ? '有几张卡到期了，先过一遍？'
+            : dueCount > 0
+              ? '有几个知识点到期了，先过一遍？'
               : '今天没有非做不可的事。'}
         </span>
         <span className="study-today-spacer" />
-        <span className="study-muted">已完成 {data.learnedToday} 节</span>
-        <span className={data.dueCards.length + data.due.length > 0 ? 'study-warn-text' : 'study-muted'}>
-          {data.dueCards.length + data.due.length > 0
-            ? data.dueCards.length + ' 张卡片 · ' + data.due.length + ' 节旧复习'
-            : '没有到期复习'}
+        <span className="study-muted">
+          {data.knowledge === undefined
+            ? `已完成 ${data.learnedToday} 节`
+            : `知识点 ${data.knowledge.total} 个 · 已结案 ${data.knowledge.settled}`}
+        </span>
+        <span className={dueCount > 0 ? 'study-warn-text' : 'study-muted'}>
+          {dueCount > 0 ? `${dueKnowledge.length} 个知识点到期` : '没有到期复习'}
         </span>
       </div>
 
@@ -183,10 +187,21 @@ function TodayPanel({
 
         <section className="study-panel">
           <h3>该复习了</h3>
-          {data.dueCards.length === 0 && data.due.length === 0 ? (
-            <p className="study-muted">今天没有到期的卡。卡只从判错里长出来，答对就退役，结案后彻底消失——所以它不会越堆越多。</p>
+          {dueCount === 0 ? (
+            <p className="study-muted">今天没有到期的知识点。练习过的概念会按 FSRS 排下一次；到目标且下次复习落在目标期之后，就自动结案。</p>
           ) : (
             <ul className="study-list">
+              {dueKnowledge.slice(0, 6).map(entry => (
+                <li key={entry.conceptId}>
+                  <button type="button" className="study-item" onClick={() => onOpenConcept(entry.conceptId)}>
+                    <span className="study-item-title">{entry.name}</span>
+                    <span className="study-item-meta">
+                      掌握 {Math.round(entry.mastery * 100)}% / 目标 {Math.round(entry.target * 100)}%
+                      {entry.overdueDays > 0 ? ` · 逾期 ${entry.overdueDays} 天` : ' · 今天到期'}
+                    </span>
+                  </button>
+                </li>
+              ))}
               {data.dueCards.slice(0, 4).map(card => (
                 <li key={card.id}>
                   <button

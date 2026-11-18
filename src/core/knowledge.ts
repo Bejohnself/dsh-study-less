@@ -334,3 +334,16 @@ function isConceptProgress(value: unknown): value is ConceptProgress {
   const entry = value as Partial<ConceptProgress>
   return typeof entry.mastery === 'number' && typeof entry.attempts === 'number'
 }
+/**
+ * Read the space, seeding it from the old concept progress on first use.
+ *
+ * Seeding is a one-time migration: after `knowledge.json` exists, the old
+ * progress file is no longer read here.
+ */
+export async function ensureKnowledge(paths: LibraryPaths): Promise<KnowledgeFile> {
+  const existing = await readJson<KnowledgeFile | null>(paths.knowledgeFile, null)
+  if (existing !== null) {
+    return { ...existing, version: 1, concepts: existing.concepts ?? {} }
+  }
+  return seedKnowledgeFromProgress(paths)
+}
