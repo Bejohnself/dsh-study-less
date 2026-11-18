@@ -10,3 +10,6 @@ export const ASK_SYSTEM = [
 ].join('\n')
 
 export const JUDGE_TIMEOUT_MS = 60_000
+
+/** Writing a round of mastery questions is one longer call. */
+export const QUESTION_TIMEOUT_MS = 90_000

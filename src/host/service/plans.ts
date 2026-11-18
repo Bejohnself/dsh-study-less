@@ -176,6 +176,14 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
     boundary: summarizeBoundary(plan, pageOf),
     attempts,
     stuck: deriveStuckPoints(plan.attempts ?? []),
+    mastery: (plan.mastery ?? []).map(point => ({
+      id: point.id,
+      title: point.title,
+      standard: point.standard,
+      ...(point.target === undefined ? {} : { target: point.target }),
+      concepts: [...(point.concepts ?? [])],
+      ...(point.passedAt === undefined ? {} : { passedAt: point.passedAt }),
+    })),
     sufficiency: plan.sufficiency ?? [],
     gate: gateStatus(plan),
     cards,
@@ -232,6 +240,8 @@ export async function updatePlan(svc: StudyService,
     setStatus?: 'active' | 'paused' | 'done'
     setGoal?: string
     replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
+    /** Replace the goal's knowledge map (written with the steps). */
+    replaceMastery?: Array<{ title: string; standard: string; target?: string; concepts?: string[] }>
     /** Goal facts: deliverable, deadline and audience. null clears a field. */
     setMeta?: { deliverable?: string | null; deadline?: string | null; audience?: string | null; threshold?: number }
     /** Crop one step: read, skim or skip (skip needs a reason). */
@@ -244,6 +254,8 @@ export async function updatePlan(svc: StudyService,
   ): Promise<PlanDetailView> {
   const plan = await readPlan(svc.paths, planId)
   if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
+  const [manifests, concepts] = await Promise.all([listManifests(svc.paths), listConcepts(svc.paths)])
+  const targets = planTargets(manifests, concepts)
 
   if (input.setGoal !== undefined) {
     if (input.setGoal.trim().length === 0) throw new StudyError('invalid', '目标不能为空')
@@ -273,6 +285,29 @@ export async function updatePlan(svc: StudyService,
       done: false,
     }))
     plan.generation = { status: 'done', updatedAt: new Date().toISOString() }
+  }
+  if (input.replaceMastery !== undefined) {
+    // Replanning may redraw the map; a point with the same title keeps its
+    // pass, so a retry does not erase evidence the reader already earned.
+    // Dangling targets and concepts are dropped instead of blocking the map:
+    // a point without a unit is still a goal-level point.
+    const previous = new Map((plan.mastery ?? []).map(point => [point.title, point]))
+    plan.mastery = input.replaceMastery
+      .filter(point => point.title.trim().length > 0 && point.standard.trim().length > 0)
+      .slice(0, 12)
+      .map((point, index) => {
+        const old = previous.get(point.title.trim())
+        const linkedConcepts = (point.concepts ?? []).filter(concept => targets.hasConcept(concept)).slice(0, 8)
+        return {
+          id: `m${index + 1}`,
+          title: point.title.trim().slice(0, 120),
+          standard: point.standard.trim().slice(0, 500),
+          ...(point.target === undefined || !targets.hasUnit(point.target) ? {} : { target: point.target }),
+          ...(linkedConcepts.length === 0 ? {} : { concepts: linkedConcepts }),
+          ...(old?.passedAt === undefined ? {} : { passedAt: old.passedAt }),
+        }
+      })
+    if (plan.mastery.length === 0) delete plan.mastery
   }
 
   if (input.setMeta !== undefined) {
@@ -383,8 +418,7 @@ export async function updatePlan(svc: StudyService,
     }
   }
 
-  const [manifests, concepts] = await Promise.all([listManifests(svc.paths), listConcepts(svc.paths)])
-  const issues = validatePlan(plan, planTargets(manifests, concepts))
+  const issues = validatePlan(plan, targets)
   if (issues.length > 0) throw new StudyError('invalid', '计划未通过校验', { issues })
   await writePlan(svc.paths, plan)
   return svc.planView(planId)

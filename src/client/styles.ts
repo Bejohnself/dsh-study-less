@@ -163,6 +163,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] {
 }
 [data-dsh-study] .study-version { order: 2; }
 [data-dsh-study] .study-head-nav { order: 3; margin-left: auto; position: relative; z-index: 1; }
+[data-dsh-study] .study-head.is-focus { margin-bottom: 18px; padding-bottom: 12px; }
 [data-dsh-study] .study-sub {
   order: 4;
   flex: 1 1 100%;
@@ -1437,6 +1438,17 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 [data-dsh-study] .study-goal-card,
 [data-dsh-study] .study-boundary,
 [data-dsh-study] .study-attempts,
+[data-dsh-study] .study-mastery {
+  margin: 18px 0;
+  padding: 18px;
+  border: 1px solid var(--s-border);
+  border-radius: 4px;
+  background: var(--s-surface);
+}
+[data-dsh-study] .study-mastery-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+[data-dsh-study] .study-mastery-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--s-border); border-radius: 4px; }
+[data-dsh-study] .study-mastery-item.is-passed { border-color: var(--s-success); background: var(--s-success-soft); }
+[data-dsh-study] .study-mastery-body { flex: 1; min-width: 0; }
 [data-dsh-study] .study-gate {
   margin: 18px 0;
   padding: 18px;

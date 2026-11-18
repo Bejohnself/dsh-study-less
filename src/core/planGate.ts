@@ -138,6 +138,9 @@ export interface GateStatus {
   independentNeeded: number
   judged: number
   unverified: number
+  /** Mastery points passed and total (0/0 for plans without a map). */
+  masteryPassed: number
+  masteryTotal: number
   /** Sufficiency questions passed and asked. */
   passed: number
   asked: number
@@ -163,6 +166,8 @@ export function gateStatus(plan: PlanRecord): GateStatus {
   const attempts = plan.attempts ?? []
   const counts = provenanceCounts(attempts)
   const questions = plan.sufficiency ?? []
+  const mastery = plan.mastery ?? []
+  const masteryPassed = mastery.filter(point => point.passedAt !== undefined).length
   const passed = questions.filter(item => effectivePass(item)).length
   const selfJudged = questions.filter(item => effectivePass(item) && isSelfJudged(item)).length
   const threshold = thresholdOf(plan)
@@ -172,6 +177,11 @@ export function gateStatus(plan: PlanRecord): GateStatus {
   }
   if (counts.independent < INDEPENDENT_NEEDED) {
     reasons.push(`独立证据 ${counts.independent}/${INDEPENDENT_NEEDED}：至少 3 次不看 AI 的尝试`)
+  }
+  if (mastery.length > 0 && masteryPassed < mastery.length) {
+    reasons.push(
+      `掌握点 ${masteryPassed}/${mastery.length}：还有 ${mastery.length - masteryPassed} 个没在过关测试里通过`,
+    )
   }
   if (questions.length === 0) {
     reasons.push('还没有判定题：写 3–10 道「答得出就算够了」的问题')
@@ -189,6 +199,8 @@ export function gateStatus(plan: PlanRecord): GateStatus {
     independentNeeded: INDEPENDENT_NEEDED,
     judged: counts.judged,
     unverified: counts.unverified,
+    masteryPassed,
+    masteryTotal: mastery.length,
     passed,
     asked: questions.length,
     aiJudged: passed - selfJudged,

@@ -104,8 +104,8 @@ export function validateQuizItem(item: QuizItem, range: PageRange): string[] {
   if ((item.type === 'recall' || item.type === 'apply') && (item.rubric === undefined || item.rubric.length === 0)) {
     issues.push(`${item.type} 题需要 rubric（评分要点）`)
   }
-  if (item.type === 'evidence' && (item.page === undefined || item.rubric === undefined)) {
-    issues.push('evidence 题需要 page 与 rubric')
+  if (item.type === 'evidence' && (item.page === undefined || item.rubric === undefined || item.rubric.length === 0)) {
+    issues.push('evidence 题需要 page 与非空的 rubric')
   }
   return issues
 }

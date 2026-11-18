@@ -724,17 +724,6 @@ export function UnitReader({
     }
   }
 
-  const generateQuiz = (): void => {
-    if (
-      unit !== null &&
-      unit.quiz !== null &&
-      !window.confirm('这一节已有练习题，重新生成会覆盖；正在答的那一组也会结束。继续？')
-    ) {
-      return
-    }
-    void runJob('/generate/quiz', { mid, uid }, '正在出题…')
-  }
-
   /** Keep the sprite fully on screen; the card anchors itself to it. */
   const clampPos = (x: number, y: number): { x: number; y: number } => ({
     x: Math.max(8, Math.min(window.innerWidth - 74, x)),
@@ -1003,9 +992,6 @@ export function UnitReader({
                   </button>
                   <button type="button" onClick={() => { setMenu(false); setNotesOpen(true) }} disabled={unit.notes === null}>
                     导读（实验）
-                  </button>
-                  <button type="button" onClick={() => { setMenu(false); generateQuiz() }} disabled={busy !== null}>
-                    {unit.quiz === null ? '生成练习题' : '重新生成练习题'}
                   </button>
                 </div>
               ) : null}

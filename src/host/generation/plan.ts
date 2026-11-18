@@ -12,7 +12,7 @@ import { type JobContext } from '../jobs.ts'
 import { planPrompt } from '../generate/prompts.ts'
 import { StudyError } from '../service.ts'
 import type { GenerationService } from '../generation.ts'
-import { sanitizePlanSteps, normalizePlanSteps } from './normalize.ts'
+import { sanitizeMastery, sanitizePlanSteps, normalizePlanMastery, normalizePlanSteps } from './normalize.ts'
 
 export async function generatePlan(svc: GenerationService, input: GeneratePlanInput): Promise<{ planId: string; jobId: string }> {
   if (!(await svc.textReady())) {
@@ -89,18 +89,30 @@ export async function runPlan(svc: GenerationService, planId: string, input: Gen
     const validMaterials = new Set(chosen.map(manifest => manifest.id))
     let count = 0
     let dropped = 0
+    let points = 0
     await svc.completeJson(context, prompt, async parsed => {
       const raw = normalizePlanSteps(parsed)
       const sanitized = sanitizePlanSteps(raw, validUnits, validConcepts, validMaterials)
       if (sanitized.steps.length === 0) {
         throw new StudyError('invalid', '计划没有可用的步骤', { issues: sanitized.issues })
       }
+      // The mastery map is written together with the steps: one read gives both
+      // the path and what "done" means, and one write keeps them consistent.
+      const masteryRaw = normalizePlanMastery(parsed)
+      const mastery = sanitizeMastery(masteryRaw, validUnits, validConcepts)
+      if (mastery.points.length === 0) {
+        throw new StudyError('invalid', '计划没有可用的掌握点', { issues: mastery.issues })
+      }
       count = sanitized.steps.length
-      dropped = sanitized.issues.length
-      await svc.deps.service.updatePlan(planId, { replaceSteps: sanitized.steps })
+      dropped = sanitized.issues.length + mastery.issues.length
+      points = mastery.points.length
+      await svc.deps.service.updatePlan(planId, {
+        replaceSteps: sanitized.steps,
+        replaceMastery: mastery.points,
+      })
     })
     await svc.deps.service.setPlanGeneration(planId, { status: 'done', mode: 'inline', jobId: context.job.id })
-    context.report(1, `已生成 ${count} 步${dropped === 0 ? '' : `（忽略 ${dropped} 个无效目标）`}`)
+    context.report(1, `已生成 ${count} 步、${points} 个掌握点${dropped === 0 ? '' : `（忽略 ${dropped} 个无效目标）`}`)
     return await svc.deps.service.planView(planId)
   } catch (error) {
     await svc.deps.service.setPlanGeneration(planId, {

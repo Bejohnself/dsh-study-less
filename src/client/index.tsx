@@ -4,7 +4,7 @@
  * Contributes the sidebar row and the center-column page. All state comes from
  * the Host through /study-api; this half never writes files.
  */
-import type { ReactElement } from 'react'
+import { Component, type ErrorInfo, type ReactElement, type ReactNode } from 'react'
 import { StudyApp } from './app.tsx'
 import { installActions } from './actions.ts'
 import { ensureStudyStyles } from './styles.ts'
@@ -12,6 +12,50 @@ import { installTheme } from './theme.ts'
 
 /** The panel id shared by the sidebar row and the main-slot occupant. */
 export const STUDY_PANEL_ID = 'study-desk'
+
+/**
+ * A render error must degrade this panel, never blank the shell.
+ *
+ * The boundary shows the message instead of a white page, so a bug in one view
+ * can be reported and the rest of the GUI keeps working.
+ */
+class PanelBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  override state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error }
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('[dsh-study-less] panel crashed:', error, info.componentStack)
+  }
+
+  override render(): ReactNode {
+    if (this.state.error !== null) {
+      return (
+        <div data-dsh-study="" className="study-page">
+          <div className="study-empty">
+            <p>书桌这一页出错了。</p>
+            <p className="study-hint">{this.state.error.message}</p>
+            <button type="button" className="study-primary" onClick={() => this.setState({ error: null })}>
+              重试
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+/** The registered main-slot component: the panel plus its error boundary. */
+function StudyPanel(): ReactElement {
+  return (
+    <PanelBoundary>
+      <StudyApp />
+    </PanelBoundary>
+  )
+}
 
 /** Row order among the shell's global panel rows (Plugins is 0, Schedule 10). */
 const PANEL_ORDER = 30
@@ -99,7 +143,7 @@ export function apply(ctx: ClientContext): void {
       )
       disposers.push(
         ctx.slots.inject('main', () =>
-          ctx.slots.register({ name: 'main', key: STUDY_PANEL_ID, inject: () => ({}) }, StudyApp),
+          ctx.slots.register({ name: 'main', key: STUDY_PANEL_ID, inject: () => ({}) }, StudyPanel),
         ),
       )
     } catch (error) {

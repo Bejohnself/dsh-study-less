@@ -57,7 +57,7 @@ export function plansTools({ service, extras }: ToolContext): StudyToolDefinitio
   tools.push({
     name: 'study_plan_update',
     description:
-      '修改一条学习路径：勾掉/取消某一步（setStepN + setStepDone）、暂停/恢复（status）、改目标（goal）、或整体替换步骤（steps）。替换后会重新校验目标是否存在。',
+      '修改一条学习路径：勾掉/取消某一步（setStepN + setStepDone）、暂停/恢复（status）、改目标（goal）、整体替换步骤（steps）、或写掌握点图景（mastery）。替换后会重新校验目标是否存在。',
     parameters: objectSchema({
       plan: { type: 'string', description: '计划 id' },
       setStepN: { type: 'number', description: '要改的步骤序号，从 1 开始' },
@@ -75,6 +75,16 @@ export function plansTools({ service, extras }: ToolContext): StudyToolDefinitio
           why: { type: 'string', description: '为什么这一步排在这里' },
         }, ['kind', 'why']),
       },
+      mastery: {
+        type: 'array',
+        description: '目标的掌握点图景：3–8 个可判定的知识点，与步骤一起写',
+        items: objectSchema({
+          title: { type: 'string', description: '知识点名称' },
+          standard: { type: 'string', description: '达到什么标准算掌握；要可判定' },
+          target: { type: 'string', description: '<material>:<unit>，在这一节过关' },
+          concepts: { type: 'array', items: { type: 'string' }, description: '相关概念 id' },
+        }, ['title', 'standard']),
+      },
     }, ['plan']),
     output: { schema: {}, render: renderJson },
     async execute(args) {
@@ -85,6 +95,7 @@ export function plansTools({ service, extras }: ToolContext): StudyToolDefinitio
         status?: 'active' | 'paused' | 'done'
         goal?: string
         steps?: Array<{ kind: 'unit' | 'paper-pass' | 'drill' | 'compare'; target?: string; concepts?: string[]; materials?: string[]; why: string }>
+        mastery?: Array<{ title: string; standard: string; target?: string; concepts?: string[] }>
       }
       try {
         return {
@@ -96,6 +107,7 @@ export function plansTools({ service, extras }: ToolContext): StudyToolDefinitio
             ...(input.status === undefined ? {} : { setStatus: input.status }),
             ...(input.goal === undefined ? {} : { setGoal: input.goal }),
             ...(input.steps === undefined ? {} : { replaceSteps: input.steps }),
+            ...(input.mastery === undefined ? {} : { replaceMastery: input.mastery }),
           })),
         }
       } catch (error) {

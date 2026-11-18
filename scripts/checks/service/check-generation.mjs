@@ -61,6 +61,13 @@ const fake = {
             { kind: 'paper-pass', target: `${materialId}:p1`, why: '再用第一遍把论文主张串起来' },
             { kind: 'drill', concepts: ['invented/concept'], why: '模型编造的概念应被忽略' },
           ],
+          mastery: [
+            {
+              title: '缩放点积的原因',
+              standard: '能说明为什么要除以根号 d_k，并指出不缩放会出现什么问题',
+              target: `${materialId}:${unitId}`,
+            },
+          ],
         }),
       }
     }
@@ -72,6 +79,26 @@ const fake = {
           concepts: [{ id: 'test/concept', name: '测试概念', definition: '用于端到端检查的概念' }],
         }),
       }
+    }
+    if (text.includes('这一节要考的掌握点')) {
+      return {
+        text: JSON.stringify({
+          items: [
+            {
+              point: 'm1',
+              type: 'apply',
+              question: '为什么缩放点积要除以根号 d_k？',
+              rubric: ['指出内积的方差随维度增长', '说明不缩放会让 softmax 饱和'],
+              concepts: [],
+              page: pageStart,
+              difficulty: 2,
+            },
+          ],
+        }),
+      }
+    }
+    if (text.includes('【用户写下的答案】')) {
+      return { text: JSON.stringify({ verdict: 'pass', missing: [], advice: '可以', confidence: 0.9 }) }
     }
     if (text.includes('练习题')) {
       return {
@@ -153,8 +180,8 @@ const fake = {
 
 await settings.patch({ text: { kind: 'dsh', model: 'fake' }, study: { autoQuiz: true, autoInsight: true } })
 const books = new BookService(paths, service)
-const quizSessions = new QuizSessionService(paths, service, books)
 const generation = new GenerationService(paths, { service, insights, settings, jobs, books, textProvider: () => fake })
+const quizSessions = new QuizSessionService(paths, service, books, generation)
 
 const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 materialId = imported.manifest.id
@@ -172,11 +199,32 @@ const wait = async jobId => {
   throw new Error(`job ${jobId} did not finish`)
 }
 
+const bareQuiz = await generation.generateQuiz({ material: materialId, unit: unitId })
+const bareDone = await wait(bareQuiz.jobId)
+const bareBank = await service.quiz(materialId, unitId)
+console.log('quiz without notes:', bareDone.status, bareDone.error ?? 'ok', 'items', bareBank?.items.length ?? 0)
+
 const plan = await generation.generatePlan({ goal: '测试路径', materials: [materialId], depth: 'deep' })
 const planJob = await wait(plan.jobId)
 console.log('plan job:', planJob.status, planJob.error ?? planJob.message)
 const planView = await service.planView(plan.planId)
 console.log('plan steps:', planView.steps.length, planView.steps.map(step => step.kind).join(','))
+console.log('plan mastery:', planView.mastery.length)
+
+const planQuiz = await quizSessions.start({ plan: plan.planId, material: materialId, unit: unitId })
+console.log('plan quiz start:', planQuiz.item?.masteryPoint, planQuiz.session.limit)
+const planAnswer = await quizSessions.answer(
+  planQuiz.session.id,
+  planQuiz.item.id,
+  '内积的方差随 d_k 增长，不缩放会让 softmax 梯度饱和。',
+)
+const afterMastery = await service.planView(plan.planId)
+console.log(
+  'plan quiz answer:',
+  planAnswer.feedback.judged?.verdict,
+  'mastery passed:',
+  afterMastery.mastery.every(point => point.passedAt !== undefined),
+)
 
 const outline = await generation.generateBookOutline(plan.planId)
 const outlineDone = await wait(outline.jobId)

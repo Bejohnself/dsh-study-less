@@ -28,6 +28,7 @@ export async function getPractice(ctx: RouteContext): Promise<void> {
         unit: query.get('uid') ?? undefined,
         book: query.get('bid') ?? undefined,
         chapter: query.get('cid') ?? undefined,
+        plan: query.get('pid') ?? undefined,
       }),
     })
     return
@@ -51,6 +52,7 @@ export async function postPractice(ctx: RouteContext, body: Record<string, unkno
         ...(typeof body.uid === 'string' ? { unit: body.uid } : {}),
         ...(typeof body.bid === 'string' ? { book: body.bid } : {}),
         ...(typeof body.cid === 'string' ? { chapter: body.cid } : {}),
+        ...(typeof body.pid === 'string' ? { plan: body.pid } : {}),
         ...(typeof body.limit === 'number' ? { limit: body.limit } : {}),
         ...(body.restart === true ? { restart: true } : {}),
       }),
@@ -67,6 +69,20 @@ export async function postPractice(ctx: RouteContext, body: Record<string, unkno
         requiredString(body, 'itemId'),
         body.answer,
         selfGrade === 'correct' || selfGrade === 'partial' || selfGrade === 'wrong' ? selfGrade : undefined,
+      ),
+    })
+    return
+  }
+  if (path === '/quiz/session/appeal') {
+    const sessions = requireService(quizSessions, '练习会话')
+    const claim = body.claim
+    send(res, 200, {
+      ok: true,
+      value: await sessions.appeal(
+        requiredString(body, 'sid'),
+        requiredString(body, 'itemId'),
+        requiredString(body, 'reason'),
+        claim === 'correct' || claim === 'partial' || claim === 'wrong' ? claim : undefined,
       ),
     })
     return

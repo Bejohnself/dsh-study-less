@@ -59,7 +59,7 @@ src/
 │  ├─ generation.ts      (300) GenerationService 外壳：textReady / ready / requireSettings / completeJson + 转发
 │  ├─ generation/        chat plan unit quiz blocks insight book + normalize.ts + shared.ts
 │  ├─ jobs.ts            JobQueue：jobs/*.json，queued→running→done/failed
-│  ├─ books.ts / insights.ts / quizSessions.ts / settings.ts
+│  ├─ books.ts / insights.ts / quizSessions.ts（+ quizSessionEngine/Views）/ settings.ts
 │  ├─ import.ts          导入 PDF、切页、建单元
 │  ├─ structure.ts       目录 → 单元范围（相邻单元共享起始页）
 │  ├─ pdf.ts             pdf.js 抽文本 / 目录 / 段落几何
@@ -113,7 +113,7 @@ npm run check       # 全量闸门：build + 13 个 service/http/ui 检查（见
 ```text
 materials/<mid>/   manifest.json / pages / source / layout / units/<uid>/{notes.md,meta.json,quiz.json,blocks.json,extras}
 concepts/<cid>.json      全局概念，跨资料共享
-plans/<pid>.json         目标、裁剪单、尝试、卡点、判定题
+plans/<pid>.json         目标、裁剪单、尝试、卡点、掌握点、判定题
 cards/<cid>.json         判定卡（结案时退役/删除）
 quiz-sessions/<sid>.json 自适应练习会话
 books/<bid>/             自编书：book.json + chapters/*.md + 章节练习 + book.md
@@ -133,7 +133,7 @@ settings.json            引擎与学习偏好（0600）
 | 今日面板 | `client/pages/learn.tsx`（today） | `service.todayView`、`core/planGate`、`core/progress` | `check-plan` |
 | 目标 / 裁剪 / 判定 / 结案 | `client/pages/plan.tsx`（目标详情）、`client/pages/learn.tsx`（目标列表、NewGoalDialog） | `service.createGoal/updatePlan/recordQuestions/recordJudgement/closePlan`、`core/plans`、`core/planGate`、`core/cards` | `check-plan`、`check-judge`、`check-plan-routes` |
 | 复习 / FSRS | `client/pages/learn.tsx`（review） | `service.review/reviewCard`、`core/srs`、`core/progress`、`core/cards` | `tests/srs.test.ts`、`tests/cards.test.ts` |
-| 过关测试 / 练习会话 | `client/pages/practice.tsx`、`client/components/quiz.tsx` | `host/quizSessions.ts`、`core/quiz.ts`、`core/types.ts`/`views.ts` | `check-api`、`tests/quiz-adaptive.test.ts` |
+| 过关测试 / 练习会话 | `client/pages/practice.tsx`、`client/components/quiz.tsx` | `host/quizSessions.ts`（会话流程）、`quizSessionEngine.ts`（出题/补题/结案研判）、`quizSessionViews.ts`（视图与评级）、`core/quiz.ts`、`core/plans.ts`（掌握点，唯一进度）、`core/types.ts`/`views.ts` | `check-api`、`tests/quiz-adaptive.test.ts`、`tests/quiz-session-judge.test.ts`、`tests/mastery-quiz.test.ts` |
 | 笔记 / 概念 / 洞察 | `client/pages/insights.tsx` | `host/insights.ts`、`core/insights`、`core/concepts` | `check-api`、`tests/insight.test.ts` |
 | 自编书 | `client/pages/book.tsx` | `host/books.ts`、`generation.generateBook*`、`core/books` | `check-generation` |
 | 页面内生成 / 任务 | `host/generation.ts`、`host/jobs.ts` | `host/generate/prompts.ts`、`host/providers/*`、`core/jobs`、`core/settings` | `check-generation`、`check-blocks` |

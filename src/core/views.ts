@@ -23,6 +23,8 @@ import type {
   QuizBank,
   QuizEndReason,
   QuizItemType,
+  QuizJudgeRecord,
+  QuizAppealRecord,
   QuizSelfGrade,
   Provenance,
   Rating,
@@ -269,6 +271,16 @@ export interface PlanMetaView {
   closureNote?: string
 }
 
+/** One mastery point of a goal, with its progress resolved for the UI. */
+export interface MasteryPointView {
+  id: string
+  title: string
+  standard: string
+  target?: string
+  concepts: string[]
+  passedAt?: string
+}
+
 /** One plan in full. */
 export interface PlanDetailView {
   plan: {
@@ -290,6 +302,8 @@ export interface PlanDetailView {
   attempts: AttemptView[]
   /** Stuck points derived from the attempts, most frequent first. */
   stuck: StuckPointView[]
+  /** The knowledge points this goal requires, drawn with the plan. */
+  mastery: MasteryPointView[]
   /** Sufficiency questions (判定题). */
   sufficiency: SufficiencyItem[]
   /** Closure gate: what still blocks closing this goal. */
@@ -437,6 +451,9 @@ export interface QuizItemView {
   concepts: string[]
   page?: number
   difficulty?: 1 | 2 | 3
+  /** Mastery point this question checks, for plan-scoped practice. */
+  masteryPoint?: string
+  masteryTitle?: string
 }
 
 /** Feedback revealed after one answer. */
@@ -450,6 +467,12 @@ export interface QuizFeedbackView {
   explanation?: string
   /** True when a subjective answer needs a self-grade before advancing. */
   needsSelfGrade?: boolean
+  /** Why the automatic judge was not used; the reader self-grades instead. */
+  judgeUnavailable?: string
+  /** Model verdict on a written answer. */
+  judged?: QuizJudgeRecord
+  /** Re-judging rounds; the last verdict is the current one. */
+  appeals?: QuizAppealRecord[]
 }
 
 /** One answered item, rendered from the session's own snapshot. */
@@ -460,6 +483,8 @@ export interface QuizHistoryEntryView {
   answerText: string
   correct: boolean | null
   selfGrade?: QuizSelfGrade
+  judged?: QuizJudgeRecord
+  appeals?: QuizAppealRecord[]
   expected?: string
   rubric?: string[]
   explanation?: string
@@ -475,6 +500,9 @@ export interface QuizSessionView {
     limit: number
     correct: number
     objective: number
+    /** Knowledge points passed / total, when the section has a target list. */
+    targetsPassed?: number
+    targetsTotal?: number
     startedAt: string
     updatedAt: string
     endedReason?: QuizEndReason
@@ -510,7 +538,14 @@ export interface QuizSessionRecordView {
 
 /** What the practice page needs before it starts: bank state and sessions. */
 export interface QuizSessionIndexView {
-  bank: { items: number; defaultLimit: number; notes: boolean; updatedAt?: string }
+  bank: {
+    items: number
+    defaultLimit: number
+    notes: boolean
+    updatedAt?: string
+    /** Plan-scoped practice: how many points of this unit are still open. */
+    mastery?: { open: number; total: number; passed: number }
+  }
   active: QuizSessionView | null
   recent: QuizSessionRecordView[]
 }
@@ -519,10 +554,17 @@ export interface QuizSessionIndexView {
 export interface QuizSessionSummary {
   asked: number
   correct: number
+  /** Answers that count as evidence: objective or model-judged. */
   objective: number
   score: number
-  ratingSuggestion: Rating
+  /** Omitted when the run is too short or ended early to rate. */
+  rating?: Rating
+  verdict: 'passed' | 'failed' | 'incomplete'
   weakConcepts: Array<{ id: string; name: string }>
+  /** Plan-scoped practice: mastery points still open in this unit. */
+  openPoints?: number
+  /** Section practice: how many knowledge points passed. */
+  targets?: { passed: number; total: number }
 }
 
 /** Settings update body. */

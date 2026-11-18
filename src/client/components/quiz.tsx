@@ -23,6 +23,7 @@ import type {
   QuizSessionSummary,
   QuizSessionView,
 } from '../../core/views.ts'
+import type { QuizSelfGrade } from '../../core/types.ts'
 import { api, ApiError, errorText, post, waitForJob } from '../api.ts'
 import { EmptyState, InlineMarkdown, JobBanner, Markdown, ProgressBar } from './ui.tsx'
 
@@ -30,6 +31,7 @@ import { EmptyState, InlineMarkdown, JobBanner, Markdown, ProgressBar } from './
 export type QuizRunnerScope =
   | { kind: 'unit'; mid: string; uid: string }
   | { kind: 'book'; bid: string; cid: string }
+  | { kind: 'plan'; pid: string; mid: string; uid: string }
 
 /** The adaptive practice runner for one unit or one book chapter. */
 export function QuizRunner({
@@ -55,11 +57,18 @@ export function QuizRunner({
   const [past, setPast] = useState<QuizSessionView | null>(null)
   const [pastBusy, setPastBusy] = useState(false)
 
-  const scopeKey = scope.kind === 'unit' ? `u:${scope.mid}:${scope.uid}` : `b:${scope.bid}:${scope.cid}`
+  const scopeKey =
+    scope.kind === 'unit'
+      ? `u:${scope.mid}:${scope.uid}`
+      : scope.kind === 'book'
+        ? `b:${scope.bid}:${scope.cid}`
+        : `p:${scope.pid}:${scope.mid}:${scope.uid}`
   const query =
     scope.kind === 'unit'
       ? `mid=${encodeURIComponent(scope.mid)}&uid=${encodeURIComponent(scope.uid)}`
-      : `bid=${encodeURIComponent(scope.bid)}&cid=${encodeURIComponent(scope.cid)}`
+      : scope.kind === 'book'
+        ? `bid=${encodeURIComponent(scope.bid)}&cid=${encodeURIComponent(scope.cid)}`
+        : `pid=${encodeURIComponent(scope.pid)}&mid=${encodeURIComponent(scope.mid)}&uid=${encodeURIComponent(scope.uid)}`
 
   const apply = useCallback((value: QuizSessionView, resume: boolean): void => {
     setView(value)
@@ -112,7 +121,9 @@ export function QuizRunner({
       const body =
         scope.kind === 'unit'
           ? { mid: scope.mid, uid: scope.uid }
-          : { bid: scope.bid, cid: scope.cid }
+          : scope.kind === 'book'
+            ? { bid: scope.bid, cid: scope.cid }
+            : { pid: scope.pid, mid: scope.mid, uid: scope.uid }
       const value = await post<QuizSessionView>('/quiz/session/start', {
         ...body,
         ...(restart ? { restart: true } : {}),
@@ -171,7 +182,7 @@ export function QuizRunner({
               ...(value.summary === undefined ? {} : { summary: value.summary }),
             },
       )
-      setFeedback(value.feedback)
+      setFeedback(value.feedback ?? null)
       setResumed(false)
       if (value.summary === undefined) {
         setNextItem(value.next ?? null)
@@ -209,8 +220,70 @@ export function QuizRunner({
     setResumed(false)
   }
 
+  const appeal = async (
+    sid: string,
+    itemId: string,
+    claim: QuizSelfGrade,
+    reason: string,
+  ): Promise<boolean> => {
+    setBusy(true)
+    setError(null)
+    try {
+      const value = await post<QuizSessionView>('/quiz/session/appeal', {
+        sid,
+        itemId,
+        reason,
+        claim,
+      })
+      if (view !== null && view.session.id === sid) {
+        // Keep the answered item on screen: a review must not swap the panel to
+        // the next question while its feedback is still open.
+        setView(previous =>
+          previous === null
+            ? previous
+            : {
+                ...previous,
+                session: value.session,
+                history: value.history,
+                ...(value.summary === undefined ? {} : { summary: value.summary }),
+              },
+        )
+      }
+      if (past !== null && past.session.id === sid) setPast(value)
+      const entry = value.history.find(candidate => candidate.itemId === itemId)
+      if (entry !== undefined && view !== null && view.session.id === sid) {
+        setFeedback(current =>
+          current === null || current.itemId !== itemId
+            ? current
+            : {
+                ...current,
+                correct: entry.correct,
+                ...(entry.judged === undefined ? {} : { judged: entry.judged }),
+                ...(entry.appeals === undefined ? {} : { appeals: entry.appeals }),
+              },
+        )
+      }
+      await fetchIndex()
+      onChanged?.()
+      return true
+    } catch (reasonValue) {
+      setError(errorText(reasonValue))
+      // Rethrow so the inline appeal form shows the failure next to its button.
+      throw reasonValue
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const generate = async (): Promise<void> => {
     if (scope.kind !== 'unit') return
+    if (
+      index !== null &&
+      index.bank.items > 0 &&
+      !window.confirm('重新出题会换掉这一节的现有题目；已答记录还在「最近几组」里。继续？')
+    ) {
+      return
+    }
     setGenerating(true)
     setError(null)
     setJob(null)
@@ -222,6 +295,12 @@ export function QuizRunner({
       const finished = await waitForJob(jobId, setJob)
       if (finished.status === 'done') {
         setJob(null)
+        // A new bank invalidates the old run: show its start screen, not a
+        // stale summary that the next answer would reject.
+        setView(null)
+        setFeedback(null)
+        setNextItem(null)
+        setPast(null)
         onChanged?.()
         await fetchIndex()
       } else if (finished.status === 'failed') {
@@ -254,18 +333,22 @@ export function QuizRunner({
       {index === null && view === null ? <div className="study-empty">正在载入…</div> : null}
 
       {view === null && index !== null ? (
-        index.bank.items === 0 ? (
-          <BankEmpty scope={scope} index={index} generating={generating} onGenerate={() => void generate()} />
+        scope.kind === 'plan' ? (
+          <PlanStart
+            mastery={index.bank.mastery}
+            busy={busy}
+            onStart={() => void start(false)}
+          />
+        ) : index.bank.items === 0 ? (
+          <BankEmpty scope={scope} busy={busy} onStart={() => void start(false)} />
         ) : (
           <div className="study-quiz-start">
             <p className="study-muted">
-              {index.bank.defaultLimit < index.bank.items
-                ? `这一${scope.kind === 'unit' ? '节' : '章'} ${String(index.bank.items)} 题，这一组练 ${String(index.bank.defaultLimit)} 题。`
-                : `这一${scope.kind === 'unit' ? '节' : '章'} ${String(index.bank.items)} 题，一组答完。`}
-              一次一题，答完判分；下一题按你答得怎么样来挑。
+              这一{scope.kind === 'unit' ? '节' : '章'} {String(index.bank.items)} 题；这一组最多{' '}
+              {String(index.bank.defaultLimit)} 题，按你答得怎么样挑题，知识点都过了就收。
             </p>
             {scope.kind === 'unit' ? (
-              <p className="study-rail-foot">题目从这一节的导读（实验）里出；答错会更新概念掌握度。</p>
+              <p className="study-rail-foot">题目从这一节的原文与导读里出；答错会更新概念掌握度。</p>
             ) : null}
             <button
               type="button"
@@ -275,6 +358,16 @@ export function QuizRunner({
             >
               {busy ? '准备中…' : '开始练习'}
             </button>
+            {scope.kind === 'unit' ? (
+              <button
+                type="button"
+                className="study-link"
+                disabled={busy || generating}
+                onClick={() => void generate()}
+              >
+                {generating ? '正在出题…' : '重新出题（换掉现有题目）'}
+              </button>
+            ) : null}
           </div>
         )
       ) : null}
@@ -283,7 +376,9 @@ export function QuizRunner({
         <SummaryBlock
           session={view.session}
           {...(view.summary === undefined ? {} : { summary: view.summary })}
-          onRestart={() => void start(false)}
+          onRestart={view.summary?.openPoints === 0 ? undefined : () => void start(false)}
+          {...(scope.kind === 'unit' ? { onRegenerate: () => void generate() } : {})}
+          regenerating={generating}
         />
       ) : null}
 
@@ -297,8 +392,11 @@ export function QuizRunner({
           busy={busy}
           onAnswer={setAnswer}
           onSubmit={selfGrade => void submit(selfGrade)}
+          onAppeal={(itemId, selfGrade, reason) => appeal(view.session.id, itemId, selfGrade, reason)}
           onNext={next}
           onRestart={restart}
+          restartLabel={scope.kind === 'unit' ? '重做这组题' : '换一组新题'}
+          {...(scope.kind === 'unit' ? { onRegenerate: () => void generate(), regenerating: generating } : {})}
         />
       ) : null}
 
@@ -306,6 +404,7 @@ export function QuizRunner({
         <HistorySection
           entries={view.history}
           collapsed={view.session.status === 'active'}
+          onAppeal={(itemId, selfGrade, reason) => appeal(view.session.id, itemId, selfGrade, reason)}
         />
       ) : null}
 
@@ -321,7 +420,10 @@ export function QuizRunner({
             session={past.session}
             {...(past.summary === undefined ? {} : { summary: past.summary })}
           />
-          <HistorySection entries={past.history} />
+          <HistorySection
+            entries={past.history}
+            onAppeal={(itemId, selfGrade, reason) => appeal(past.session.id, itemId, selfGrade, reason)}
+          />
         </section>
       )}
 
@@ -350,8 +452,12 @@ function ActiveRun({
   busy,
   onAnswer,
   onSubmit,
+  onAppeal,
   onNext,
   onRestart,
+  restartLabel,
+  onRegenerate,
+  regenerating,
 }: {
   view: QuizSessionView
   feedback: QuizFeedbackView | null
@@ -360,10 +466,18 @@ function ActiveRun({
   answer: string
   busy: boolean
   onAnswer: (value: string) => void
-  onSubmit: (selfGrade?: 'correct' | 'partial' | 'wrong') => void
+  onSubmit: (selfGrade?: QuizSelfGrade) => void
+  onAppeal: (itemId: string, selfGrade: QuizSelfGrade, reason: string) => Promise<boolean>
   onNext: () => void
   onRestart: () => void
+  restartLabel: string
+  onRegenerate?: () => void
+  regenerating?: boolean
 }): ReactElement {
+  const [appealOpen, setAppealOpen] = useState(false)
+  useEffect(() => {
+    setAppealOpen(false)
+  }, [feedback?.itemId])
   const current = view.item
   if (current === undefined) return <div className="study-empty">正在载入题目…</div>
   const session = view.session
@@ -385,10 +499,27 @@ function ActiveRun({
         <span className="study-quiz-progress-num">
           正确 {session.correct}/{session.objective}
         </span>
+        {session.targetsTotal === undefined ? null : (
+          <span className="study-muted">
+            知识点 {session.targetsPassed ?? 0}/{session.targetsTotal}
+          </span>
+        )}
         {session.asked === 0 ? null : (
-          <button type="button" className="study-ghost" disabled={busy} onClick={onRestart}>
-            重新开始一组
-          </button>
+          <>
+            <button type="button" className="study-ghost" disabled={busy} onClick={onRestart}>
+              {restartLabel}
+            </button>
+            {onRegenerate === undefined ? null : (
+              <button
+                type="button"
+                className="study-ghost"
+                disabled={busy || regenerating === true}
+                onClick={onRegenerate}
+              >
+                {regenerating === true ? '正在出题…' : '换一批新题'}
+              </button>
+            )}
+          </>
         )}
       </div>
       <ProgressBar percent={progress} />
@@ -429,7 +560,11 @@ function ActiveRun({
         ) : (
           <textarea
             className="study-input study-textarea"
-            placeholder={current.type === 'evidence' ? '写出页码，例如 p24' : '写下你的答案或思路'}
+            placeholder={
+              current.type === 'evidence'
+                ? '写出页码，并引一句能支撑结论的原文'
+                : '写下你的答案或思路'
+            }
             value={answer}
             disabled={feedback !== null && feedback.needsSelfGrade !== true}
             onChange={event => onAnswer(event.target.value)}
@@ -437,7 +572,7 @@ function ActiveRun({
         )}
       </section>
 
-      {feedback === null ? (
+      {feedback == null ? (
         <button
           type="button"
           className="study-primary study-primary-tight"
@@ -455,21 +590,58 @@ function ActiveRun({
           >
             {feedback.needsSelfGrade === true
               ? '主观题：先对照下面的要点，再自评'
-              : feedback.selfGrade === 'partial'
-                ? '部分正确'
-                : feedback.selfGrade === 'wrong'
-                  ? '没答对'
-                  : feedback.correct === true
-                    ? '正确'
-                    : feedback.correct === false
-                      ? '不对'
-                      : '已记录'}
+              : feedback.judged !== undefined
+                ? `${(feedback.appeals?.length ?? 0) > 0 ? 'AI 复核' : 'AI 判定'}：${judgedLabel(feedback.judged.verdict)}`
+                : feedback.selfGrade === 'partial'
+                  ? '部分正确'
+                  : feedback.selfGrade === 'wrong'
+                    ? '没答对'
+                    : feedback.correct === true
+                      ? '正确'
+                      : feedback.correct === false
+                        ? '不对'
+                        : '已记录'}
           </div>
           {feedback.expected === undefined ? null : (
             <p>
               参考答案：<InlineMarkdown source={feedback.expected} />
             </p>
           )}
+          {feedback.judged === undefined ? null : (
+            <div className="study-quiz-rubric">
+              <span className="study-muted">
+                AI 判定：{judgedLabel(feedback.judged.verdict)} · 把握{' '}
+                {Math.round(feedback.judged.confidence * 100)}%
+              </span>
+              {(feedback.judged.missing ?? []).length === 0 ? null : (
+                <ul>
+                  {(feedback.judged.missing ?? []).map(item => (
+                    <li key={item}>
+                      <Markdown source={item} className="study-quiz-rubric-item" />
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {feedback.judged.advice === undefined ? null : (
+                <p className="study-muted">{feedback.judged.advice}</p>
+              )}
+            </div>
+          )}
+          {feedback.appeals === undefined || feedback.appeals.length === 0 ? null : (
+            <div className="study-quiz-rubric">
+              <span className="study-muted">复核记录</span>
+              <ul>
+                {feedback.appeals.map((round, roundIndex) => (
+                  <li key={`${round.at}-${String(roundIndex)}`}>
+                    第 {roundIndex + 1} 次：{judgedLabel(round.verdict)} · {round.engine} · {round.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {feedback.needsSelfGrade === true && feedback.judgeUnavailable !== undefined ? (
+            <p className="study-muted">{feedback.judgeUnavailable}，先自评。</p>
+          ) : null}
           {feedback.rubric === undefined || feedback.rubric.length === 0 ? null : (
             <div className="study-quiz-rubric">
               <span className="study-muted">评分要点</span>
@@ -508,6 +680,25 @@ function ActiveRun({
               下一题
             </button>
           )}
+
+          {feedback.judged === undefined ? null : (
+            <div className="study-quiz-selfgrade">
+              <button type="button" className="study-ghost" disabled={busy} onClick={() => setAppealOpen(open => !open)}>
+                {appealOpen ? '收起申诉' : (feedback.appeals?.length ?? 0) > 0 ? '再次申诉' : 'AI 判错了？申诉'}
+              </button>
+            </div>
+          )}
+          {appealOpen ? (
+            <AppealForm
+              defaultGrade={feedback.correct === true ? 'wrong' : 'correct'}
+              disabled={busy}
+              onSubmit={async (grade, reason) => {
+                const ok = await onAppeal(feedback.itemId, grade, reason)
+                if (ok) setAppealOpen(false)
+                return ok
+              }}
+            />
+          ) : null}
         </div>
       )}
     </div>
@@ -520,10 +711,14 @@ function SummaryBlock({
   session,
   summary,
   onRestart,
+  onRegenerate,
+  regenerating,
 }: {
   session: QuizSessionView['session']
   summary?: QuizSessionSummary
   onRestart?: () => void
+  onRegenerate?: () => void
+  regenerating?: boolean
 }): ReactElement {
   return (
     <div className="study-quiz-summary">
@@ -531,18 +726,30 @@ function SummaryBlock({
       {summary === undefined ? null : (
         <>
           {summary.objective === 0 ? (
-            <p className="study-quiz-score">答了 {summary.asked} 题，都是主观题；按自评记录。</p>
+            <p className="study-quiz-score">答了 {summary.asked} 题，还没有可判分的记录。</p>
           ) : (
             <p className="study-quiz-score">
-              得分 {Math.round(summary.score * 100)}% · 答对 {summary.correct}/{summary.objective} · 建议评级{' '}
-              {summary.ratingSuggestion}
+              {summary.verdict === 'passed' ? '通过' : summary.verdict === 'failed' ? '未通过' : '未完成'} ·
+              得分 {Math.round(summary.score * 100)}% · 答对 {summary.correct}/{summary.objective}
+              {summary.rating === undefined ? '' : ` · 评级 ${summary.rating}`}
             </p>
           )}
           <p className="study-muted">
             这一组答了 {summary.asked}/{session.limit} 题。
+            {summary.rating === undefined ? '题量不够，先不评级。' : ''}
           </p>
-          {summary.weakConcepts.length > 0 ? (
-            <p className="study-muted">需要加固：{summary.weakConcepts.map(concept => concept.name).join('、')}</p>
+          {summary.targets === undefined ? null : (
+            <p className="study-muted">
+              本节 {summary.targets.total} 个知识点，已过 {summary.targets.passed} 个。
+            </p>
+          )}
+          {summary.openPoints === undefined ? null : summary.openPoints === 0 ? (
+            <p className="study-muted">这一节的掌握点都过了。</p>
+          ) : (
+            <p className="study-muted">这一节还剩 {summary.openPoints} 个掌握点没过；再来一组会出新的题。</p>
+          )}
+          {summary.openPoints !== undefined ? null : (summary.weakConcepts ?? []).length > 0 ? (
+            <p className="study-muted">需要加固：{(summary.weakConcepts ?? []).map(concept => concept.name).join('、')}</p>
           ) : (
             <p className="study-muted">这一组没有明显薄弱概念。</p>
           )}
@@ -553,6 +760,11 @@ function SummaryBlock({
           再来一组
         </button>
       )}
+      {onRegenerate === undefined ? null : (
+        <button type="button" className="study-link" disabled={regenerating} onClick={onRegenerate}>
+          {regenerating ? '正在出题…' : '换一批新题（换掉这一节题库）'}
+        </button>
+      )}
     </div>
   )
 }
@@ -560,15 +772,17 @@ function SummaryBlock({
 function HistorySection({
   entries,
   collapsed = false,
+  onAppeal,
 }: {
   entries: QuizHistoryEntryView[]
   collapsed?: boolean
+  onAppeal?: (itemId: string, selfGrade: QuizSelfGrade, reason: string) => Promise<boolean>
 }): ReactElement | null {
   if (entries.length === 0) return null
   const list = (
     <ol className="study-quiz-history-list">
       {entries.map((entry, index) => (
-        <HistoryRow key={`${entry.itemId}-${String(index)}`} entry={entry} index={index} />
+        <HistoryRow key={`${entry.itemId}-${String(index)}`} entry={entry} index={index} onAppeal={onAppeal} />
       ))}
     </ol>
   )
@@ -591,10 +805,13 @@ function HistorySection({
 function HistoryRow({
   entry,
   index,
+  onAppeal,
 }: {
   entry: QuizHistoryEntryView
   index: number
+  onAppeal?: (itemId: string, selfGrade: QuizSelfGrade, reason: string) => Promise<boolean>
 }): ReactElement {
+  const [appealOpen, setAppealOpen] = useState(false)
   const tone = entry.correct === true ? ' is-correct' : entry.correct === false ? ' is-wrong' : ''
   return (
     <li className="study-quiz-history-row">
@@ -608,6 +825,36 @@ function HistoryRow({
         <span className="study-muted">你的答案：</span>
         <InlineMarkdown source={entry.answerText} />
       </div>
+      {entry.judged === undefined ? null : (
+        <div className="study-quiz-rubric">
+          <span className="study-muted">
+            {entry.appeals === undefined || entry.appeals.length === 0 ? 'AI 判定' : 'AI 复核'}：
+            {judgedLabel(entry.judged.verdict)} · 把握 {Math.round(entry.judged.confidence * 100)}%
+          </span>
+          {(entry.judged.missing ?? []).length === 0 ? null : (
+            <ul>
+              {(entry.judged.missing ?? []).map(item => (
+                <li key={item}>
+                  <Markdown source={item} className="study-quiz-rubric-item" />
+                </li>
+              ))}
+            </ul>
+          )}
+          {entry.judged.advice === undefined ? null : <p className="study-muted">{entry.judged.advice}</p>}
+        </div>
+      )}
+      {entry.appeals === undefined || entry.appeals.length === 0 ? null : (
+        <div className="study-quiz-rubric">
+          <span className="study-muted">复核记录</span>
+          <ul>
+            {entry.appeals.map((round, roundIndex) => (
+              <li key={`${round.at}-${String(roundIndex)}`}>
+                第 {roundIndex + 1} 次：{judgedLabel(round.verdict)} · {round.engine} · {round.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {entry.expected === undefined ? null : (
         <p className="study-quiz-history-expected">
           参考答案：<InlineMarkdown source={entry.expected} />
@@ -628,7 +875,82 @@ function HistoryRow({
       {entry.explanation === undefined ? null : (
         <Markdown source={entry.explanation} className="study-quiz-explanation" />
       )}
+      {entry.judged === undefined || onAppeal === undefined ? null : (
+        <>
+          <div className="study-quiz-selfgrade">
+            <button type="button" className="study-ghost" onClick={() => setAppealOpen(open => !open)}>
+              {appealOpen ? '收起申诉' : (entry.appeals?.length ?? 0) > 0 ? '再次申诉' : 'AI 判错了？申诉'}
+            </button>
+          </div>
+          {appealOpen ? (
+            <AppealForm
+              defaultGrade={entry.correct === true ? 'wrong' : 'correct'}
+              onSubmit={async (grade, reason) => {
+                const ok = await onAppeal(entry.itemId, grade, reason)
+                if (ok) setAppealOpen(false)
+                return ok
+              }}
+            />
+          ) : null}
+        </>
+      )}
     </li>
+  )
+}
+
+function AppealForm({
+  defaultGrade,
+  disabled = false,
+  onSubmit,
+}: {
+  defaultGrade: QuizSelfGrade
+  disabled?: boolean
+  onSubmit: (grade: QuizSelfGrade, reason: string) => Promise<boolean>
+}): ReactElement {
+  const [grade, setGrade] = useState<QuizSelfGrade>(defaultGrade)
+  const [reason, setReason] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (): Promise<void> => {
+    if (reason.trim().length < 4) {
+      setError('写清申诉理由（至少 4 个字）')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await onSubmit(grade, reason.trim())
+    } catch (reasonValue) {
+      setError(errorText(reasonValue))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="study-quiz-selfgrade">
+      <select
+        className="study-input"
+        value={grade}
+        disabled={disabled || busy}
+        onChange={event => setGrade(event.target.value as QuizSelfGrade)}
+      >
+        <option value="correct">我答对了</option>
+        <option value="partial">部分正确</option>
+        <option value="wrong">没答对</option>
+      </select>
+      <input
+        type="text"
+        className="study-input"
+        placeholder="补上漏掉的要点，或指出判分错误；AI 会重新判"
+        value={reason}
+        disabled={disabled || busy}
+        onChange={event => setReason(event.target.value)}
+      />
+      <button type="button" className="study-primary study-primary-tight" disabled={disabled || busy} onClick={() => void submit()}>
+        {busy ? '复核中…' : '提交复核'}
+      </button>
+      {error === null ? null : <p className="study-form-error">{error}</p>}
+    </div>
   )
 }
 
@@ -650,42 +972,61 @@ function RecentRow({
       <span>
         答对 {record.correct}/{record.objective}
       </span>
-      <span className="study-muted">{record.objective === 0 ? '主观题' : endReasonText(record.endedReason)}</span>
+      <span className="study-muted">{record.objective === 0 ? '未判分' : endReasonText(record.endedReason)}</span>
     </button>
+  )
+}
+
+function PlanStart({
+  mastery,
+  busy,
+  onStart,
+}: {
+  mastery?: { open: number; total: number; passed: number }
+  busy: boolean
+  onStart: () => void
+}): ReactElement {
+  if (mastery === undefined || mastery.total === 0) {
+    return (
+      <EmptyState
+        title="这个目标在这一节还没有掌握点。"
+        hint="掌握点写在目标图景里；重新生成一次路径，AI 会把它们补上。"
+      />
+    )
+  }
+  if (mastery.open === 0) {
+    return <EmptyState title="这一节的掌握点都过了。" hint="去目标的其它步骤，或者换一节练。" />
+  }
+  return (
+    <div className="study-quiz-start">
+      <p className="study-muted">
+        这一节 {mastery.total} 个掌握点，已过 {mastery.passed} 个，还差 {mastery.open} 个。AI 按没过的点现场出题，答过
+        才算过。
+      </p>
+      <button type="button" className="study-primary study-primary-tight" disabled={busy} onClick={onStart}>
+        {busy ? 'AI 正在出题…' : '开始过关测试'}
+      </button>
+    </div>
   )
 }
 
 function BankEmpty({
   scope,
-  index,
-  generating,
-  onGenerate,
+  busy,
+  onStart,
 }: {
   scope: QuizRunnerScope
-  index: QuizSessionIndexView
-  generating: boolean
-  onGenerate: () => void
+  busy: boolean
+  onStart: () => void
 }): ReactElement {
   if (scope.kind === 'book') {
     return <EmptyState title="这一章还没有练习题。" hint="章节练习会跟着章节一起生成。" />
   }
-  if (!index.bank.notes) {
-    return (
-      <EmptyState
-        title="这一节还没有导读，出不了题。"
-        hint="先让 AI 生成这一节的导读（实验），再回来出题。"
-      />
-    )
-  }
   return (
     <EmptyState
-      title="这一节还没有练习题。"
-      hint="题目从导读里出；先生成一组，再回来答。"
-      action={
-        generating
-          ? { label: '正在出题…', onClick: () => undefined }
-          : { label: '生成练习题', onClick: onGenerate }
-      }
+      title="这一节还没有题库。"
+      hint="开始练习时按这一节的知识点现场出题，一次一题；后面的题按你答得怎么样再补。需要可用的文本引擎。"
+      action={{ label: busy ? '正在出题…' : '开始练习', onClick: onStart }}
     />
   )
 }
@@ -693,16 +1034,26 @@ function BankEmpty({
 /* --------------------------------------------------------------- labels ---- */
 
 function verdictText(entry: QuizHistoryEntryView): string {
+  if (entry.judged !== undefined) {
+    const prefix = (entry.appeals?.length ?? 0) > 0 ? '复核' : 'AI'
+    return `${prefix}：${judgedLabel(entry.judged.verdict)}`
+  }
   if (entry.correct === true) return '正确'
   if (entry.selfGrade === 'partial') return '部分正确'
   if (entry.correct === false) return entry.selfGrade === 'wrong' ? '没答对' : '不对'
   return '已记录'
 }
 
+function judgedLabel(verdict: 'pass' | 'partial' | 'fail'): string {
+  return verdict === 'pass' ? '通过' : verdict === 'partial' ? '还差一点' : '未通过'
+}
+
 function endTitle(reason: QuizSessionView['session']['endedReason']): string {
   switch (reason) {
     case 'completed':
-      return '这一组完成'
+      return '本节知识点都过了'
+    case 'exhausted':
+      return '题量用完，这一组就到这里'
     case 'finished':
       return '这一组提前结束'
     case 'replaced':
@@ -717,7 +1068,9 @@ function endTitle(reason: QuizSessionView['session']['endedReason']): string {
 function endReasonText(reason: QuizSessionRecordView['endedReason']): string {
   switch (reason) {
     case 'completed':
-      return '答完'
+      return '全过'
+    case 'exhausted':
+      return '题用完了'
     case 'finished':
       return '提前结束'
     case 'replaced':

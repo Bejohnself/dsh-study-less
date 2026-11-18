@@ -180,8 +180,10 @@ try {
   const sid = sessionStart.body.value.session.id
   const firstId = sessionStart.body.value.item?.id
   if (sessionStart.status !== 200 || firstId === undefined) throw new Error('quiz session start failed')
-  if (sessionStart.body.value.session.limit !== bankCount) {
-    throw new Error(`session limit ${sessionStart.body.value.session.limit} != bank ${bankCount}`)
+  // A session may ask more than the bank holds: it tops up on demand until the
+  // section's points pass (or the cap), so only the cap bounds it.
+  if (sessionStart.body.value.session.limit < bankCount || sessionStart.body.value.session.limit > 20) {
+    throw new Error(`session limit ${sessionStart.body.value.session.limit} out of range for bank ${bankCount}`)
   }
   if ('answerIndex' in (sessionStart.body.value.item ?? {})) throw new Error('quiz session leaked answerIndex')
   console.log('quiz session start:', sessionStart.status, 'limit', sessionStart.body.value.session.limit, 'item', firstId)

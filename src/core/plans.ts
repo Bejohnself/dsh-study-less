@@ -11,7 +11,7 @@ import { assertSegment, splitUnitKey } from './ids.ts'
 import type { LibraryPaths } from './paths.ts'
 import { readJson, writeJsonAtomic } from './store.ts'
 import { coverageOf } from './planGate.ts'
-import type { PlanRecord, PlanStep } from './types.ts'
+import type { MasteryPoint, PlanRecord, PlanStep } from './types.ts'
 
 /** Read one plan, or null when missing. */
 export async function readPlan(paths: LibraryPaths, planId: string): Promise<PlanRecord | null> {
@@ -127,4 +127,34 @@ export function stepTarget(step: PlanStep): { material: string; unit: string } |
   if (step.target === undefined) return null
   const { materialId, unitId } = splitUnitKey(step.target)
   return { material: materialId, unit: unitId }
+}
+
+/**
+ * The mastery points that belong to one unit.
+ *
+ * Points without a target are goal-level and never appear in a unit's practice.
+ */
+export function masteryPointsFor(plan: PlanRecord, target: string): MasteryPoint[] {
+  return (plan.mastery ?? []).filter(point => point.target === target)
+}
+
+/**
+ * Mark one mastery point as passed.
+ * This is the single writer of goal-mastery progress: the quiz session calls it
+ * after an AI-judged pass. Passing is monotonic, so an appeal that revises an
+ * old answer can add evidence but never removes a point.
+ */
+export async function markMasteryPassed(
+  paths: LibraryPaths,
+  planId: string,
+  pointId: string,
+  at: string = new Date().toISOString(),
+): Promise<boolean> {
+  const plan = await readPlan(paths, planId)
+  if (plan === null) return false
+  const point = (plan.mastery ?? []).find(candidate => candidate.id === pointId)
+  if (point === undefined || point.passedAt !== undefined) return false
+  point.passedAt = at
+  await writePlan(paths, plan)
+  return true
 }

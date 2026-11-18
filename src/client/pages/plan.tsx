@@ -16,6 +16,13 @@ import { JobBanner, Toast } from '../components/ui.tsx'
 /** Goals whose questions were already auto-requested this session. */
 const askedKey = new Set<string>()
 
+/** Split `<material>:<unit>` for a jump target; bad keys are not linkable. */
+function targetOf(key: string): { mid: string; uid: string } | null {
+  const index = key.indexOf(':')
+  if (index <= 0 || index === key.length - 1) return null
+  return { mid: key.slice(0, index), uid: key.slice(index + 1) }
+}
+
 export function PlanDetailPage({
   pid,
   onBack,
@@ -83,12 +90,15 @@ export function PlanDetailPage({
       attempts: raw.attempts ?? [],
       cards: raw.cards ?? [],
       stuck: raw.stuck ?? [],
+      mastery: raw.mastery ?? [],
       sufficiency: raw.sufficiency ?? [],
       gate: raw.gate ?? {
         independent: 0,
         independentNeeded: 3,
         judged: 0,
         unverified: 0,
+        masteryPassed: 0,
+        masteryTotal: 0,
         passed: 0,
         asked: 0,
         aiJudged: 0,
@@ -752,12 +762,53 @@ export function PlanDetailPage({
         )}
       </section>
 
+      <section className="study-mastery">
+        <div className="study-panel-head">
+          <h3>掌握点（图景）</h3>
+          <span className="study-muted">
+            通过 {data.mastery.filter(point => point.passedAt !== undefined).length}/{data.mastery.length} · 出题与判定都按这张图
+          </span>
+        </div>
+        {data.mastery.length === 0 ? (
+          <p className="study-muted">
+            还没有掌握点。目标是建的时候由 AI 画出来的；重新生成一次路径会把它们补上。
+          </p>
+        ) : (
+          <ul className="study-mastery-list">
+            {data.mastery.map(point => {
+              const target = point.target === undefined ? null : targetOf(point.target)
+              return (
+                <li key={point.id} className={'study-mastery-item' + (point.passedAt === undefined ? '' : ' is-passed')}>
+                  <span className={'study-verdict' + (point.passedAt === undefined ? '' : ' is-pass')}>
+                    {point.passedAt === undefined ? '未过' : '已过'}
+                  </span>
+                  <div className="study-mastery-body">
+                    <div>{point.title}</div>
+                    <div className="study-item-meta">算掌握：{point.standard}</div>
+                  </div>
+                  {target === null ? null : (
+                    <button
+                      type="button"
+                      className="study-link"
+                      onClick={() => onOpenUnit(target.mid, target.uid, pid)}
+                    >
+                      去这一节过关
+                    </button>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </section>
+
       <section className="study-gate">
         <div className="study-panel-head">
           <h3>判定与结案</h3>
           <span className="study-muted">
             判定通过 {data.gate.passed}/{data.gate.asked}（AI {data.gate.aiJudged} · 自评 {data.gate.selfJudged}） · 阈值{' '}
             {Math.round(data.gate.threshold * 100)}% · 复习卡 {data.cards.length} 张
+            {data.gate.masteryTotal === 0 ? null : ` · 掌握点 ${data.gate.masteryPassed}/${data.gate.masteryTotal}`}
           </span>
         </div>
         <div className="study-question-toolbar">

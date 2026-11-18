@@ -39,7 +39,7 @@
 library root/
 ├─ materials/<mid>/        # manifest.json / pages / source / layout / units/<uid>/{notes.md,meta.json,quiz.json,blocks.json,extras}
 ├─ concepts/<cid>.json     # 全局概念，跨资料共享
-├─ plans/<pid>.json        # 目标与步骤
+├─ plans/<pid>.json        # 目标、步骤、掌握点（过关进度只在这里）
 ├─ books/<bid>/            # 自编书：book.json + chapters/*.md + 章节练习 + book.md
 ├─ cards/<cid>.json        # 最小复习卡（判定题答错生成，结案归档）
 ├─ quiz-sessions/<sid>.json # 自适应练习会话
@@ -61,7 +61,9 @@ library root/
 | 动画 | 关闭 | 先做文生 SVG/HTML，视频 API 预留 |
 | 嵌入 | 关闭 | 语义检索/相关推荐，不是导入加速 |
 
-练习使用 `quiz-sessions` 单题会话；同一节默认续答（`/quiz/session/start` 带 `restart: true` 才重开），完成记录保留 90 天。书籍章节练习存在 `books/<bid>/chapters/<cid>.quiz.json`。
+练习使用 `quiz-sessions` 单题会话；单元题库不要求先写导读：没有导读时按原文出题，过关测试页可直接生成。同一节默认续答（`/quiz/session/start` 带 `restart: true` 才重开），完成记录保留 90 天。书籍章节练习存在 `books/<bid>/chapters/<cid>.quiz.json`。主观题（`recall`/`apply`/`evidence`）有文本引擎时由模型按评分要点判分；判错可走 `/quiz/session/appeal` 提交 rebuttal，模型会结合原答案与 rebuttal 重新判定，可多次申诉，最后一次为准；直接抄评分要点或解析的 rebuttal 会被拒绝。没有引擎时才退回自评。
+
+从目标里打开的「过关测试」按目标的掌握点走：目标规划时 AI 同时画出「要达到什么程度、需要掌握哪些点」的图景（`plans/<pid>.json` 的 `mastery`），每一轮只对没过的点现场出题，模型判过后才把这个点记为通过；一轮没过就再来一组，题会重出。掌握进度只写 `plans/<pid>.json`，不在会话或 `progress.json` 里复制：申诉改判也只改判定与掌握点，不再追加第二次概念尝试。
 
 任务生命周期：`queued → running → done/failed/cancelled`。同 kind + target 去重；Host 重启后未完成任务标记为中断。浏览器轮询 `GET /study-api/jobs/:id`。
 
@@ -75,7 +77,7 @@ library root/
 - 写：`/unit/complete`、`/unit/uncomplete`、`/review`、`/card/review`、`/plan/questions`、`/plan/judge`、`/plan/close`、`/quiz/submit`、`/goal/create`、`/plan/create`、`/plan/update`、`/plan/delete`、`/insight/create|update|delete|pin`、`/material/archive`、`/material/delete`
 - 生成：`/generate/plan|unit|quiz|insight|blocks`、`/generate/book/outline|chapter|continuity`、`/jobs/:id/cancel`、`/settings/test`
 - 阅读面：`/layout`（段落几何，按页缓存到 `materials/<mid>/layout/`）、`/ask`（小窗答疑，答完即走、不落库）、`/blocks/merge`（把一块并入上一块；不提供拆分或编辑器）
-- 练习：`/quiz/session/start|answer|finish`（`start` 默认续答，`restart: true` 重开）
+- 练习：`/quiz/session/start|answer|appeal|finish`（`start` 默认续答，`restart: true` 重开；`appeal` 需要 `reason`，可选 `claim` 作为读者主张，最终由 AI 重判）
 - 书：`/book/export`、`/book/progress`、`/book/delete`
 - 资产：`/asset?mid&uid&name`（HTML/SVG 带 sandbox CSP）
 

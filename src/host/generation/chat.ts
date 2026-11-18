@@ -4,14 +4,15 @@
  * Free functions over GenerationService; the class keeps the signatures and forwards
  * here. Bodies are the original methods, with this. turned into svc.
  */
-import { judgePrompt, parseJsonObject, questionsPrompt } from '../generate/prompts.ts'
+import { judgePrompt, masteryQuizPrompt, parseJsonObject, questionsPrompt, quizJudgePrompt, sectionJudgePrompt } from '../generate/prompts.ts'
 import { textProviderFrom } from '../providers/index.ts'
 import { normalizeVerdict } from '../../core/planGate.ts'
-import type { JudgePromptInput, QuestionPromptInput } from '../generate/prompts.ts'
+import type { QuizItem } from '../../core/types.ts'
+import type { JudgePromptInput, MasteryQuizPromptInput, QuestionPromptInput, QuizJudgePromptInput, SectionJudgePromptInput } from '../generate/prompts.ts'
 import { StudyError } from '../service.ts'
-import type { GenerationService } from '../generation.ts'
-import { asRecord } from './normalize.ts'
-import { ASK_SYSTEM, JUDGE_TIMEOUT_MS } from './shared.ts'
+import type { GenerationService, JudgeResult } from '../generation.ts'
+import { asRecord, normalizeMasteryQuizItems } from './normalize.ts'
+import { ASK_SYSTEM, JUDGE_TIMEOUT_MS, QUESTION_TIMEOUT_MS } from './shared.ts'
 
 export async function ask(svc: GenerationService, input: { material: string; unit: string; page?: number; question: string }): Promise<{ answer: string }> {
   const question = input.question.trim()
@@ -78,10 +79,70 @@ export async function generateQuestions(svc: GenerationService, input: QuestionP
   }
 }
 
-export async function judgeAnswer(svc: GenerationService, input: JudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
+/**
+ * Write one question per open mastery point.
+ *
+ * Unlike the unit bank this is not queued: the session needs the questions
+ * before it can show the first one, and the round is short. The result lives on
+ * the session, so regenerating a unit bank never touches it.
+ */
+export async function generateMasteryQuiz(
+  svc: GenerationService,
+  input: MasteryQuizPromptInput,
+  signal?: AbortSignal,
+): Promise<{ items: QuizItem[]; engine: string; model?: string }> {
+  if (input.points.length === 0) throw new StudyError('invalid', '这一节没有要考的掌握点')
   const settings = await svc.requireSettings()
   const provider = textProviderFrom(settings, svc.deps)
-  const prompt = judgePrompt(input)
+  const prompt = masteryQuizPrompt(input)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), QUESTION_TIMEOUT_MS)
+  const onAbort = (): void => controller.abort()
+  signal?.addEventListener('abort', onAbort, { once: true })
+  try {
+    const result = await provider.complete({
+      system: prompt.system,
+      user: prompt.user,
+      temperature: 0.3,
+      maxTokens: 4096,
+      signal: controller.signal,
+    })
+    const items = normalizeMasteryQuizItems(parseJsonObject(result.text), {
+      points: input.points,
+      range: { pageStart: input.pageStart, pageEnd: input.pageEnd },
+    })
+    return { items, engine: provider.name, ...(result.model === undefined ? {} : { model: result.model }) }
+  } catch (error) {
+    if (controller.signal.aborted) throw new StudyError('unsupported', '出题超时：稍后重试')
+    throw error
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
+  }
+}
+
+export async function judgeAnswer(svc: GenerationService, input: JudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
+  return runJudge(svc, judgePrompt(input), signal, '判定超时：稍后重试，或先自评')
+}
+
+export async function judgeQuizAnswer(svc: GenerationService, input: QuizJudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
+  return runJudge(svc, quizJudgePrompt(input), signal, '判分超时：稍后重试，或先自评')
+}
+
+/** Confirm that every knowledge point of one section has been passed. */
+export async function judgeSectionPassed(svc: GenerationService, input: SectionJudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
+  return runJudge(svc, sectionJudgePrompt(input), signal, '结案判定超时：稍后再试')
+}
+
+/** One model call shared by both judges; the prompts differ, the parsing does not. */
+async function runJudge(
+  svc: GenerationService,
+  prompt: { system: string; user: string },
+  signal: AbortSignal | undefined,
+  timeoutMessage: string,
+): Promise<JudgeResult> {
+  const settings = await svc.requireSettings()
+  const provider = textProviderFrom(settings, svc.deps)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), JUDGE_TIMEOUT_MS)
   const onAbort = (): void => controller.abort()
@@ -109,7 +170,7 @@ export async function judgeAnswer(svc: GenerationService, input: JudgePromptInpu
       ...(result.model === undefined ? {} : { model: result.model }),
     }
   } catch (error) {
-    if (controller.signal.aborted) throw new StudyError('unsupported', '判定超时：稍后重试，或先自评')
+    if (controller.signal.aborted) throw new StudyError('unsupported', timeoutMessage)
     throw error
   } finally {
     clearTimeout(timer)

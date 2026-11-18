@@ -412,6 +412,28 @@ export interface CardRecord {
   createdAt: string
 }
 
+/**
+ * One knowledge point the goal requires.
+ *
+ * The map is drawn when the goal is planned, so questions can be written
+ * against it instead of against whatever a unit happens to contain.
+ * `passedAt` is the only goal-mastery progress variable and lives here, in the
+ * plan file: the quiz session is its only writer, nothing else derives or
+ * duplicates it.
+ */
+export interface MasteryPoint {
+  id: string
+  title: string
+  /** What a passing answer must show (derivable, checkable, falsifiable). */
+  standard: string
+  /** `<material>:<unit>` where this point is practiced. */
+  target?: string
+  /** Global concept ids this point trains. */
+  concepts?: string[]
+  /** Set once after an AI-judged pass; passing is monotonic. */
+  passedAt?: string
+}
+
 /** A goal-driven learning plan (`plans/<pid>.json`). */
 export interface PlanRecord {
   id: string
@@ -431,6 +453,8 @@ export interface PlanRecord {
   audience?: string
   /** Evidence that the goal was reached on the user's own (append-only). */
   attempts?: AttemptRecord[]
+  /** What the goal must master, written with the plan (图景). */
+  mastery?: MasteryPoint[]
   /** Questions whose answers mean "this is enough" (判定题). */
   sufficiency?: SufficiencyItem[]
   /** Closure gate threshold in [0, 1]; default 0.8. */
@@ -471,6 +495,8 @@ export interface QuizItem {
   difficulty?: 1 | 2 | 3
   /** Optional explanation shown after answering. */
   explanation?: string
+  /** Plan mastery point this item checks (plan-scoped sessions only). */
+  masteryPoint?: string
 }
 
 /** Quiz bank file (`units/<uid>/quiz.json`). */
@@ -547,12 +573,49 @@ export interface BookProgress {
 export type QuizSessionScope =
   | { kind: 'unit'; material: string; unit: string }
   | { kind: 'book'; book: string; chapter?: string }
+  /** Goal practice: questions written for this plan's mastery points in one unit. */
+  | { kind: 'plan'; plan: string; material: string; unit: string }
 
 /** A user's self-grade for a subjective question. */
 export type QuizSelfGrade = 'correct' | 'partial' | 'wrong'
 
-/** Why a session stopped. */
-export type QuizEndReason = 'completed' | 'finished' | 'replaced' | 'bank-changed'
+/** A model's verdict on one written quiz answer. */
+export type QuizJudgeVerdict = 'pass' | 'partial' | 'fail'
+
+/** What the model decided about one written answer. */
+export interface QuizJudgeRecord {
+  verdict: QuizJudgeVerdict
+  missing: string[]
+  advice?: string
+  confidence: number
+  engine: string
+  model?: string
+  at: string
+}
+
+/** One round of re-judging after a written rebuttal. */
+export interface QuizAppealRecord {
+  /** The reader's rebuttal, shown in history. */
+  reason: string
+  /** The reader's claimed grade; advisory only, the model decides. */
+  claim?: QuizSelfGrade
+  /** The verdict this appeal challenged. */
+  from: QuizJudgeVerdict
+  /** The re-judged verdict; this becomes `entry.judged` when it is the latest. */
+  verdict: QuizJudgeVerdict
+  /** Which engine produced the re-judgement, so the round is auditable. */
+  engine: string
+  model?: string
+  at: string
+}
+
+/**
+ * Why a session stopped.
+ *
+ * `completed` means every knowledge point of the section passed; `exhausted`
+ * means the question cap was reached first.
+ */
+export type QuizEndReason = 'completed' | 'exhausted' | 'finished' | 'replaced' | 'bank-changed'
 
 /**
  * One answered question in a session.
@@ -568,11 +631,21 @@ export interface QuizSessionEntry {
   /** null means subjective / not objectively graded. */
   correct: boolean | null
   selfGrade?: QuizSelfGrade
+  /** Model verdict, when a written answer was judged automatically. */
+  judged?: QuizJudgeRecord
+  /** Every re-judging round; the last one is authoritative. */
+  appeals?: QuizAppealRecord[]
   at: string
   /** Snapshot of what was asked. */
   question?: string
   type?: QuizItemType
   concepts?: string[]
+  /** Plan mastery point this answer was scored against. */
+  masteryPoint?: string
+  /** Difficulty at answer time: the rating weights hard questions higher. */
+  difficulty?: 1 | 2 | 3
+  /** Page anchor at answer time, so an appeal can re-read the source. */
+  page?: number
   /** Human-readable answer: choice text for choices, text otherwise. */
   answerText?: string
   /** Reference answer / page, when the item has one. */
@@ -591,6 +664,8 @@ export interface QuizSession {
   limit: number
   /** Item ids already answered and advanced past. */
   asked: string[]
+  /** Plan-scoped sessions own their questions: they are written per round. */
+  items?: QuizItem[]
   currentId?: string
   history: QuizSessionEntry[]
   startedAt: string
@@ -599,6 +674,20 @@ export interface QuizSession {
   /** Bank timestamp when the session started; a change invalidates it. */
   bankUpdatedAt?: string
   endedReason?: QuizEndReason
+  /**
+   * Knowledge points this section must pass, snapshotted at start. Empty on
+   * book chapters: those end on the question cap instead.
+   */
+  targets?: string[]
+  /** Last AI confirmation attempt; at most a few per session. */
+  sectionCheck?: {
+    verdict: QuizJudgeVerdict
+    missing: string[]
+    at: string
+    checks: number
+    /** Asked count when the check ran, so it is not repeated every answer. */
+    askedAt: number
+  }
 }
 
 /** Generated notes metadata (`units/<uid>/meta.json`). */

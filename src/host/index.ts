@@ -115,8 +115,6 @@ export function apply(ctx: HostContext, config: Config = {}): void {
   const jobQueue = new JobQueue(paths, { concurrency: () => 1 })
   void jobQueue.recover()
   const bookService = new BookService(paths, service)
-  const quizSessions = new QuizSessionService(paths, service, bookService)
-  void quizSessions.recover()
   const generationService = new GenerationService(paths, {
     service,
     books: bookService,
@@ -126,6 +124,8 @@ export function apply(ctx: HostContext, config: Config = {}): void {
     ...(face<DshLlmFace>(ctx, 'llm') === undefined ? {} : { llm: face<DshLlmFace>(ctx, 'llm')! }),
     selection: () => face<{ currentSelection(): DshModelSelection }>(ctx, 'agentDefaultModel')?.currentSelection(),
   })
+  const quizSessions = new QuizSessionService(paths, service, bookService, generationService)
+  void quizSessions.recover()
 
   ctx.effect(() => {
     const disposers = makeStudyRoutes(service, {

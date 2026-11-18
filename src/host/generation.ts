@@ -8,20 +8,20 @@
  */
 import type { LibraryPaths } from '../core/paths.ts'
 import { textReady } from '../core/settings.ts'
-import type { QuizBank, StudySettings } from '../core/types.ts'
+import type { QuizBank, QuizItem, StudySettings } from '../core/types.ts'
 import type { BookChapterView, BookSummary, PlanDetailView } from '../core/views.ts'
 import { JobQueue, type JobContext } from './jobs.ts'
 import type { InsightService } from './insights.ts'
 import { parseJsonObject, repairPrompt } from './generate/prompts.ts'
 import { textProviderFrom, type EngineDeps } from './providers/index.ts'
-import type { JudgePromptInput, QuestionPromptInput } from './generate/prompts.ts'
+import type { JudgePromptInput, MasteryQuizPromptInput, QuestionPromptInput, QuizJudgePromptInput, SectionJudgePromptInput } from './generate/prompts.ts'
 import type { SettingsService } from './settings.ts'
 import type { BookService } from './books.ts'
 import { StudyError, type StudyService } from './service.ts'
-import { ask, generateQuestions, judgeAnswer, testEngine } from './generation/chat.ts'
+import { ask, generateMasteryQuiz, generateQuestions, judgeAnswer, judgeQuizAnswer, judgeSectionPassed, testEngine } from './generation/chat.ts'
 import { generatePlan, retryPlan, runPlan } from './generation/plan.ts'
 import { generateUnit, runUnit } from './generation/unit.ts'
-import { generateQuiz, runQuiz, runQuizInternal } from './generation/quiz.ts'
+import { generateQuiz, moreQuizItems, runQuiz, runQuizInternal, type MoreQuizItemsInput } from './generation/quiz.ts'
 import { generateBlocks, runBlocks } from './generation/blocks.ts'
 import { generateInsights, runUnitInsights, runUnitInsightsInternal, runConceptInsights } from './generation/insight.ts'
 import { generateBookOutline, generateBookChapter, generateBookContinuity, runBookOutline, runBookChapter, runBookContinuity } from './generation/book.ts'
@@ -221,6 +221,24 @@ export class GenerationService {
 
   async judgeAnswer(input: JudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
     return judgeAnswer(this, input, signal)
+  }
+
+  async judgeQuizAnswer(input: QuizJudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
+    return judgeQuizAnswer(this, input, signal)
+  }
+
+  async masteryQuiz(input: MasteryQuizPromptInput, signal?: AbortSignal): Promise<{ items: QuizItem[]; engine: string; model?: string }> {
+    return generateMasteryQuiz(this, input, signal)
+  }
+
+  /** Confirm that every knowledge point of one section has passed. */
+  async sectionPassed(input: SectionJudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
+    return judgeSectionPassed(this, input, signal)
+  }
+
+  /** Write extra questions for the points still pending in a session. */
+  async moreQuizItems(input: MoreQuizItemsInput): Promise<QuizItem[]> {
+    return moreQuizItems(this, input)
   }
 
   async testEngine(kind: 'text' | 'image' | 'animation' | 'embedding'): Promise<Record<string, unknown>> {

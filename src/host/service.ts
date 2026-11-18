@@ -240,6 +240,8 @@ export class StudyService {
       setStatus?: 'active' | 'paused' | 'done'
       setGoal?: string
       replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
+      /** Replace the goal's knowledge map (written with the steps). */
+      replaceMastery?: Array<{ title: string; standard: string; target?: string; concepts?: string[] }>
       /** Goal facts: deliverable, deadline and audience. null clears a field. */
       setMeta?: { deliverable?: string | null; deadline?: string | null; audience?: string | null; threshold?: number }
       /** Crop one step: read, skim or skip (skip needs a reason). */

@@ -207,9 +207,7 @@ export async function submitQuiz(svc: StudyService,
         ? item.choices?.[item.answerIndex]
         : item.type === 'cloze'
           ? item.answer
-          : item.type === 'evidence' && item.page !== undefined
-            ? `p${item.page}`
-            : undefined
+          : undefined
     rows.push({
       itemId: item.id,
       correct: verdict.correct,

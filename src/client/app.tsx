@@ -110,40 +110,51 @@ export function StudyApp(): ReactElement {
   const openInsight = (iid: string): void => setView({ kind: 'insight', iid })
   const openBook = (bid: string, planId?: string): void => setView({ kind: 'book', bid, ...(planId === undefined ? {} : { pid: planId }) })
 
+  // 过关测试 is a focused run: only theme and settings belong in the bar.
+  const focusMode = view.kind === 'practice'
+
   return (
     <div data-dsh-study="" className="study-page">
       <div className={view.kind === 'material' || view.kind === 'practice' ? 'study-shell is-reader' : 'study-shell'}>
-        <div className="study-head">
+        <div className={focusMode ? 'study-head is-focus' : 'study-head'}>
           <h1>书桌</h1>
-          <span
-            className={staleHost ? 'study-version is-stale' : 'study-version'}
-            title={staleHost ? 'Host 仍在跑旧代码：重载插件后再刷新页面' : '插件版本'}
-          >
-            v{PLUGIN_VERSION}
-            {staleHost ? ' · Host 需重载' : ''}
-          </span>
-          <span className="study-sub">{subtitle}</span>
+          {focusMode ? null : (
+            <span
+              className={staleHost ? 'study-version is-stale' : 'study-version'}
+              title={staleHost ? 'Host 仍在跑旧代码：重载插件后再刷新页面' : '插件版本'}
+            >
+              v{PLUGIN_VERSION}
+              {staleHost ? ' · Host 需重载' : ''}
+            </span>
+          )}
+          {focusMode ? null : <span className="study-sub">{subtitle}</span>}
           <div className="study-head-nav">
-            <TopNav
-              active={top}
-              showInsights={showInsights}
-              onSelect={tab => {
-                if (tab === 'library') setView({ kind: 'library' })
-                else if (tab === 'learn') setView({ kind: 'learn', tab: 'today' })
-                else setView({ kind: 'insights', tab: 'insights' })
-              }}
-            />
+            {focusMode ? null : (
+              <TopNav
+                active={top}
+                showInsights={showInsights}
+                onSelect={tab => {
+                  if (tab === 'library') setView({ kind: 'library' })
+                  else if (tab === 'learn') setView({ kind: 'learn', tab: 'today' })
+                  else setView({ kind: 'insights', tab: 'insights' })
+                }}
+              />
+            )}
             <div className="study-head-actions">
               <ThemeToggle />
-              <button type="button" className="study-ghost" onClick={() => setDialog('import')}>
-                ＋ 导入
-              </button>
+              {focusMode ? null : (
+                <button type="button" className="study-ghost" onClick={() => setDialog('import')}>
+                  ＋ 导入
+                </button>
+              )}
               <button type="button" className="study-ghost" onClick={() => setDialog('settings')}>
                 设置
               </button>
-              <button type="button" className="study-primary study-primary-tight" onClick={() => setDialog('goal')}>
-                ＋ 新建目标
-              </button>
+              {focusMode ? null : (
+                <button type="button" className="study-primary study-primary-tight" onClick={() => setDialog('goal')}>
+                  ＋ 新建目标
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -183,6 +194,7 @@ export function StudyApp(): ReactElement {
           <PracticePage
             mid={view.mid}
             unit={view.unit}
+            {...(view.planId === undefined ? {} : { planId: view.planId })}
             onBack={() =>
               setView({
                 kind: 'material',

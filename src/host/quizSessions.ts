@@ -2,9 +2,15 @@
  * Adaptive practice sessions.
  *
  * One question is presented at a time. After an answer the session records the
- * attempt against the item's concepts and picks the next item: wrong answers
- * retreat to the same concept at an easier level, right answers move up or
- * across. Sessions are persisted so a page refresh does not lose the run.
+ * attempt, then picks the next item from the points still pending: wrong
+ * answers retreat to the same concept at an easier level, right answers move up
+ * or across. A unit round ends when every knowledge point passed and the model
+ * confirms the section (`quizSessionEngine`); the question cap is the fallback.
+ * When the bank has no question left for a pending point, the engine writes
+ * 1–3 more and appends them (`quizSessionEngine.topUp`).
+ *
+ * Views and the final rating live in `quizSessionViews`; this module owns only
+ * the run: start, answer, appeal, finish, close.
  *
  * The answer history keeps a snapshot of what was asked, because a regenerated
  * bank reuses item ids (`q1..qN`). A session also remembers the bank's
@@ -15,36 +21,59 @@ import { readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { LibraryPaths } from '../core/paths.ts'
 import {
-  defaultSessionLimit,
+  DEFAULT_SESSION_LIMIT,
+  MIN_GRADED_FOR_RATING,
+  conceptStatus,
   gradeQuizItem,
   isObjectiveItem,
+  looksCopiedFromRubric,
+  needsWrittenJudge,
   orderQuizItems,
   pickAdaptiveNext,
   sameQuizScope,
+  scoreQuizSession,
 } from '../core/quiz.ts'
+import { masteryPointsFor, markMasteryPassed, readPlan } from '../core/plans.ts'
 import { recordAttempts } from '../core/progress.ts'
-import { ratingFromScore } from '../core/srs.ts'
 import { readJson, writeJsonAtomic } from '../core/store.ts'
 import type {
   QuizBank,
   QuizEndReason,
   QuizItem,
+  QuizJudgeRecord,
   QuizSelfGrade,
   QuizSession,
   QuizSessionScope,
 } from '../core/types.ts'
 import type {
   QuizAnswerView,
-  QuizFeedbackView,
-  QuizHistoryEntryView,
-  QuizItemView,
   QuizSessionIndexView,
-  QuizSessionRecordView,
   QuizSessionSummary,
   QuizSessionView,
 } from '../core/views.ts'
 import type { BookService } from './books.ts'
+import type { JudgeResult } from './generation.ts'
+import {
+  type QuizEngine,
+  judgeInputOf,
+  seedBank,
+  sectionConfirmed,
+  targetsOf,
+  topUp,
+} from './quizSessionEngine.ts'
+import {
+  answerTextOf,
+  expectedAnswerOf,
+  feedbackOf,
+  historyOf,
+  itemView,
+  recordOf,
+  sessionMetaOf,
+  summaryOf as summaryOfSession,
+} from './quizSessionViews.ts'
 import { StudyError, type StudyService } from './service.ts'
+
+export type { QuizEngine }
 
 /** Abandoned active sessions are cleaned up after this long. */
 const ACTIVE_TTL_MS = 30 * 24 * 60 * 60 * 1000
@@ -58,12 +87,14 @@ export class QuizSessionService {
   private readonly paths: LibraryPaths
   private readonly service: StudyService
   private readonly books?: BookService
+  private readonly engine?: QuizEngine
   private recovered = false
 
-  constructor(paths: LibraryPaths, service: StudyService, books?: BookService) {
+  constructor(paths: LibraryPaths, service: StudyService, books?: BookService, engine?: QuizEngine) {
     this.paths = paths
     this.service = service
     this.books = books
+    this.engine = engine
   }
 
   /** Delete sessions that are too old to be useful. */
@@ -92,6 +123,7 @@ export class QuizSessionService {
     unit?: string
     book?: string
     chapter?: string
+    plan?: string
   }): Promise<QuizSessionIndexView> {
     await this.recover()
     const scope = this.scopeOf(input)
@@ -112,13 +144,15 @@ export class QuizSessionService {
       .filter(session => session.status === 'done')
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
       .slice(0, RECENT_LIMIT)
-      .map(session => this.recordOf(session))
+      .map(session => recordOf(session))
+    const targets = bank === null ? [] : await targetsOf(this.service, scope, bank)
     return {
       bank: {
         items: bank?.items.length ?? 0,
-        defaultLimit: bank === null ? 0 : defaultSessionLimit(bank),
+        defaultLimit: bank === null ? 0 : Math.min(20, this.limitFor(bank, targets)),
         notes: await this.notesOf(scope),
         ...(bank === null ? {} : { updatedAt: bank.updatedAt }),
+        ...(scope.kind === 'plan' ? { mastery: await this.masteryOf(scope) } : {}),
       },
       active: activeView !== null && activeView.session.status === 'active' ? activeView : null,
       recent,
@@ -136,13 +170,29 @@ export class QuizSessionService {
     unit?: string
     book?: string
     chapter?: string
+    plan?: string
     limit?: number
     restart?: boolean
   }): Promise<QuizSessionView> {
     await this.recover()
     const scope = this.scopeOf(input)
-    const bank = await this.bankOf(scope)
-    if (bank.items.length === 0) throw new StudyError('invalid', '这一节还没有练习题')
+    if (scope.kind === 'plan') return this.startPlan(scope, input)
+    let bank = await this.tryBankOf(scope)
+    let targets = await targetsOf(this.service, scope, bank)
+    if (bank === null || bank.items.length === 0) {
+      // No bank yet: open the round with one question written on demand, so a
+      // session never starts from a prefabricated batch.
+      const seeded = await seedBank(this.service, this.engine, scope, targets)
+      if (seeded !== null) {
+        bank = seeded
+        targets = await targetsOf(this.service, scope, bank)
+      }
+    }
+    if (bank === null || bank.items.length === 0) {
+      throw new StudyError('not-found', scope.kind === 'unit' && this.engine === undefined
+        ? '还没有练习题，也没有可用的文本引擎'
+        : '这一节还没有练习题')
+    }
     const actives = (await this.readScope(scope))
       .filter(session => session.status === 'active')
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
@@ -164,15 +214,22 @@ export class QuizSessionService {
       }
     }
 
-    const requested = Number.isFinite(input.limit)
-      ? Math.round(input.limit as number)
-      : defaultSessionLimit(bank)
-    const limit = Math.max(1, Math.min(20, requested, bank.items.length))
+    const requested = Number.isFinite(input.limit) ? Math.round(input.limit as number) : undefined
+    const limit = Math.max(1, Math.min(20, requested ?? this.limitFor(bank, targets)))
     const weak = new Set(
       (await this.service.concepts()).filter(concept => concept.weak).map(concept => concept.id),
     )
     const ordered = orderQuizItems(bank, { weakConcepts: weak })
-    const first = ordered.find(isObjectiveItem) ?? ordered[0]
+    const pending = new Set(targets)
+    // Open with an objective item on a point that still has to pass; without
+    // targets (book chapters) keep the old objective-first order.
+    const first =
+      (pending.size === 0
+        ? undefined
+        : (ordered.find(item => isObjectiveItem(item) && item.concepts.some(concept => pending.has(concept))) ??
+          ordered.find(item => item.concepts.some(concept => pending.has(concept))))) ??
+      ordered.find(isObjectiveItem) ??
+      ordered[0]
     if (first === undefined) throw new StudyError('invalid', '这一节还没有练习题')
     const now = new Date().toISOString()
     const session: QuizSession = {
@@ -187,9 +244,102 @@ export class QuizSessionService {
       startedAt: now,
       updatedAt: now,
       bankUpdatedAt: bank.updatedAt,
+      ...(targets.length === 0 ? {} : { targets }),
     }
     await this.save(session)
     return this.view(session, bank)
+  }
+
+  /**
+   * Start or resume a goal practice round.
+   *
+   * The questions are written for the unit's still-open mastery points and live
+   * on the session, so a fresh round always means fresh questions and a unit
+   * bank regeneration can never invalidate the run. The pass itself is written
+   * to the plan by `markMasteryPassed` — one store, one writer.
+   */
+  private async startPlan(
+    scope: Extract<QuizSessionScope, { kind: 'plan' }>,
+    input: { restart?: boolean },
+  ): Promise<QuizSessionView> {
+    const actives = (await this.readScope(scope))
+      .filter(session => session.status === 'active')
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+    if (input.restart === true) {
+      for (const candidate of actives) await this.close(candidate, 'replaced')
+    } else {
+      let resumed: QuizSession | null = null
+      for (const candidate of actives) {
+        const reconciled = await this.reconcile(candidate, null)
+        if (reconciled.status !== 'active') continue
+        if (resumed === null) resumed = reconciled
+        else await this.close(reconciled, 'replaced')
+      }
+      if (resumed !== null) {
+        resumed.updatedAt = new Date().toISOString()
+        await this.save(resumed)
+        return this.view(resumed, null)
+      }
+    }
+
+    const plan = await readPlan(this.paths, scope.plan)
+    if (plan === null) throw new StudyError('not-found', '目标不存在')
+    const target = `${scope.material}:${scope.unit}`
+    const open = masteryPointsFor(plan, target).filter(point => point.passedAt === undefined)
+    if (open.length === 0) throw new StudyError('invalid', '这一节的掌握点都过了')
+    if (this.engine === undefined || !(await this.engine.textReady())) {
+      throw new StudyError('unsupported', '过关测试需要可用的文本引擎：它按掌握点出题并判分')
+    }
+    const unit = await this.service.unit(scope.material, scope.unit)
+    // Questions are grounded in the notes when they exist, otherwise in the
+    // original pages: a goal point never needs a 导读 first.
+    const source =
+      unit.notes === null ? (await this.service.unitMaterial(scope.material, scope.unit, 24_000)).text : undefined
+    const generated = await this.engine.masteryQuiz({
+      goal: plan.goal,
+      context: `《${unit.material.title}》·「${unit.unit.title}」`,
+      pageStart: unit.unit.pageStart,
+      pageEnd: unit.unit.pageEnd,
+      points: open.slice(0, 6).map(point => ({
+        id: point.id,
+        title: point.title,
+        standard: point.standard,
+        concepts: point.concepts ?? [],
+      })),
+      ...(unit.notes === null ? {} : { notes: unit.notes }),
+      ...(source === undefined ? {} : { source }),
+    })
+    const items = generated.items
+    const first = items[0]
+    if (first === undefined) throw new StudyError('invalid', '这一组没有出成题，稍后再试')
+    const now = new Date().toISOString()
+    const session: QuizSession = {
+      version: 2,
+      id: `qs-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`,
+      scope,
+      status: 'active',
+      limit: Math.max(1, Math.min(20, items.length)),
+      items,
+      asked: [],
+      currentId: first.id,
+      history: [],
+      startedAt: now,
+      updatedAt: now,
+    }
+    await this.save(session)
+    return this.view(session, null)
+  }
+
+  /** How many mastery points of one unit are passed, and how many are open. */
+  private async masteryOf(scope: Extract<QuizSessionScope, { kind: 'plan' }>): Promise<{
+    open: number
+    total: number
+    passed: number
+  }> {
+    const plan = await readPlan(this.paths, scope.plan)
+    const points = plan === null ? [] : masteryPointsFor(plan, `${scope.material}:${scope.unit}`)
+    const passed = points.filter(point => point.passedAt !== undefined).length
+    return { open: points.length - passed, total: points.length, passed }
   }
 
   /** Submit one answer and advance when possible. */
@@ -203,79 +353,285 @@ export class QuizSessionService {
     if (session.status !== 'active') throw new StudyError('conflict', '这次练习已经结束')
     const bank = await this.tryBankOf(session.scope)
     const reconciled = await this.reconcile(session, bank)
-    if (reconciled.status !== 'active' || bank === null) {
+    if (reconciled.status !== 'active') {
       throw new StudyError('conflict', '题目换过了，这一组就到这里')
     }
+    const items = this.itemsOf(session, bank)
+    if (items.length === 0) throw new StudyError('conflict', '题目换过了，这一组就到这里')
     if (session.currentId !== itemId) throw new StudyError('conflict', '这不是当前题目，请刷新后重试')
     if (session.history.some(entry => entry.itemId === itemId)) {
       throw new StudyError('conflict', '这道题已经答过了')
     }
-    const item = bank.items.find(candidate => candidate.id === itemId)
+    const item = items.find(candidate => candidate.id === itemId)
     if (item === undefined) throw new StudyError('not-found', '题目不存在')
+    if (
+      needsWrittenJudge(item) &&
+      selfGrade === undefined &&
+      (typeof answer !== 'string' || answer.trim().length === 0)
+    ) {
+      throw new StudyError('invalid', '先写下你的答案')
+    }
 
     const verdict = gradeQuizItem(item, answer)
-    if (verdict.correct === null && selfGrade === undefined) {
+    let judged: JudgeResult | undefined
+    let judgeUnavailable: string | undefined
+    // Cloze answers are written answers: an equal spelling is settled above,
+    // anything else is judged by meaning, never by string equality alone.
+    const written = needsWrittenJudge(item) && selfGrade === undefined && verdict.correct !== true
+    if (written) {
+      if (this.engine === undefined || !(await this.engine.textReady())) {
+        judgeUnavailable = '没有可用的文本引擎'
+      } else {
+        try {
+          judged = await this.engine.judgeQuizAnswer(await judgeInputOf(this.service, session.scope, item, answer))
+        } catch (error) {
+          judgeUnavailable = error instanceof Error ? error.message : '自动判分失败'
+        }
+      }
+    }
+    if (session.scope.kind === 'plan' && judged === undefined && selfGrade === undefined) {
+      // A mastery point may only pass on a model verdict; do not fall back to
+      // self-grading here or the point could be won without being checked.
+      throw new StudyError('unsupported', judgeUnavailable ?? '没有可用的判分引擎')
+    }
+    if (needsWrittenJudge(item) && verdict.correct !== true && selfGrade === undefined && judged === undefined) {
+      // Includes a cloze answer whose spelling did not match: without an
+      // engine the reader grades it, the string comparison alone never fails it.
       return {
-        session: this.sessionMeta(session),
+        session: sessionMetaOf(session),
         feedback: {
           itemId,
           correct: null,
           ...(item.rubric === undefined ? {} : { rubric: item.rubric }),
           ...(item.explanation === undefined ? {} : { explanation: item.explanation }),
+          ...(judgeUnavailable === undefined ? {} : { judgeUnavailable }),
           needsSelfGrade: true,
         },
-        history: this.historyOf(session, bank),
+        history: historyOf(session, items),
       }
     }
 
-    const correct = verdict.correct !== null ? verdict.correct : selfGrade === 'correct'
-    const attempts = item.concepts.map(conceptId => ({ conceptId, correct }))
-    if (attempts.length > 0) await recordAttempts(this.paths, attempts)
+    const correct =
+      judged !== undefined
+        ? judged.verdict === 'pass'
+        : verdict.correct !== null
+          ? verdict.correct
+          : selfGrade === 'correct'
+    // Plan-scoped practice never writes concept mastery: the plan's mastery
+    // points are its only progress store. Unit/book practice keeps the global
+    // concept signal, recorded once per answer.
+    if (session.scope.kind !== 'plan') {
+      const attempts = item.concepts.map(conceptId => ({ conceptId, correct }))
+      if (attempts.length > 0) await recordAttempts(this.paths, attempts)
+    }
 
     const at = new Date().toISOString()
-    const expected = this.expectedOf(item)
+    const judgedRecord: QuizJudgeRecord | undefined =
+      judged === undefined
+        ? undefined
+        : {
+            verdict: judged.verdict,
+            missing: judged.missing,
+            ...(judged.advice === undefined ? {} : { advice: judged.advice }),
+            confidence: judged.confidence,
+            engine: judged.engine,
+            ...(judged.model === undefined ? {} : { model: judged.model }),
+            at,
+          }
+    const expected = expectedAnswerOf(item)
     session.history.push({
       itemId,
       answer,
-      correct: verdict.correct !== null ? verdict.correct : correct,
+      correct,
       ...(selfGrade === undefined ? {} : { selfGrade }),
+      ...(judgedRecord === undefined ? {} : { judged: judgedRecord }),
       at,
       question: item.question,
       type: item.type,
       concepts: [...item.concepts],
-      answerText: this.answerTextOf(item, answer),
+      ...(item.page === undefined ? {} : { page: item.page }),
+      ...(item.difficulty === undefined ? {} : { difficulty: item.difficulty }),
+      ...(item.masteryPoint === undefined ? {} : { masteryPoint: item.masteryPoint }),
+      answerText: answerTextOf(item, answer),
       ...(expected === undefined ? {} : { expected }),
       ...(item.rubric === undefined ? {} : { rubric: [...item.rubric] }),
       ...(item.explanation === undefined ? {} : { explanation: item.explanation }),
     })
     session.asked.push(itemId)
 
-    const asked = new Set(session.asked)
-    const next =
-      session.asked.length >= session.limit
-        ? undefined
-        : pickAdaptiveNext(bank.items, {
-            asked,
-            current: item,
-            correct: verdict.correct !== null ? verdict.correct : correct,
-          })
-    if (next === undefined) {
-      session.status = 'done'
-      session.currentId = undefined
-      session.endedAt = at
-      session.endedReason = 'completed'
-    } else {
-      session.currentId = next.id
+    if (session.scope.kind === 'plan' && judged?.verdict === 'pass' && item.masteryPoint !== undefined) {
+      await markMasteryPassed(this.paths, session.scope.plan, item.masteryPoint, at)
     }
+    const advanced = await this.advance(session, items, item, correct, at)
     session.updatedAt = at
     await this.save(session)
     return {
-      session: this.sessionMeta(session),
-      feedback: this.feedbackOf(item, verdict.correct !== null ? verdict.correct : correct, selfGrade),
-      history: this.historyOf(session, bank),
-      ...(next === undefined ? {} : { next: this.itemView(next) }),
-      ...(next === undefined ? { summary: await this.summaryOf(session, bank) } : {}),
+      session: sessionMetaOf(session),
+      feedback: feedbackOf(item, correct, selfGrade, judgedRecord, judgeUnavailable),
+      history: historyOf(session, advanced.items),
+      ...(advanced.next === undefined ? {} : { next: itemView(advanced.next) }),
+      ...(advanced.next === undefined ? { summary: await this.summaryOf(session, advanced.items) } : {}),
     }
+  }
+
+  /**
+   * Move a session on after one answer.
+   *
+   * Section practice (unit) ends when every knowledge point has passed and the
+   * AI confirms the section; otherwise the next item targets a pending point,
+   * and a top-up is written when the bank has none left. Book chapters have no
+   * target list and end on the question cap. Plan rounds keep their own items.
+   */
+  private async advance(
+    session: QuizSession,
+    items: readonly QuizItem[],
+    current: QuizItem,
+    correct: boolean | null,
+    at: string,
+  ): Promise<{ next?: QuizItem; items: QuizItem[] }> {
+    const asked = new Set(session.asked)
+    if (session.scope.kind === 'plan') {
+      const next =
+        session.asked.length >= session.limit
+          ? undefined
+          : pickAdaptiveNext(items, { asked, current, correct })
+      if (next === undefined) {
+        session.status = 'done'
+        session.currentId = undefined
+        session.endedAt = at
+        session.endedReason = 'completed'
+      } else {
+        session.currentId = next.id
+      }
+      return next === undefined ? { items: [...items] } : { next, items: [...items] }
+    }
+
+    const targets = session.targets ?? []
+    const status = targets.length === 0 ? undefined : conceptStatus(session.history, targets)
+    // Passing every point is necessary, but a one-question run is not a pass:
+    // require the same minimum of graded answers the rating needs.
+    const enough = scoreQuizSession(session.history).graded >= Math.min(session.limit, MIN_GRADED_FOR_RATING)
+    if (status?.all === true && enough && (await sectionConfirmed(this.service, this.engine, session, targets))) {
+      await this.close(session, 'completed')
+      return { items: await this.itemsAfter(session) }
+    }
+    if (session.asked.length >= session.limit) {
+      await this.close(session, 'exhausted')
+      return { items: await this.itemsAfter(session) }
+    }
+
+    const pending = new Set(status === undefined ? [] : conceptStatus(session.history, targets).pending)
+    // When every point already passed but the run is still short of the rating
+    // minimum, ask more on the same points instead of stopping early.
+    const focus = pending.size > 0 ? [...pending] : [...targets]
+    let pool = await this.itemsAfter(session)
+    let next = pickAdaptiveNext(pool, {
+      asked,
+      current,
+      correct,
+      ...(pending.size === 0 ? {} : { focus: pending }),
+    })
+    if (next === undefined && focus.length > 0 && (await topUp(this.service, this.engine, session, focus)) > 0) {
+      pool = await this.itemsAfter(session)
+      next = pickAdaptiveNext(pool, { asked, current, correct, focus: new Set(focus) })
+    }
+    if (next === undefined) {
+      await this.close(session, 'exhausted')
+      return { items: pool }
+    }
+    session.currentId = next.id
+    return { next, items: pool }
+  }
+
+  /** Items of a session after the bank may have grown. */
+  private async itemsAfter(session: QuizSession): Promise<QuizItem[]> {
+    const bank = await this.tryBankOf(session.scope)
+    return this.itemsOf(session, bank)
+  }
+
+  /**
+   * Re-judge a written answer after a rebuttal.
+   *
+   * The reader's claim is advisory only: the model sees the original answer, the
+   * previous verdict and the rebuttal, then decides again. Appeals are unlimited
+   * and the last verdict wins; a changed verdict applies one compensating
+   * concept attempt instead of rewriting mastery history.
+   */
+  async appeal(
+    sessionId: string,
+    itemId: string,
+    reason: string,
+    claim?: QuizSelfGrade,
+  ): Promise<QuizSessionView> {
+    const session = await this.load(sessionId)
+    const entry = session.history.find(candidate => candidate.itemId === itemId)
+    if (entry === undefined) throw new StudyError('not-found', '这道题还没有作答记录')
+    if (entry.judged === undefined) throw new StudyError('invalid', '只有 AI 判过的题可以申诉；自评不会覆盖自评')
+    if (this.engine === undefined || !(await this.engine.textReady())) {
+      throw new StudyError('unsupported', '申诉需要可用的文本引擎；没有引擎时不能改判')
+    }
+    const text = reason.trim()
+    if (text.length < 4) throw new StudyError('invalid', '写清申诉理由（至少 4 个字）')
+    const scoringMaterial = [...(entry.rubric ?? []), ...(entry.explanation === undefined ? [] : [entry.explanation])]
+    if (looksCopiedFromRubric(text, scoringMaterial)) {
+      throw new StudyError('invalid', '复核理由不能直接抄评分要点或解析；用自己的话补上推导，或指出具体哪一步判错了')
+    }
+
+    const snapshot: QuizItem = {
+      id: entry.itemId,
+      type: entry.type ?? 'recall',
+      question: entry.question ?? '',
+      concepts: entry.concepts ?? [],
+      origin: 'generated',
+      ...(entry.rubric === undefined ? {} : { rubric: entry.rubric }),
+      ...(entry.page === undefined ? {} : { page: entry.page }),
+    }
+    const judged = await this.engine.judgeQuizAnswer({
+      ...(await judgeInputOf(this.service, session.scope, snapshot, entry.answer)),
+      rebuttal: text,
+      ...(claim === undefined ? {} : { claim }),
+      previousVerdict: entry.judged.verdict,
+      previousMissing: entry.judged.missing,
+      ...(entry.judged.advice === undefined ? {} : { previousAdvice: entry.judged.advice }),
+      ...(entry.appeals === undefined
+        ? {}
+        : { previousRebuttals: entry.appeals.map(appeal => appeal.reason) }),
+    })
+
+    const nextCorrect = judged.verdict === 'pass'
+    const at = new Date().toISOString()
+    // An appeal revises this one answer. It never writes a second concept
+    // attempt (that would count one answer twice); plan mastery is updated on
+    // the same monotonic rule as a first pass.
+    if (session.scope.kind === 'plan' && nextCorrect && entry.masteryPoint !== undefined) {
+      await markMasteryPassed(this.paths, session.scope.plan, entry.masteryPoint, at)
+    }
+    entry.appeals = [
+      ...(entry.appeals ?? []),
+      {
+        reason: text,
+        ...(claim === undefined ? {} : { claim }),
+        from: entry.judged.verdict,
+        verdict: judged.verdict,
+        engine: judged.engine,
+        ...(judged.model === undefined ? {} : { model: judged.model }),
+        at,
+      },
+    ]
+    entry.judged = {
+      verdict: judged.verdict,
+      missing: judged.missing,
+      ...(judged.advice === undefined ? {} : { advice: judged.advice }),
+      confidence: judged.confidence,
+      engine: judged.engine,
+      ...(judged.model === undefined ? {} : { model: judged.model }),
+      at,
+    }
+    entry.correct = nextCorrect
+    delete entry.selfGrade
+    session.updatedAt = at
+    await this.save(session)
+    return this.view(session, await this.tryBankOf(session.scope))
   }
 
   /** End a session early. */
@@ -302,13 +658,29 @@ export class QuizSessionService {
     if (input.book !== undefined && input.book.length > 0 && input.chapter !== undefined && input.chapter.length > 0) {
       return { kind: 'book', book: input.book, chapter: input.chapter }
     }
+    if (
+      input.plan !== undefined &&
+      input.plan.length > 0 &&
+      input.material !== undefined &&
+      input.material.length > 0 &&
+      input.unit !== undefined &&
+      input.unit.length > 0
+    ) {
+      return { kind: 'plan', plan: input.plan, material: input.material, unit: input.unit }
+    }
     if (input.material !== undefined && input.material.length > 0 && input.unit !== undefined && input.unit.length > 0) {
       return { kind: 'unit', material: input.material, unit: input.unit }
     }
-    throw new StudyError('invalid', '需要 mid+uid 或 bid+cid')
+    throw new StudyError('invalid', '需要 mid+uid、bid+cid 或 pid+mid+uid')
+  }
+
+  /** Question cap: two per knowledge point, never below the full-session default. */
+  private limitFor(bank: QuizBank, targets: readonly string[]): number {
+    return Math.max(DEFAULT_SESSION_LIMIT, targets.length * 2, bank.items.length)
   }
 
   private async bankOf(scope: QuizSessionScope): Promise<QuizBank> {
+    if (scope.kind === 'plan') throw new StudyError('unsupported', '过关测试按掌握点现场出题，不读题库')
     if (scope.kind === 'unit') {
       const bank = await this.service.quiz(scope.material, scope.unit)
       if (bank === null) throw new StudyError('not-found', '这一节还没有练习题')
@@ -347,6 +719,13 @@ export class QuizSessionService {
    */
   private async reconcile(session: QuizSession, bank: QuizBank | null): Promise<QuizSession> {
     if (session.status !== 'active') return session
+    // A plan round owns its questions, so only a lost current item invalidates
+    // it; a unit/book session is also invalidated when its bank is rewritten.
+    if (session.scope.kind === 'plan') {
+      const items = session.items ?? []
+      if (!items.some(item => item.id === session.currentId)) await this.close(session, 'bank-changed')
+      return session
+    }
     const changed =
       bank === null || (session.bankUpdatedAt !== undefined && session.bankUpdatedAt !== bank.updatedAt)
     const missing = bank !== null && !bank.items.some(item => item.id === session.currentId)
@@ -423,146 +802,29 @@ export class QuizSessionService {
     return now - updated > (session.status === 'active' ? ACTIVE_TTL_MS : HISTORY_TTL_MS)
   }
 
-  private itemView(item: QuizItem): QuizItemView {
-    return {
-      id: item.id,
-      type: item.type,
-      question: item.question,
-      ...(item.choices === undefined ? {} : { choices: item.choices }),
-      concepts: item.concepts,
-      ...(item.page === undefined ? {} : { page: item.page }),
-      ...(item.difficulty === undefined ? {} : { difficulty: item.difficulty }),
-    }
+  /** Items of one session: a plan round owns its own, the others read a bank. */
+  private itemsOf(session: QuizSession, bank: QuizBank | null): QuizItem[] {
+    return session.scope.kind === 'plan' ? (session.items ?? []) : (bank?.items ?? [])
   }
 
-  private expectedOf(item: QuizItem): string | undefined {
-    if (item.type === 'choice' && item.answerIndex !== undefined) return item.choices?.[item.answerIndex]
-    if (item.type === 'cloze') return item.answer
-    if (item.type === 'evidence' && item.page !== undefined) return `p${item.page}`
-    return undefined
-  }
-
-  private answerTextOf(item: QuizItem | undefined, answer: unknown): string {
-    if (item?.type === 'choice' && typeof answer === 'number') {
-      return item.choices?.[answer] ?? String(answer)
-    }
-    if (typeof answer === 'string') {
-      const text = answer.trim()
-      return text.length === 0 ? '（没写）' : text
-    }
-    if (answer === undefined || answer === null) return '（没写）'
-    return String(answer)
-  }
-
-  private feedbackOf(item: QuizItem, correct: boolean | null, selfGrade?: QuizSelfGrade): QuizFeedbackView {
-    const expected = this.expectedOf(item)
-    return {
-      itemId: item.id,
-      correct,
-      ...(selfGrade === undefined ? {} : { selfGrade }),
-      ...(expected === undefined ? {} : { expected }),
-      ...(item.rubric === undefined ? {} : { rubric: item.rubric }),
-      ...(item.explanation === undefined ? {} : { explanation: item.explanation }),
-    }
-  }
-
-  private historyOf(session: QuizSession, bank: QuizBank | null): QuizHistoryEntryView[] {
-    return session.history.map(entry => {
-      const item = bank?.items.find(candidate => candidate.id === entry.itemId)
-      const expected = entry.expected ?? (item === undefined ? undefined : this.expectedOf(item))
-      const rubric = entry.rubric ?? item?.rubric
-      const explanation = entry.explanation ?? item?.explanation
-      return {
-        itemId: entry.itemId,
-        question: entry.question ?? item?.question ?? entry.itemId,
-        type: entry.type ?? item?.type ?? 'recall',
-        answerText: entry.answerText ?? this.answerTextOf(item, entry.answer),
-        correct: entry.correct,
-        ...(entry.selfGrade === undefined ? {} : { selfGrade: entry.selfGrade }),
-        ...(expected === undefined ? {} : { expected }),
-        ...(rubric === undefined ? {} : { rubric }),
-        ...(explanation === undefined ? {} : { explanation }),
-        at: entry.at,
-      }
-    })
-  }
-
-  private sessionMeta(session: QuizSession): QuizSessionView['session'] {
-    const objective = session.history.filter(entry => entry.correct !== null).length
-    const correct = session.history.filter(entry => entry.correct === true).length
-    return {
-      id: session.id,
-      status: session.status,
-      asked: session.asked.length,
-      limit: session.limit,
-      correct,
-      objective,
-      startedAt: session.startedAt,
-      updatedAt: session.updatedAt,
-      ...(session.endedReason === undefined ? {} : { endedReason: session.endedReason }),
-    }
-  }
-
-  private scoreOf(session: QuizSession): { objective: number; correct: number; score: number } {
-    const objective = session.history.filter(entry => entry.correct !== null)
-    const correct = objective.filter(entry => entry.correct === true).length
-    return {
-      objective: objective.length,
-      correct,
-      score: objective.length === 0 ? 0.5 : correct / objective.length,
-    }
-  }
-
-  private recordOf(session: QuizSession): QuizSessionRecordView {
-    const { objective, correct, score } = this.scoreOf(session)
-    return {
-      id: session.id,
-      status: session.status,
-      asked: session.asked.length,
-      limit: session.limit,
-      correct,
-      objective,
-      score,
-      startedAt: session.startedAt,
-      updatedAt: session.updatedAt,
-      ...(session.endedAt === undefined ? {} : { endedAt: session.endedAt }),
-      ...(session.endedReason === undefined ? {} : { endedReason: session.endedReason }),
-    }
-  }
-
-  private async summaryOf(session: QuizSession, bank: QuizBank | null): Promise<QuizSessionSummary> {
-    const { objective, correct, score } = this.scoreOf(session)
-    const weakIds = new Set<string>()
-    for (const entry of session.history) {
-      if (entry.correct !== false) continue
-      const item = bank?.items.find(candidate => candidate.id === entry.itemId)
-      for (const conceptId of entry.concepts ?? item?.concepts ?? []) weakIds.add(conceptId)
-    }
+  private async summaryOf(session: QuizSession, items: readonly QuizItem[]): Promise<QuizSessionSummary> {
     const names = new Map((await this.service.concepts()).map(concept => [concept.id, concept.name]))
-    return {
-      asked: session.asked.length,
-      correct,
-      objective,
-      score,
-      ratingSuggestion: ratingFromScore(score),
-      weakConcepts: [...weakIds].map(id => ({ id, name: names.get(id) ?? id })),
-    }
+    const openPoints = session.scope.kind === 'plan' ? (await this.masteryOf(session.scope)).open : undefined
+    return summaryOfSession(session, items, names, openPoints)
   }
 
   private async view(session: QuizSession, bank: QuizBank | null): Promise<QuizSessionView> {
-    if (
-      session.status === 'active' &&
-      (bank === null || !bank.items.some(item => item.id === session.currentId))
-    ) {
+    const items = this.itemsOf(session, bank)
+    if (session.status === 'active' && !items.some(item => item.id === session.currentId)) {
       await this.close(session, 'bank-changed')
     }
     const current =
-      session.status === 'active' ? bank?.items.find(item => item.id === session.currentId) : undefined
+      session.status === 'active' ? items.find(item => item.id === session.currentId) : undefined
     return {
-      session: this.sessionMeta(session),
-      ...(current === undefined ? {} : { item: this.itemView(current) }),
-      history: this.historyOf(session, bank),
-      ...(session.status === 'done' ? { summary: await this.summaryOf(session, bank) } : {}),
+      session: sessionMetaOf(session),
+      ...(current === undefined ? {} : { item: itemView(current) }),
+      history: historyOf(session, items),
+      ...(session.status === 'done' ? { summary: await this.summaryOf(session, items) } : {}),
     }
   }
 }

@@ -11,7 +11,17 @@ import { fileURLToPath } from 'node:url'
 const bundlePath = fileURLToPath(new URL('../../../lib/client.js', import.meta.url))
 const source = await readFile(bundlePath, 'utf8')
 
+class Component {
+  constructor(props) {
+    this.props = props
+  }
+  setState(next) {
+    this.state = { ...this.state, ...(typeof next === 'function' ? next(this.state) : next) }
+  }
+}
+
 const react = {
+  Component,
   createElement: (...args) => ({ __element: true, args }),
   Fragment: 'Fragment',
   useState: value => [typeof value === 'function' ? value() : value, () => undefined],
