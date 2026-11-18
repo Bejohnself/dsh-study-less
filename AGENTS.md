@@ -37,6 +37,7 @@ src/
 │  ├─ cards.ts           判定卡（答错生成、答对退役）
 │  ├─ srs.ts             FSRS 排程
 │  ├─ quiz.ts            题库选择、判分、自适应下一题
+│  ├─ knowledge.ts       知识点空间：掌握度、证据去重、FSRS 到期、衰减、结案
 │  ├─ concepts.ts        全局概念与出现位置
 │  ├─ insights.ts        洞察卡
 │  ├─ books.ts           自编书
@@ -57,7 +58,7 @@ src/
 │  ├─ tools.ts           (31) 按序拼装 20 个 study_* 工具
 │  ├─ tools/             library(7) reading(3) plans(3) notes(3) generate(4) + shared.ts
 │  ├─ generation.ts      (300) GenerationService 外壳：textReady / ready / requireSettings / completeJson + 转发
-│  ├─ generation/        chat plan unit quiz blocks insight book + normalize.ts + shared.ts
+│  ├─ generation/        chat plan unit quiz concepts blocks insight book + normalize.ts + shared.ts
 │  ├─ jobs.ts            JobQueue：jobs/*.json，queued→running→done/failed
 │  ├─ books.ts / insights.ts / quizSessions.ts（+ quizSessionEngine/Views）/ settings.ts
 │  ├─ import.ts          导入 PDF、切页、建单元
@@ -117,9 +118,10 @@ plans/<pid>.json         目标、裁剪单、尝试、卡点、掌握点、判�
 cards/<cid>.json         判定卡（结案时退役/删除）
 quiz-sessions/<sid>.json 自适应练习会话
 books/<bid>/             自编书：book.json + chapters/*.md + 章节练习 + book.md
-progress.json            单元 FSRS + 概念掌握度
+progress.json            旧进度（单元 FSRS + 概念掌握度）；knowledge.json 是新的唯一知识点状态
 insights/<iid>.json      洞察卡
 jobs/<jobId>.json        页面内生成任务
+knowledge.json           知识点空间：掌握度 / 到期 / 证据 / 结案
 settings.json            引擎与学习偏好（0600）
 ```
 

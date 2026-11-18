@@ -32,9 +32,10 @@ import {
   sameQuizScope,
 } from '../core/quiz.ts'
 import { masteryPointsFor, markMasteryPassed, readPlan } from '../core/plans.ts'
-import { questionFingerprint, recordEvidence } from '../core/knowledge.ts'
+import { decayedMastery, ensureKnowledge, questionFingerprint, recordEvidence, targetOf } from '../core/knowledge.ts'
 import { recordAttempts } from '../core/progress.ts'
 import { readJson, writeJsonAtomic } from '../core/store.ts'
+import { localDate } from '../core/time.ts'
 import type {
   QuizBank,
   QuizEndReason,
@@ -228,6 +229,18 @@ export class QuizSessionService {
         return this.view(resumed, bank)
       }
     }
+
+    // A new run only asks what is still open: a concept already at target does
+    // not come back until review says it decayed.
+    const knowledge = await ensureKnowledge(this.paths)
+    const stillOpen = targets.filter(conceptId => {
+      const state = knowledge.concepts[conceptId]
+      return state === undefined || decayedMastery(state, localDate()) < targetOf(state)
+    })
+    if (targets.length > 0 && stillOpen.length === 0) {
+      throw new StudyError('invalid', '本节的知识点都过了；要再练就从今日面板的到期复习进')
+    }
+    targets = stillOpen
 
     const requested = Number.isFinite(input.limit) ? Math.round(input.limit as number) : undefined
     const limit = Math.max(1, Math.min(20, requested ?? this.limitFor(bank, targets)))

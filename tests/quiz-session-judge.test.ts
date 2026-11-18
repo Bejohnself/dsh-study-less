@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LibraryPaths } from '../src/core/paths.ts'
-import { readKnowledge } from '../src/core/knowledge.ts'
+import { readKnowledge, writeKnowledge } from '../src/core/knowledge.ts'
 import { readProgress } from '../src/core/progress.ts'
 import type { QuizBank, QuizJudgeVerdict } from '../src/core/types.ts'
 import type { QuizJudgePromptInput } from '../src/host/generate/prompts.ts'
@@ -217,4 +217,30 @@ test('a wrong answer keeps the section open', async () => {
   assert.equal(answered.session.status, 'active')
   assert.equal(answered.summary, undefined)
   assert.notEqual(answered.next, undefined)
+})
+
+test('a section whose points already passed does not reopen a run', async () => {
+  const bank = choiceBank(2, 'dp/closed')
+  const sessions = new QuizSessionService(paths, choiceService(bank.items))
+  const today = new Date().toISOString()
+  await writeKnowledge(paths, {
+    version: 1,
+    updatedAt: today,
+    concepts: {
+      'dp/closed': {
+        mastery: 1,
+        peak: 1,
+        streak: 0,
+        attempts: 6,
+        correct: 6,
+        due: '2027-01-01',
+        srs: { S: 30, D: 3, reps: 6, lapses: 0, lastRating: 4 },
+        evidence: {},
+      },
+    },
+  })
+  await assert.rejects(
+    () => sessions.start({ material: 'm4', unit: 'u4' }),
+    /都过了/,
+  )
 })
