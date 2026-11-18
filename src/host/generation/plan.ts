@@ -4,6 +4,7 @@
  * Free functions over GenerationService; the class keeps the signatures and forwards
  * here. Bodies are the original methods, with this. turned into svc.
  */
+import { splitUnitKey } from '../../core/ids.ts'
 import { listManifests } from '../../core/library.ts'
 import { readPlan } from '../../core/plans.ts'
 import type { MaterialManifest } from '../../core/types.ts'
@@ -13,6 +14,7 @@ import { planPrompt } from '../generate/prompts.ts'
 import { StudyError } from '../service.ts'
 import type { GenerationService } from '../generation.ts'
 import { sanitizeMastery, sanitizePlanSteps, normalizePlanMastery, normalizePlanSteps } from './normalize.ts'
+import { extractConcepts } from './concepts.ts'
 
 export async function generatePlan(svc: GenerationService, input: GeneratePlanInput): Promise<{ planId: string; jobId: string }> {
   if (!(await svc.textReady())) {
@@ -117,8 +119,17 @@ export async function runPlan(svc: GenerationService, planId: string, input: Gen
         replaceMastery: mastery.points,
       })
     })
+    // A goal is only useful once its sections have knowledge points: extract
+    // them now, while the creation job is still running, and hang them on the
+    // mastery map so the route has a real target set from day one.
+    const filled = await ensureGoalConcepts(svc, planId, context)
     await svc.deps.service.setPlanGeneration(planId, { status: 'done', mode: 'inline', jobId: context.job.id })
-    context.report(1, `已生成 ${count} 步、${points} 个掌握点${dropped === 0 ? '' : `（忽略 ${dropped} 个无效目标）`}`)
+    context.report(
+      1,
+      `已生成 ${count} 步、${points} 个掌握点${filled === 0 ? '' : `；补了 ${filled} 节的知识点`}${
+        dropped === 0 ? '' : `（忽略 ${dropped} 个无效目标）`
+      }`,
+    )
     return await svc.deps.service.planView(planId)
   } catch (error) {
     await svc.deps.service.setPlanGeneration(planId, {
@@ -129,4 +140,46 @@ export async function runPlan(svc: GenerationService, planId: string, input: Gen
     })
     throw error
   }
+}
+
+/**
+ * Extract knowledge points for the goal's sections and attach them.
+ *
+ * Goal generation sees an empty concept library on a fresh import; without this
+ * step the goal has no concept targets until the first practice. Six sections
+ * is the cap: enough for a focused goal, bounded for the model bill.
+ */
+async function ensureGoalConcepts(
+  svc: GenerationService,
+  planId: string,
+  context: JobContext,
+): Promise<number> {
+  const plan = await readPlan(svc.paths, planId)
+  if (plan === null) return 0
+  const targets = new Set<string>()
+  for (const point of plan.mastery ?? []) {
+    if (point.target !== undefined) targets.add(point.target)
+  }
+  for (const step of plan.steps) {
+    if (step.target !== undefined && step.coverage !== 'skip') targets.add(step.target)
+  }
+  const list = [...targets].slice(0, 6)
+  let filled = 0
+  for (const [index, target] of list.entries()) {
+    try {
+      const { materialId, unitId } = splitUnitKey(target)
+      const unit = await svc.deps.service.unit(materialId, unitId)
+      if ((unit.unit.concepts ?? []).length > 0) continue
+      const concepts = await extractConcepts(svc, { material: materialId, unit: unitId })
+      if (concepts.length === 0) continue
+      await svc.deps.service.writeConcepts(materialId, unitId, concepts)
+      await svc.deps.service.attachMasteryConcepts(planId, target, concepts.map(concept => concept.id))
+      filled += 1
+      context.report(0.85 + (0.1 * (index + 1)) / list.length, `正在补第 ${index + 1} 节的知识点…`)
+    } catch {
+      // A section that cannot be read or extracted is skipped; practice can
+      // still fill it in on first use.
+    }
+  }
+  return filled
 }
