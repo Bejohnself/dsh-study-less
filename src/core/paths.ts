@@ -32,6 +32,7 @@ export class LibraryPaths {
   readonly cardsDir: string
   readonly indexDir: string
   readonly progressFile: string
+  readonly knowledgeFile: string
   readonly settingsFile: string
 
   readonly root: string
@@ -48,6 +49,7 @@ export class LibraryPaths {
     this.cardsDir = join(root, 'cards')
     this.indexDir = join(root, 'index')
     this.progressFile = join(root, 'progress.json')
+    this.knowledgeFile = join(root, 'knowledge.json')
     this.settingsFile = join(root, 'settings.json')
   }
 

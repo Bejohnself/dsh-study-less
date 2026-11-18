@@ -34,6 +34,7 @@ import {
   scoreQuizSession,
 } from '../core/quiz.ts'
 import { masteryPointsFor, markMasteryPassed, readPlan } from '../core/plans.ts'
+import { questionFingerprint, recordEvidence } from '../core/knowledge.ts'
 import { recordAttempts } from '../core/progress.ts'
 import { readJson, writeJsonAtomic } from '../core/store.ts'
 import type {
@@ -417,15 +418,28 @@ export class QuizSessionService {
         : verdict.correct !== null
           ? verdict.correct
           : selfGrade === 'correct'
+    const at = new Date().toISOString()
     // Plan-scoped practice never writes concept mastery: the plan's mastery
     // points are its only progress store. Unit/book practice keeps the global
-    // concept signal, recorded once per answer.
+    // concept signal and now also the knowledge space record; the older
+    // progress store is still read by the today page until it moves over.
     if (session.scope.kind !== 'plan') {
       const attempts = item.concepts.map(conceptId => ({ conceptId, correct }))
       if (attempts.length > 0) await recordAttempts(this.paths, attempts)
+      if (attempts.length > 0 && selfGrade === undefined) {
+        const verdict = judged !== undefined ? judged.verdict : correct ? 'pass' : 'fail'
+        const fingerprint = questionFingerprint(item.question)
+        for (const conceptId of item.concepts) {
+          await recordEvidence(this.paths, {
+            conceptId,
+            fingerprint,
+            verdict,
+            difficulty: item.difficulty ?? 2,
+            at,
+          })
+        }
+      }
     }
-
-    const at = new Date().toISOString()
     const judgedRecord: QuizJudgeRecord | undefined =
       judged === undefined
         ? undefined

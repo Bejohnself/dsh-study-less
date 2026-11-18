@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LibraryPaths } from '../src/core/paths.ts'
+import { readKnowledge } from '../src/core/knowledge.ts'
 import { readProgress } from '../src/core/progress.ts'
 import type { QuizBank, QuizJudgeVerdict } from '../src/core/types.ts'
 import type { QuizJudgePromptInput } from '../src/host/generate/prompts.ts'
@@ -83,6 +84,10 @@ test('a written answer is judged by the model and updates concept mastery', asyn
 
   const progress = await readProgress(paths)
   assert.equal(progress.concepts['dp/unbounded-cost']?.mastery, 0.375)
+
+  const knowledge = await readKnowledge(paths)
+  assert.ok(knowledge.concepts['dp/unbounded-cost'] !== undefined, 'practice writes the knowledge space')
+  assert.equal(Object.keys(knowledge.concepts['dp/unbounded-cost']?.evidence ?? {}).length, 1)
 })
 
 test('an appeal is re-judged from the original answer and the rebuttal', async () => {
