@@ -581,8 +581,6 @@ export interface QuizSessionSummary {
   /** Answers that count as evidence: objective or model-judged. */
   objective: number
   score: number
-  /** Omitted when the run is too short or ended early to rate. */
-  rating?: Rating
   verdict: 'passed' | 'failed' | 'incomplete'
   weakConcepts: Array<{ id: string; name: string }>
   /** Plan-scoped practice: mastery points still open in this unit. */

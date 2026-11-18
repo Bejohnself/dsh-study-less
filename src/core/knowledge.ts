@@ -345,5 +345,16 @@ export async function ensureKnowledge(paths: LibraryPaths): Promise<KnowledgeFil
   if (existing !== null) {
     return { ...existing, version: 1, concepts: existing.concepts ?? {} }
   }
-  return seedKnowledgeFromProgress(paths)
+  // The today panel reads the space from several places at once; seed once and
+  // let every caller wait on the same write.
+  const running = seeding.get(paths.knowledgeFile)
+  if (running !== undefined) return running
+  const task = seedKnowledgeFromProgress(paths).finally(() => {
+    seeding.delete(paths.knowledgeFile)
+  })
+  seeding.set(paths.knowledgeFile, task)
+  return task
 }
+
+/** In-flight first-use seeding, keyed by file so concurrent readers share it. */
+const seeding = new Map<string, Promise<KnowledgeFile>>()

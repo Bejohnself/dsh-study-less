@@ -22,7 +22,6 @@ import { join } from 'node:path'
 import type { LibraryPaths } from '../core/paths.ts'
 import {
   DEFAULT_SESSION_LIMIT,
-  MIN_GRADED_FOR_RATING,
   conceptStatus,
   gradeQuizItem,
   isObjectiveItem,
@@ -31,7 +30,6 @@ import {
   orderQuizItems,
   pickAdaptiveNext,
   sameQuizScope,
-  scoreQuizSession,
 } from '../core/quiz.ts'
 import { masteryPointsFor, markMasteryPassed, readPlan } from '../core/plans.ts'
 import { questionFingerprint, recordEvidence } from '../core/knowledge.ts'
@@ -538,10 +536,9 @@ export class QuizSessionService {
 
     const targets = session.targets ?? []
     const status = targets.length === 0 ? undefined : conceptStatus(session.history, targets)
-    // Passing every point is necessary, but a one-question run is not a pass:
-    // require the same minimum of graded answers the rating needs.
-    const enough = scoreQuizSession(session.history).graded >= Math.min(session.limit, MIN_GRADED_FOR_RATING)
-    if (status?.all === true && enough && (await sectionConfirmed(this.service, this.engine, session, targets))) {
+    // Passing is decided by the knowledge points plus the model's confirmation,
+    // never by a question count.
+    if (status?.all === true && (await sectionConfirmed(this.service, this.engine, session, targets))) {
       await this.close(session, 'completed')
       return { items: await this.itemsAfter(session) }
     }

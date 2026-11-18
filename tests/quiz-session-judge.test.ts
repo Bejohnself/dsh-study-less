@@ -198,30 +198,23 @@ const choiceService = (items: QuizBank['items']): StudyService =>
     readPages: async () => ({ pages: [], truncated: false }),
   }) as unknown as StudyService
 
-test('a two-question run is not rated, however correct it was', async () => {
+test('a short run passes once every point has evidence', async () => {
   const sessions = new QuizSessionService(paths, choiceService(choiceBank(2).items))
   const started = await sessions.start({ material: 'm2', unit: 'u2' })
   const sid = sidOf(started)
-  const first = await sessions.answer(sid, started.item!.id, 0)
-  assert.equal(first.summary, undefined, 'two items are not a whole section run')
-  const second = await sessions.answer(sid, first.next!.id, 0)
-  assert.equal(second.summary?.verdict, 'incomplete')
-  assert.equal(second.summary?.rating, undefined)
-  assert.equal(second.session.endedReason, 'exhausted')
+  const answered = await sessions.answer(sid, started.item!.id, 0)
+  assert.equal(answered.session.status, 'done')
+  assert.equal(answered.session.endedReason, 'completed')
+  assert.equal(answered.summary?.verdict, 'passed')
+  assert.equal('rating' in (answered.summary ?? {}), false, 'there is no group-level rating')
 })
 
-test('a full run that covers every point closes as passed', async () => {
+test('a wrong answer keeps the section open', async () => {
   const sessions = new QuizSessionService(paths, choiceService(choiceBank(5).items))
   const started = await sessions.start({ material: 'm3', unit: 'u3' })
   const sid = sidOf(started)
-  let current = started.item!.id
-  let last = await sessions.answer(sid, current, 0)
-  for (let index = 1; index < 5; index += 1) {
-    current = last.next!.id
-    last = await sessions.answer(sid, current, 0)
-  }
-  assert.equal(last.session.status, 'done')
-  assert.equal(last.session.endedReason, 'completed')
-  assert.equal(last.summary?.verdict, 'passed')
-  assert.equal(last.summary?.rating, 4)
+  const answered = await sessions.answer(sid, started.item!.id, 1)
+  assert.equal(answered.session.status, 'active')
+  assert.equal(answered.summary, undefined)
+  assert.notEqual(answered.next, undefined)
 })

@@ -55,7 +55,7 @@ const fake = {
   async complete(request) {
     const text = String(request.user ?? '')
     if (text.includes('写一份精读稿')) {
-      return { text: JSON.stringify({ notes, pageRefs: [page], concepts: [{ id: 'api/check', name: '接口检查' }] }) }
+      return { text: JSON.stringify({ notes, pageRefs: [page], concepts: [{ id: 'api/check', name: '接口检查' }, { id: 'api/check-2', name: '接口检查二' }] }) }
     }
     if (text.includes('练习题')) {
       return {

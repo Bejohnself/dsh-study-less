@@ -11,8 +11,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { InsightTab } from './pages/insights.tsx'
 import { ConceptDetailPage, InsightDetailPage, InsightsPage } from './pages/insights.tsx'
-import type { LearnTab } from './pages/learn.tsx'
-import { LearnPage, NewGoalDialog } from './pages/learn.tsx'
+import { LearnPage } from './pages/learn.tsx'
 import { PlanDetailPage } from './pages/plan.tsx'
 import { LibraryPage, MaterialPage } from './pages/library.tsx'
 import { PracticePage } from './pages/practice.tsx'
@@ -21,14 +20,14 @@ import { SettingsDialog } from './pages/settings.tsx'
 import { ImportDialog } from './components/import.tsx'
 import { Toast, TopNav, ThemeToggle, type TopTab } from './components/ui.tsx'
 import { api } from './api.ts'
-import type { SettingsView, TocRow } from '../core/views.ts'
+import type { TocRow } from '../core/views.ts'
 import { PLUGIN_VERSION } from '../core/version.ts'
 
 type View =
   | { kind: 'library' }
   | { kind: 'material'; mid: string; uid?: string; planId?: string }
   | { kind: 'practice'; mid: string; unit: TocRow; planId?: string }
-  | { kind: 'learn'; tab: LearnTab }
+  | { kind: 'learn' }
   | { kind: 'plan'; pid: string }
   | { kind: 'book'; bid: string; cid?: string; pid?: string }
   | { kind: 'insights'; tab: InsightTab }
@@ -37,13 +36,11 @@ type View =
 
 /** The main study desk page. */
 export function StudyApp(): ReactElement {
-  const [view, setView] = useState<View>({ kind: 'learn', tab: 'today' })
-  const [dialog, setDialog] = useState<'import' | 'settings' | 'goal' | null>(null)
+  const [view, setView] = useState<View>({ kind: 'learn' })
+  const [dialog, setDialog] = useState<'import' | 'settings' | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
   const [hostVersion, setHostVersion] = useState<string | null>(null)
-  const [showInsights, setShowInsights] = useState(true)
-  const [settingsToken, setSettingsToken] = useState(0)
 
   const bump = (): void => setRefreshToken(value => value + 1)
 
@@ -52,20 +49,6 @@ export function StudyApp(): ReactElement {
       .then(value => setHostVersion(value.version))
       .catch(() => setHostVersion(null))
   }, [])
-
-  // 笔记（实验）can be folded away in settings; a failed read keeps it visible.
-  useEffect(() => {
-    api<SettingsView>('/settings')
-      .then(value => setShowInsights(value.study.showInsights !== false))
-      .catch(() => undefined)
-  }, [settingsToken])
-
-  // With the entry hidden, landing on the notes list falls back to 阅读; the
-  // concept/insight detail pages stay reachable through their deep links.
-  useEffect(() => {
-    if (showInsights || view.kind !== 'insights') return
-    setView({ kind: 'learn', tab: 'today' })
-  }, [showInsights, view])
 
   // The panel and the Host are reloaded separately: an older Host is worth a
   // visible warning, because its API predates this panel's shape.
@@ -132,10 +115,10 @@ export function StudyApp(): ReactElement {
             {focusMode ? null : (
               <TopNav
                 active={top}
-                showInsights={showInsights}
+                showInsights={false}
                 onSelect={tab => {
                   if (tab === 'library') setView({ kind: 'library' })
-                  else if (tab === 'learn') setView({ kind: 'learn', tab: 'today' })
+                  else if (tab === 'learn') setView({ kind: 'learn' })
                   else setView({ kind: 'insights', tab: 'insights' })
                 }}
               />
@@ -150,11 +133,6 @@ export function StudyApp(): ReactElement {
               <button type="button" className="study-ghost" onClick={() => setDialog('settings')}>
                 设置
               </button>
-              {focusMode ? null : (
-                <button type="button" className="study-primary study-primary-tight" onClick={() => setDialog('goal')}>
-                  ＋ 新建目标
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -210,7 +188,7 @@ export function StudyApp(): ReactElement {
         {view.kind === 'learn' ? (
           <LearnPage
             tab={view.tab}
-            onTab={tab => setView({ kind: 'learn', tab })}
+
             onOpenUnit={openUnit}
             onOpenConcept={openConcept}
             onOpenInsight={openInsight}
@@ -224,7 +202,7 @@ export function StudyApp(): ReactElement {
         {view.kind === 'plan' ? (
           <PlanDetailPage
             pid={view.pid}
-            onBack={() => setView({ kind: 'learn', tab: 'paths' })}
+            onBack={() => setView({ kind: 'learn' })}
             onOpenUnit={openUnit}
             onOpenConcept={openConcept}
             onOpenInsight={openInsight}
@@ -238,7 +216,7 @@ export function StudyApp(): ReactElement {
           <BookPage
             bid={view.bid}
             {...(view.cid === undefined ? {} : { cid: view.cid })}
-            onBack={() => setView(view.pid === undefined ? { kind: 'learn', tab: 'paths' } : { kind: 'plan', pid: view.pid })}
+            onBack={() => setView(view.pid === undefined ? { kind: 'learn' } : { kind: 'plan', pid: view.pid })}
             onOpenChapter={chapterId => setView({ kind: 'book', bid: view.bid, cid: chapterId, ...(view.pid === undefined ? {} : { pid: view.pid }) })}
             onOpenUnit={(mid, uid) => openUnit(mid, uid)}
             onChanged={bump}
@@ -293,28 +271,9 @@ export function StudyApp(): ReactElement {
             onClose={() => setDialog(null)}
             onSaved={() => {
               bump()
-              setSettingsToken(value => value + 1)
             }}
           />
         ) : null}
-        {dialog === 'goal' ? (
-          <NewGoalDialog
-            onClose={() => setDialog(null)}
-            onOpenLibrary={() => {
-              setDialog(null)
-              setView({ kind: 'library' })
-            }}
-            onCreated={(planId, jobId) => {
-              bump()
-              setView({ kind: 'plan', pid: planId })
-              setToast({
-                message: jobId === undefined ? '已创建目标' : '已创建目标，正在页面内编排',
-                tone: 'ok',
-              })
-            }}
-          />
-        ) : null}
-
         {toast === null ? null : <Toast message={toast.message} tone={toast.tone} />}
       </div>
     </div>

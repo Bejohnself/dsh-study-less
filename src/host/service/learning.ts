@@ -4,15 +4,13 @@
  * Free functions over StudyService. The class in ../service.ts keeps the signatures and
  * forwards here, so routes, tools and tests keep talking to the service object.
  */
-import { splitUnitKey, unitKey } from '../../core/ids.ts'
-import { insightCard, listInsights } from '../../core/insights.ts'
+import { unitKey } from '../../core/ids.ts'
 import { listManifests, structureNodeOf } from '../../core/library.ts'
 import { decayedMastery, dueConcepts, ensureKnowledge, targetOf } from '../../core/knowledge.ts'
-import { dueUnits, isWeak, readProgress, recordReview } from '../../core/progress.ts'
+import { dueUnits, readProgress, recordReview } from '../../core/progress.ts'
 import { listConcepts, readConcept } from '../../core/concepts.ts'
-import { listPlans, nextStep as nextPlanStep } from '../../core/plans.ts'
+import { listPlans } from '../../core/plans.ts'
 import { dueCards, listCards, reviewCardOnce } from '../../core/cards.ts'
-import { gateStatus, planProgress } from '../../core/planGate.ts'
 import { addDays, localDate } from '../../core/time.ts'
 import type { Rating } from '../../core/types.ts'
 import type { CardView, ConceptCard, ConceptDetailView, NextStepView, PlanBrief, TodayView } from '../../core/views.ts'
@@ -46,11 +44,9 @@ export async function due(svc: StudyService, today = svc.today()): Promise<DueIt
 
 export async function todayView(svc: StudyService): Promise<TodayView> {
   const date = svc.today()
-  const [due, manifests, progress, plans, concepts, knowledge] = await Promise.all([
-    svc.due(date),
+  const [manifests, progress, concepts, knowledge] = await Promise.all([
     listManifests(svc.paths),
     readProgress(svc.paths),
-    listPlans(svc.paths),
     svc.concepts(),
     ensureKnowledge(svc.paths),
   ])
@@ -74,75 +70,24 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     .sort((a, b) => a.mastery - b.mastery)
     .slice(0, 6)
 
-  const activePlans = plans.filter(plan => plan.status === 'active')
-  const planBriefs: PlanBrief[] = activePlans.map(plan => {
-    const { done, total } = planProgress(plan)
-    const step = nextPlanStep(plan)
-    let next: PlanBrief['next']
-    if (step?.target !== undefined) {
-      try {
-        const { materialId, unitId } = splitUnitKey(step.target)
-        const manifest = manifests.find(candidate => candidate.id === materialId)
-        const node = manifest?.structure.find(candidate => candidate.uid === unitId)
-        if (manifest !== undefined && node !== undefined) {
-          next = { materialId, unitId, title: node.title }
-        }
-      } catch {
-        next = undefined
-      }
-    }
-    return {
-      id: plan.id,
-      goal: plan.goal,
-      done,
-      total,
-      gateReady: gateStatus(plan).ready,
-      ...(plan.deliverable === undefined ? {} : { deliverable: plan.deliverable }),
-      ...(next === undefined ? {} : { next }),
-    }
-  })
-
+  // The only reading suggestion left in the main loop: the next unfinished
+  // section in book order. Plans and goals are frozen for the MVP.
   let next: NextStepView | null = null
-  for (const plan of activePlans) {
-    const step = nextPlanStep(plan)
-    if (step?.target === undefined) continue
-    try {
-      const { materialId, unitId } = splitUnitKey(step.target)
-      const manifest = manifests.find(candidate => candidate.id === materialId)
-      const node = manifest?.structure.find(candidate => candidate.uid === unitId)
-      if (manifest !== undefined && node !== undefined) {
-        next = {
-          source: 'plan',
-          planId: plan.id,
-          materialId,
-          unitId,
-          title: node.title,
-          materialTitle: manifest.title,
-          why: step.why,
-        }
-        break
+  for (const manifest of manifests) {
+    const node = manifest.structure.find(candidate => {
+      const entry = progress.units[unitKey(manifest.id, candidate.uid)]
+      return entry === undefined || entry.state === 'new' || entry.state === 'suspended'
+    })
+    if (node !== undefined) {
+      next = {
+        source: 'material',
+        materialId: manifest.id,
+        unitId: node.uid,
+        title: node.title,
+        materialTitle: manifest.title,
+        why: '书序下一节',
       }
-    } catch {
-      continue
-    }
-  }
-  if (next === null) {
-    for (const manifest of manifests) {
-      const node = manifest.structure.find(candidate => {
-        const entry = progress.units[unitKey(manifest.id, candidate.uid)]
-        return entry === undefined || entry.state === 'new' || entry.state === 'suspended'
-      })
-      if (node !== undefined) {
-        next = {
-          source: 'material',
-          materialId: manifest.id,
-          unitId: node.uid,
-          title: node.title,
-          materialTitle: manifest.title,
-          why: '书序下一节',
-        }
-        break
-      }
+      break
     }
   }
 
@@ -152,13 +97,10 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     return first === date || last === date
   }).length
 
-  const dueCardViews = await svc.dueCardList(date)
-  const pinned = (await listInsights(svc.paths)).find(record => record.pinned)
-
   return {
     date,
-    dueCards: dueCardViews,
-    due,
+    dueCards: [],
+    due: [],
     weak: knowledgeBelow.slice(0, 5).map(entry => {
       const concept = concepts.find(candidate => candidate.id === entry.conceptId)
       return {
@@ -171,7 +113,7 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
       }
     }),
     next,
-    plans: planBriefs,
+    plans: [],
     learnedToday,
     knowledge: {
       total: Object.keys(knowledge.concepts).length,
@@ -179,7 +121,6 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
       due: knowledgeDue,
       below: knowledgeBelow,
     },
-    ...(pinned === undefined ? {} : { pinnedInsight: insightCard(pinned) }),
   }
 }
 

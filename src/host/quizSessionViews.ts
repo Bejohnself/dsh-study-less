@@ -6,8 +6,7 @@
  * answer, the history snapshot and the final summary. Keeping it separate
  * keeps scoring rules (`core/quiz`) out of the HTTP-facing service.
  */
-import { MIN_GRADED_FOR_RATING, conceptStatus, scoreQuizSession } from '../core/quiz.ts'
-import { ratingFromScore } from '../core/srs.ts'
+import { conceptStatus, scoreQuizSession } from '../core/quiz.ts'
 import type { QuizItem, QuizJudgeRecord, QuizSelfGrade, QuizSession } from '../core/types.ts'
 import type {
   QuizFeedbackView,
@@ -135,12 +134,10 @@ export function recordOf(session: QuizSession): QuizSessionRecordView {
 }
 
 /**
- * Rate the run: coverage first, then the weighted score.
+ * Summarise the run from the knowledge state.
  *
- * A short run cannot earn a high rating no matter how correct it was; a run
- * that ended early is capped at 2. Passing also needs the section points (or
- * the plan's mastery points) to be complete.
- *
+ * Passing is binary: every section point (or plan mastery point) is done. The
+ * evidence count and score stay informative; they no longer block a pass.
  * `names` and `openPoints` come from the caller: this stays free of service IO.
  */
 export function summaryOf(
@@ -152,12 +149,9 @@ export function summaryOf(
   const score = scoreQuizSession(session.history)
   const targets = session.targets ?? []
   const status = targets.length === 0 ? undefined : conceptStatus(session.history, targets)
-  const enough = score.graded >= Math.min(session.limit, MIN_GRADED_FOR_RATING)
   const pointsDone = (status === undefined ? score.score >= 0.7 : status.all) && (openPoints ?? 0) === 0
   const verdict: QuizSessionSummary['verdict'] =
-    !enough ? 'incomplete' : session.endedReason === 'completed' && pointsDone ? 'passed' : 'failed'
-  const base = verdict === 'incomplete' ? undefined : ratingFromScore(score.score)
-  const rating = base === undefined ? undefined : verdict === 'passed' ? base : Math.min(2, base)
+    session.status !== 'done' ? 'incomplete' : session.endedReason === 'completed' && pointsDone ? 'passed' : 'failed'
 
   const weakIds = new Set<string>()
   for (const entry of session.history) {
@@ -170,7 +164,6 @@ export function summaryOf(
     correct: score.correct,
     objective: score.graded,
     score: score.score,
-    ...(rating === undefined ? {} : { rating }),
     verdict,
     weakConcepts: [...weakIds].map(id => ({ id, name: names.get(id) ?? id })),
     ...(openPoints === undefined ? {} : { openPoints }),

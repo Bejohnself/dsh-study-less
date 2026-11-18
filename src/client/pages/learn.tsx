@@ -24,55 +24,26 @@ export type LearnTab = 'today' | 'paths' | 'review'
 
 
 /** The learning-path dashboard. */
+/** The reading entry: one today panel over the knowledge space. */
 export function LearnPage({
-  tab,
-  onTab,
   onOpenUnit,
   onOpenConcept,
-  onOpenInsight,
-  onOpenPlan,
   onOpenLibrary,
   refreshToken,
-  onChanged,
 }: {
-  tab: LearnTab
-  onTab: (tab: LearnTab) => void
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenConcept: (cid: string) => void
-  onOpenInsight: (iid: string) => void
-  onOpenPlan: (pid: string) => void
   onOpenLibrary: () => void
   refreshToken: number
-  onChanged: () => void
 }): ReactElement {
   return (
     <div className="study-learn">
-      <div className="study-learn-bar">
-        <SubNav
-          items={[
-            { id: 'today', label: '今日' },
-            { id: 'paths', label: '目标' },
-            { id: 'review', label: '复习' },
-          ]}
-          active={tab}
-          onSelect={onTab}
-        />
-      </div>
-
-      {tab === 'today' ? (
-        <TodayPanel
-          onOpenUnit={onOpenUnit}
-          onOpenConcept={onOpenConcept}
-          onOpenInsight={onOpenInsight}
-          onOpenPlan={onOpenPlan}
-          onOpenLibrary={onOpenLibrary}
-          refreshToken={refreshToken}
-        />
-      ) : null}
-      {tab === 'paths' ? (
-        <PlansPanel onOpenPlan={onOpenPlan} refreshToken={refreshToken} onOpenLibrary={onOpenLibrary} />
-      ) : null}
-      {tab === 'review' ? <ReviewPanel onOpenUnit={onOpenUnit} onOpenConcept={onOpenConcept} onChange={onChanged} refreshToken={refreshToken} /> : null}
+      <TodayPanel
+        onOpenUnit={onOpenUnit}
+        onOpenConcept={onOpenConcept}
+        onOpenLibrary={onOpenLibrary}
+        refreshToken={refreshToken}
+      />
     </div>
   )
 }
@@ -80,15 +51,11 @@ export function LearnPage({
 function TodayPanel({
   onOpenUnit,
   onOpenConcept,
-  onOpenInsight,
-  onOpenPlan,
   onOpenLibrary,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenConcept: (cid: string) => void
-  onOpenInsight: (iid: string) => void
-  onOpenPlan: (pid: string) => void
   onOpenLibrary: () => void
   refreshToken: number
 }): ReactElement {
@@ -166,23 +133,6 @@ function TodayPanel({
               <span className="study-next-why">{data.next.why}</span>
             </button>
           )}
-          {data.plans.length > 0 ? (
-            <ul className="study-plans">
-              {data.plans.map(plan => (
-                <li key={plan.id}>
-                  <button type="button" className="study-plan-row" onClick={() => onOpenPlan(plan.id)}>
-                    <span className="study-plan-goal">{plan.goal}</span>
-                    {plan.deliverable === undefined ? null : <span className="study-item-meta">要交出：{plan.deliverable}</span>}
-                    <span className="study-item-meta">
-                      {plan.done}/{plan.total} 个必读范围
-                      {plan.next === undefined ? '' : ' · 下一步：' + plan.next.title}
-                      {plan.gateReady ? ' · 可结案' : ''}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
         </section>
 
         <section className="study-panel">
@@ -255,13 +205,6 @@ function TodayPanel({
         </section>
       </div>
 
-      {data.pinnedInsight === undefined ? null : (
-        <button type="button" className="study-pinned-insight" onClick={() => onOpenInsight(data.pinnedInsight!.id)}>
-          <span className="study-insight-kind">今日洞察</span>
-          <span className="study-insight-title">{data.pinnedInsight.title}</span>
-          <span className="study-insight-line">{data.pinnedInsight.oneLiner}</span>
-        </button>
-      )}
     </div>
   )
 }
