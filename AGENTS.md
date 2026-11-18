@@ -3,6 +3,14 @@
 > 改代码前先读这一页。只有当任务确实落到某个文件时，才打开那个文件；**不要通读整个仓库**。
 > 产品定位与红线在 [docs/POSITIONING.md](docs/POSITIONING.md)，面向读者的文案口径在 [docs/VOICE.md](docs/VOICE.md)，用户向说明在 [README.md](README.md)。
 
+## 开工顺序（三步，别跳）
+
+1. **查表定位域**：在第 5 节的「改动导航」「端点速查」「工具速查」里，找到这次改动属于哪个域文件。
+2. **只开那个文件**：host 侧单文件现在最大 550 行，按域名直接打开 `service/<域>.ts`、`generation/<域>.ts`、`routes/<域>.ts`、`tools/<域>.ts`。
+3. **最后才 grep**：只有要定位一个具体符号（函数名、路径字符串、class 名）的行号时才 grep，不要用全仓 grep 代替这一页。
+
+先查表再动手，成本是读几百行；上来就 `grep -rn` 再整读大文件，成本是几万 token，而且容易改错层。
+
 ## 0. 一句话
 
 DSH Web GUI 的插件（bundle），两个半共享一份本地文件库：
@@ -135,6 +143,20 @@ settings.json            引擎与学习偏好（0600）
 | 加一个 agent 工具 | `host/tools/<域>.ts` | `host/service/<域>.ts` 的操作函数（不要另写一套逻辑） | `tests/tools.test.ts` + 手动调用 |
 | 文案 / 语气 | `docs/VOICE.md` | 对应 `client/**/*.tsx`、`host/generate/*Prompts.ts` | `check-voice` |
 
+### 端点速查：路径 → 文件（改接口先查这里，不必 grep 路径字符串）
+
+- **GET**：`/health` `/settings` `/jobs` `/jobs/:id` → `routes/admin.ts`；`/library` `/material` `/unit` `/layout` → `routes/library.ts`；`/due` `/cards` `/today` → `routes/reading.ts`；`/plans` `/plan` → `routes/plans.ts`；`/quiz` `/quiz/sessions` `/quiz/session` → `routes/practice.ts`；`/concepts` `/concept` `/insights` `/insight` `/books` `/book` `/book/chapter` `/book/export` → `routes/notes.ts`
+- **POST**：`/import/upload` → `routes/import.ts`；`/import` `/import/url` `/material/archive` `/material/delete` `/unit/complete` `/unit/uncomplete` → `routes/library.ts`；`/review` `/card/review` → `routes/reading.ts`；`/goal/create` `/plan/create` `/plan/update` `/plan/questions` `/plan/judge` `/plan/close` `/plan/delete` `/plan/retry-chat` → `routes/plans.ts`；`/quiz/session/*` `/quiz/submit` → `routes/practice.ts`；`/insight/*` `/book/progress` `/book/delete` → `routes/notes.ts`；`/generate/*` `/ask` `/blocks/merge` `/jobs/:id/cancel` → `routes/generate.ts`；`/settings` `/settings/test` → `routes/admin.ts`
+- **兜底**：PDF / 单元资产 / pdf.js 资源由 `http/assets.ts` 处理，在 `routes.ts` 分发器的 GET 末尾调用；未命中一律 404。
+
+### 工具速查：工具名 → 文件
+
+- `study_library` `study_import_book` `study_structure_set` `study_unit_material` `study_unit_write` `study_unit_verify` `study_delete` → `tools/library.ts`
+- `study_today` `study_due` `study_review` → `tools/reading.ts`
+- `study_plans` `study_plan_create` `study_plan_update` → `tools/plans.ts`
+- `study_concept` `study_concept_link` `study_insight` → `tools/notes.ts`
+- `study_generate` `study_jobs` `study_quiz` `study_book` → `tools/generate.ts`
+
 ### 代码去哪找（按域，不必整读）
 
 service.ts / generation.ts / routes.ts / tools.ts 都只是外壳，方法体在对应的域文件里：
@@ -144,7 +166,7 @@ service.ts / generation.ts / routes.ts / tools.ts 都只是外壳，方法体在
 - 目标/裁剪/判定/结案：`service/plans.ts`（`createGoal` `promptPlanInChat` `planList` `planView` `createPlan` `updatePlan` `closePlan` `setPlanGeneration` `recordQuestions` `recordJudgement` `deletePlan`）
 - 写作/校验/题库/块：`service/authoring.ts`（`writeUnit` `verifyUnit` `hasNotes` `quiz` `writeQuiz` `writeBlocks` `submitQuiz` `attachInsights`）
 - 生成：`generation/plan.ts` `unit.ts` `quiz.ts` `blocks.ts` `insight.ts` `book.ts` `chat.ts`；形状校验在 `generation/normalize.ts`，常量在 `generation/shared.ts`
-- HTTP：`routes/<域>.ts` 里是原来的分支，路径字符串 grep 得比读文件快
+- HTTP：`routes/<域>.ts` 里是原来的分支；先用上面的端点速查表找到文件，再打开那一个文件
 
 操作函数首参是服务对象（`svc`），正文里 `this.` 已换成 `svc.`。`deps` 与四个内部工具
 （`preferences` / `readNotes` / `readPages` / `assertRevision`）因此是公开的——它们是包内
@@ -182,6 +204,8 @@ host 侧已经没有需要整读的文件：改接口先开 `routes/<域>.ts`，
 - `samples/attention.pdf`：2.2MB 样张，只用于检查脚本。
 - `.tmp/`：检查脚本的临时库，可随时删。
 - 不要为了“看看现状”跑全量 `check`；先 `npm test`，再按第 9 节挑一项。
+- 不要用 `grep -rn` / `find` 找“这个功能在哪”：先按第 5 节的端点速查、工具速查、域索引定位文件。
+  整仓搜索只用于定位具体符号的行号，或确认某个名字有没有被用过。
 
 **不做**：
 
