@@ -38,14 +38,18 @@ src/
 │  ├─ settings.ts        引擎与学习偏好
 │  ├─ ids.ts / time.ts / jobs.ts / version.ts
 │  └─ （core 直接做文件 IO，不是纯模型层）
-├─ host/                 23 个文件：服务、HTTP、agent 工具、生成
+├─ host/                 服务、HTTP、agent 工具、生成；大的都按域拆成目录
 │  ├─ index.ts           插件入口 apply()：组装所有服务并注册路由/工具/提示词
-│  ├─ service.ts         (1540) StudyService：资料/单元/目标/判定/卡/概念/导入/资产
-│  ├─ routes.ts          (923) /study-api 手写 if 链（60+ 条路径）
+│  ├─ service.ts         (400) StudyService 外壳：字段、构造、today() 与四个内部工具，其余方法两行转发
+│  ├─ service/           library(410) learning(290) plans(545) authoring(290) + error.ts（StudyError）
+│  ├─ routes.ts          (100) 回环/同源校验 + 分发；靠 res.headersSent 判断一组是否已应答
+│  ├─ routes/            library reading plans practice notes generate admin import + shared.ts
 │  ├─ http/assets.ts     PDF / 单元资产 / pdf.js 资源路由
-│  ├─ service/           views.ts（只读视图）、prompts.ts（聊天回退提示）
-│  ├─ tools.ts           (774) 20 个 study_* agent 工具
-│  ├─ generation.ts      (1368) 页面内生成：plan/unit/quiz/insight/blocks/book/judge
+│  ├─ service/views.ts、service/prompts.ts  只读视图、聊天回退提示
+│  ├─ tools.ts           (31) 按序拼装 20 个 study_* 工具
+│  ├─ tools/             library(7) reading(3) plans(3) notes(3) generate(4) + shared.ts
+│  ├─ generation.ts      (300) GenerationService 外壳：textReady / ready / requireSettings / completeJson + 转发
+│  ├─ generation/        chat plan unit quiz blocks insight book + normalize.ts + shared.ts
 │  ├─ jobs.ts            JobQueue：jobs/*.json，queued→running→done/failed
 │  ├─ books.ts / insights.ts / quizSessions.ts / settings.ts
 │  ├─ import.ts          导入 PDF、切页、建单元
@@ -64,7 +68,7 @@ src/
 │  ├─ styles.ts          (2006) 全部 CSS
 │  └─ actions.ts / labels.ts / theme.ts / mascot.ts
 ├─ scripts/              构建、检查、迁移（见第 9 节）
-├─ tests/                12 个 node:test 纯逻辑单测
+├─ tests/                13 个 node:test 纯逻辑单测（tools.test.ts 守住 20 个工具的注册表）
 ├─ vendor/               pdfjs / marked / katex（第三方，勿改）
 ├─ tooling/              esbuild 二进制（勿改）
 └─ figure/ samples/      mascot 源图、样张 PDF（attention.pdf）；vendor/katex/dist 是公式样式与字体
@@ -127,22 +131,24 @@ settings.json            引擎与学习偏好（0600）
 | 页面内生成 / 任务 | `host/generation.ts`、`host/jobs.ts` | `host/generate/prompts.ts`、`host/providers/*`、`core/jobs`、`core/settings` | `check-generation`、`check-blocks` |
 | 设置 / 引擎 | `client/pages/settings.tsx` | `host/settings.ts`、`core/settings`、`providers/*` | `check-api`、`tests/settings.test.ts` |
 | 主题 / 外观（纸·墨） | `client/theme.ts` | `client/styles.ts` 顶部 token 块、`components/ui.tsx` 的 `ThemeToggle` | `npm run build` + `check-client` |
-| 加一个 HTTP 端点 | `host/routes.ts` | 同一个 service 方法；**同步 `host/tools.ts` 若 agent 也要用** | `check-api` + 对应 route check |
-| 加一个 agent 工具 | `host/tools.ts` | `host/service.ts` 的公开方法（不要另写一套逻辑） | 手动调用 + `check-api` |
+| 加一个 HTTP 端点 | `host/routes.ts`（分发）+ 对应 `host/routes/<域>.ts` | 同一个 service 方法；**同步 `host/tools/<域>.ts` 若 agent 也要用** | `check-api` + 对应 route check |
+| 加一个 agent 工具 | `host/tools/<域>.ts` | `host/service/<域>.ts` 的操作函数（不要另写一套逻辑） | `tests/tools.test.ts` + 手动调用 |
 | 文案 / 语气 | `docs/VOICE.md` | 对应 `client/**/*.tsx`、`host/generate/*Prompts.ts` | `check-voice` |
 
-### StudyService 方法索引（按域，避免通读 1540 行）
+### 代码去哪找（按域，不必整读）
 
-- 资料/单元：`library` `materialState` `pdfSource` `pdfAvailable` `unit` `unitMaterial` `complete` `uncomplete` `layout` `mergeBlock` `import` `structureSet` `archiveMaterial` `deleteMaterial` `manifest`
-- 目标：`createGoal` `promptPlanInChat` `planList` `planView` `createPlan` `updatePlan` `closePlan` `recordQuestions` `recordJudgement` `setPlanGeneration` `deletePlan`
-- 复习/卡：`due` `review` `dueCardList` `reviewCard`
-- 概念/笔记：`concepts` `conceptView` `attachInsights`
-- 题库/练习/块：`hasNotes` `quiz` `writeQuiz` `submitQuiz` `writeBlocks`
-- 写作/校验：`writeUnit` `verifyUnit`
+service.ts / generation.ts / routes.ts / tools.ts 都只是外壳，方法体在对应的域文件里：
 
-### GenerationService 方法索引
+- 资料/单元/导入/版面：`service/library.ts`（`library` `materialState` `pdfSource` `pdfAvailable` `unit` `unitMaterial` `complete` `uncomplete` `import` `importUpload` `importFromUrl` `structureSet` `layout` `mergeBlock` `manifest` `archiveMaterial` `deleteMaterial`）
+- 今日/复习/概念：`service/learning.ts`（`due` `todayView` `review` `dueCardList` `reviewCard` `concepts` `conceptView`）
+- 目标/裁剪/判定/结案：`service/plans.ts`（`createGoal` `promptPlanInChat` `planList` `planView` `createPlan` `updatePlan` `closePlan` `setPlanGeneration` `recordQuestions` `recordJudgement` `deletePlan`）
+- 写作/校验/题库/块：`service/authoring.ts`（`writeUnit` `verifyUnit` `hasNotes` `quiz` `writeQuiz` `writeBlocks` `submitQuiz` `attachInsights`）
+- 生成：`generation/plan.ts` `unit.ts` `quiz.ts` `blocks.ts` `insight.ts` `book.ts` `chat.ts`；形状校验在 `generation/normalize.ts`，常量在 `generation/shared.ts`
+- HTTP：`routes/<域>.ts` 里是原来的分支，路径字符串 grep 得比读文件快
 
-`generatePlan` `retryPlan` `generateUnit` `generateQuiz` `generateBlocks` `generateInsights` `generateBookOutline` `generateBookChapter` `generateBookContinuity` `generateQuestions` `judgeAnswer` `ask` `testEngine`
+操作函数首参是服务对象（`svc`），正文里 `this.` 已换成 `svc.`。`deps` 与四个内部工具
+（`preferences` / `readNotes` / `readPages` / `assertRevision`）因此是公开的——它们是包内
+实现细节，不要在 routes/tools 之外的调用点使用。
 
 ## 6. 分层与放置规则
 
@@ -161,11 +167,13 @@ settings.json            引擎与学习偏好（0600）
 | `src/client/styles.ts` | 2006 | 只在改样式时按 class 名搜 |
 | `src/client/pages/plan.tsx` | 1048 | 目标详情按区块跳读 |
 | `src/client/pages/learn.tsx` | 841 | 按 tab / 组件名跳读 |
-| `src/host/service.ts` | 1540 | 用上面的方法索引定位 |
-| `src/host/generation.ts` | 1368 | 按 `generate*` 方法名定位 |
-| `src/host/routes.ts` | 923 | 按 path 字符串搜；PDF/资产在 http/assets.ts |
+| `src/host/service/plans.ts` | 545 | 按方法名跳读（`updatePlan` 一个方法就 80 多行） |
+| `src/host/generation/normalize.ts` | 507 | 按 `normalize*` / `sanitize*` 名定位 |
 | `src/client/components/reader.tsx` | 1137 | 按分块/页/全屏函数名跳读 |
 | `src/client/components/quiz.tsx` | 732 | 按状态（index/answer/summary/history）跳读 |
+
+host 侧已经没有需要整读的文件：改接口先开 `routes/<域>.ts`，改行为先开
+`service/<域>.ts` 或 `generation/<域>.ts`，每个都是几百行的单域文件。
 
 **不要读 / 不要改**：
 
@@ -203,9 +211,10 @@ settings.json            引擎与学习偏好（0600）
 | 改动位置 | 最小验证 | 全量 |
 |---|---|---|
 | `src/core/*.ts` 纯规则 | `npm test`（对应 `tests/*.test.ts`） | `npm run check` |
-| `src/host/service.ts` / 领域编排 | `node scripts/checks/service/check-service.mjs` + 相关 service check | `npm run check` |
-| `src/host/routes.ts` / HTTP | 对应 `scripts/checks/http/check-*-route.mjs` | `npm run check` |
-| `src/host/generation.ts` / prompts | `check-generation`、`check-blocks` | `npm run check` |
+| `src/host/service.ts` 或 `service/<域>.ts` / 领域编排 | `node scripts/checks/service/check-service.mjs` + 相关 service check | `npm run check` |
+| `src/host/routes.ts` 或 `routes/<域>.ts` / HTTP | 对应 `scripts/checks/http/check-*-route.mjs` | `npm run check` |
+| `src/host/generation.ts` 或 `generation/*.ts` / prompts | `check-generation`、`check-blocks` | `npm run check` |
+| `src/host/tools.ts` 或 `tools/<域>.ts` | `npm test -- tests/tools.test.ts` | `npm run check` |
 | `src/client/**` | `npm run build` + `check-client` + 刷新页面 | `npm run check` |
 | 导入 / 结构 | `npm test -- tests/structure.test.ts`；旧库 `node scripts/reclose-ranges.mjs`（干跑） | `npm run check` |
 | 文案 | `node scripts/checks/ui/check-voice.mjs` | `npm run check` |
