@@ -68,17 +68,18 @@ stateDiagram-v2
 |---|---|---|
 | 导入 PDF、按目录切范围、原文件 PDF 阅读 | 保留 | 对应回路第 2 步「划边界」的素材；原文就是原 PDF，不再显示抽取文本 |
 | 阅读面：语义块 + 引导卡 | 阶段一已实现 | 连续滚动原文，可全屏（全屏只留目录 / 过关测试 / 退出）；引导是右下角一只**小鲸鱼**（点开才展开成半透明云朵卡、可拖动、可收起，点开时先「想一想」再说话；块与块之间换颜色），按**语义块**换卡，任何一段都能点（当前块带底色，其余 hover 才亮），点开就那一段提问，也能一键复制；块按**段落**切，可在一页中间开始；这一面**不记账**（不统计时长、已读段、块内计数） |
-| 目标、裁剪单、尝试与结案（旧称「学习之路」） | 阶段一已实现 | 交付物/期限/受众 → 必读·略读·不读 → 独立尝试与卡点 → **AI 出判定题、你作答、AI 判定** → 结案门 |
+| 目标 / 节级路线 / 结案（旧称「学习之路」） | 知识点空间已实现 | 交付物 + **必填期限** + 受众 → 必读·略读·不读（不读要理由）→ 每节知识点四档（了解/会用/能讲/创新）→ 读书做题写知识点状态 → **全部到档位且复习排在期限外**才结案 |
 | FSRS 复习 | 已改粒度 | 到期按知识点排程（`knowledge.json`）；判定卡与按节到期单元作为旧账保留，不在主回路 |
 | 写好的导读（旧称「精读稿」） | 实验 | 属于「替你读」那一层；入口在阅读页「⋯」里的「导读（实验）」，主流程不再默认生成 |
-| 自编书、洞察卡、自适应练习 | 实验 | 默认不进主回路；过关测试可续答、保留本轮记录；判据是它们能否落成最小卡 |
+| 自编书、洞察卡 | 已冻结 | 导航隐藏，默认不进主回路；代码保留，等主链路稳定后再决定去留 |
 | 概念图 | 实验 | 从导读登记的概念，未与摘录打通 |
 
-## 三块（界面上的现状）
+## 两个入口 + 一个设置
 
-- **书架**（旧名「变强清单」）：书/论文的统一清单，导入后按目录切成「范围」，勾选即记录首次学习。
-- **阅读**（旧名「学习之路」）：今日（下一步 / 到期复习 / 薄弱概念）、目标（路径 → 步骤 → 阅读器）、复习（FSRS 评级）。路径与导读可在页面内生成。
-- **笔记（实验）**（旧名「大道至简」）：跨资料概念图 + 一屏洞察卡，每条带可跳转的来源页码。
+- **书架**（旧名「变强清单」）：书/论文的统一清单，导入后按目录切成节；点开是原文阅读器。
+- **阅读**（旧名「学习之路」）：今日（当前目标 / 接着读 / 到期复习 / 低于档位）、目标详情（路线、知识点档位、结案条件）。
+- **设置**：引擎与外观，不算一个学习入口。
+- 笔记（实验）与自编书已从导航隐藏，不在主回路。
 
 ## 数据布局
 
@@ -111,7 +112,7 @@ library root/
 | 动画 | 关闭 | 先做文生 SVG/HTML，视频 API 预留 |
 | 嵌入 | 关闭 | 语义检索/相关推荐，不是导入加速 |
 
-练习使用 `quiz-sessions` 单题会话；单元题库不要求先写导读：没有导读时按原文出题，过关测试页可直接生成。同一节默认续答（`/quiz/session/start` 带 `restart: true` 才重开），完成记录保留 90 天。书籍章节练习存在 `books/<bid>/chapters/<cid>.quiz.json`。主观题（`recall`/`apply`/`evidence`）有文本引擎时由模型按评分要点判分；判错可走 `/quiz/session/appeal` 提交 rebuttal，模型会结合原答案与 rebuttal 重新判定，可多次申诉，最后一次为准；直接抄评分要点或解析的 rebuttal 会被拒绝。没有引擎时才退回自评。
+练习使用 `quiz-sessions` 单题会话；单元题库不要求先写导读：没有导读时按原文出题。没有题库时现场出 1 题开局，题库不够覆盖待过知识点时再补 1–3 题。同一节默认续答（`/quiz/session/start` 带 `restart: true` 才重开），完成记录保留 90 天。书籍章节练习存在 `books/<bid>/chapters/<cid>.quiz.json`。主观题（`recall`/`apply`/`evidence`）有文本引擎时由模型按评分要点判分；判错可走 `/quiz/session/appeal` 提交 rebuttal，模型会结合原答案与 rebuttal 重新判定，可多次申诉，最后一次为准；直接抄评分要点或解析的 rebuttal 会被拒绝。没有引擎时才退回自评。
 
 从目标里打开的「过关测试」按目标的知识点走：目标规划时 AI 同时给出节级路线和每节要掌握的维度（`plans/<pid>.json` 的 `mastery`，带 1–4 档）；练习只考目标内、且还没到档位阈值的概念，作答写入 `knowledge.json`（掌握度、去重证据、FSRS 到期）。目标外的节或无目标时进入自由练习，只出题判分，不写任何进度。同一道题重复作答只算复习，不再叠加证据。
 
@@ -123,11 +124,11 @@ library root/
 
 所有接口在 `/study-api` 下，仅接受本机回环且同源：
 
-- 读：`/library`、`/material`、`/unit`、`/pdf`、`/today`、`/cards`、`/due`、`/concepts`、`/concept`、`/plans`、`/plan`、`/books`、`/book`、`/book/chapter`、`/quiz`、`/quiz/sessions`、`/quiz/session`、`/insights`、`/insight`、`/jobs`、`/settings`
-- 写：`/unit/complete`、`/unit/uncomplete`、`/review`、`/card/review`、`/plan/questions`、`/plan/judge`、`/plan/close`、`/quiz/submit`、`/goal/create`、`/plan/create`、`/plan/update`、`/plan/delete`、`/insight/create|update|delete|pin`、`/material/archive`、`/material/delete`
+- 读：`/library`、`/material`、`/unit`、`/pdf`、`/today`、`/concepts`、`/concept`、`/plans`、`/plan`、`/quiz`、`/quiz/sessions`、`/quiz/session`、`/jobs`、`/settings`；`/cards`、`/due`、`/insights`、`/books` 属于旧兼容或已冻结入口
+- 写：`/unit/complete`、`/unit/uncomplete`、`/plan/update`、`/plan/close`、`/goal/create`、`/plan/create`、`/plan/delete`、`/material/archive`、`/material/delete`；`/review`、`/card/review`、`/plan/questions`、`/plan/judge`、`/quiz/submit` 是旧兼容层
 - 生成：`/generate/plan|unit|quiz|insight|blocks`、`/generate/book/outline|chapter|continuity`、`/jobs/:id/cancel`、`/settings/test`
 - 阅读面：`/layout`（段落几何，按页缓存到 `materials/<mid>/layout/`）、`/ask`（小窗答疑，答完即走、不落库）、`/blocks/merge`（把一块并入上一块；不提供拆分或编辑器）
-- 练习：`/quiz/session/start|answer|appeal|finish`（`start` 默认续答，`restart: true` 重开；`appeal` 需要 `reason`，可选 `claim` 作为读者主张，最终由 AI 重判）
+- 练习：`/quiz/session/start|answer|appeal|finish`（`start` 默认续答，`restart: true` 重开；传 `concept` 进入该知识点的到期复习；`appeal` 需要 `reason`，可选 `claim` 作为读者主张，最终由 AI 重判）
 - 书：`/book/export`、`/book/progress`、`/book/delete`
 - 资产：`/asset?mid&uid&name`（HTML/SVG 带 sandbox CSP）
 

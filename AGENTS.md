@@ -6,7 +6,7 @@
 ## 开工顺序（三步，别跳）
 
 1. **查表定位域**：在第 5 节的「改动导航」「端点速查」「工具速查」里，找到这次改动属于哪个域文件。
-2. **只开那个文件**：host 侧单文件现在最大 550 行，按域名直接打开 `service/<域>.ts`、`generation/<域>.ts`、`routes/<域>.ts`、`tools/<域>.ts`。
+2. **只开那个文件**：host 侧单文件一般 300–600 行（`quizSessions.ts` 例外，约 930 行，会话编排都在里面），按域名直接打开 `service/<域>.ts`、`generation/<域>.ts`、`routes/<域>.ts`、`tools/<域>.ts`。
 3. **最后才 grep**：只有要定位一个具体符号（函数名、路径字符串、class 名）的行号时才 grep，不要用全仓 grep 代替这一页。
 
 先查表再动手，成本是读几百行；上来就 `grep -rn` 再整读大文件，成本是几万 token，而且容易改错层。
@@ -25,9 +25,9 @@ DSH Web GUI 的插件（bundle），两个半共享一份本地文件库：
 
 ```text
 src/
-├─ core/                 22 个文件：领域规则 + 文件仓库（依赖：只依赖 node 内置）
-│  ├─ types.ts           (701) 所有落盘记录与枚举；改数据结构先看它
-│  ├─ views.ts           (544) 给 UI 的只读视图类型
+├─ core/                 23 个文件：领域规则 + 文件仓库（依赖：只依赖 node 内置）
+│  ├─ types.ts           (798) 所有落盘记录与枚举；改数据结构先看它
+│  ├─ views.ts           (635) 给 UI 的只读视图类型
 │  ├─ paths.ts           数据根与 LibraryPaths（materials/concepts/... 的路径）
 │  ├─ store.ts           JSON 原子写、串行写队列、readJson/writeJsonAtomic
 │  ├─ library.ts         manifest 读写、单元查找
@@ -49,15 +49,15 @@ src/
 │  └─ （core 直接做文件 IO，不是纯模型层）
 ├─ host/                 服务、HTTP、agent 工具、生成；大的都按域拆成目录
 │  ├─ index.ts           插件入口 apply()：组装所有服务并注册路由/工具/提示词
-│  ├─ service.ts         (400) StudyService 外壳：字段、构造、today() 与四个内部工具，其余方法两行转发
-│  ├─ service/           library(410) learning(290) plans(545) authoring(290) + error.ts（StudyError）
+│  ├─ service.ts         (365) StudyService 外壳：字段、构造、today() 与四个内部工具，其余方法两行转发
+│  ├─ service/           library(410) learning(293) plans(625) authoring(290) + error.ts（StudyError）
 │  ├─ routes.ts          (100) 回环/同源校验 + 分发；靠 res.headersSent 判断一组是否已应答
 │  ├─ routes/            library reading plans practice notes generate admin import + shared.ts
 │  ├─ http/assets.ts     PDF / 单元资产 / pdf.js 资源路由
 │  ├─ service/views.ts、service/prompts.ts  只读视图、聊天回退提示
 │  ├─ tools.ts           (31) 按序拼装 20 个 study_* 工具
 │  ├─ tools/             library(7) reading(3) plans(3) notes(3) generate(4) + shared.ts
-│  ├─ generation.ts      (300) GenerationService 外壳：textReady / ready / requireSettings / completeJson + 转发
+│  ├─ generation.ts      (288) GenerationService 外壳：textReady / ready / requireSettings / completeJson + 转发
 │  ├─ generation/        chat plan unit quiz concepts blocks insight book + normalize.ts + shared.ts
 │  ├─ jobs.ts            JobQueue：jobs/*.json，queued→running→done/failed
 │  ├─ books.ts / insights.ts / quizSessions.ts（+ quizSessionEngine/Views）/ settings.ts
@@ -69,15 +69,15 @@ src/
 │  └─ providers/         dsh.ts（默认）/ openai.ts / types.ts / index.ts
 ├─ client/               22 个文件：React 面板
 │  ├─ index.tsx          注册侧栏行「书桌」+ 主区面板
-│  ├─ app.tsx            (290) View 联合类型与页面切换（无路由库）
-│  ├─ pages/             library(400) learn(841) plan(1048) practice(41) book(347) insights(547) settings(334)
-│  ├─ components/        reader(1137) cover(159) quiz(732) import(143) ui(224) markdown
+│  ├─ app.tsx            (309) View 联合类型与页面切换（无路由库）
+│  ├─ pages/             library(400) learn(835) plan(1109) practice(47) book(347) insights(547) settings(334)
+│  ├─ components/        reader(1239) cover(159) quiz(979) import(143) ui(224) markdown
 │  ├─ pdf.ts             浏览器端 pdf.js 管线（阅读器与封面共用）
 │  ├─ api.ts             fetch 封装、job 轮询
-│  ├─ styles.ts          (2006) 全部 CSS
+│  ├─ styles.ts          (2202) 全部 CSS
 │  └─ actions.ts / labels.ts / theme.ts / mascot.ts
 ├─ scripts/              构建、检查、迁移（见第 9 节）
-├─ tests/                13 个 node:test 纯逻辑单测（tools.test.ts 守住 20 个工具的注册表）
+├─ tests/                18 个 node:test 纯逻辑单测（tools.test.ts 守住 20 个工具的注册表）
 ├─ vendor/               pdfjs / marked / katex（第三方，勿改）
 ├─ tooling/              esbuild 二进制（勿改）
 └─ figure/ samples/      mascot 源图、样张 PDF（attention.pdf）；vendor/katex/dist 是公式样式与字体
@@ -103,8 +103,8 @@ npm run check       # 全量闸门：build + 13 个 service/http/ui 检查（见
 | 板块 | 界面入口 | Host 端点 | 主要规则/服务 | 落盘 |
 |---|---|---|---|---|
 | **书架** | `pages/library.tsx`、`components/reader.tsx`、`components/cover.tsx` | `/library` `/material` `/unit` `/layout` `/pdf` `/import*` `/unit/complete` | `service` 资料段 + `import.ts` + `structure.ts` + `pdf.ts` + `core/layout` | `materials/<mid>/**`、`progress.json` |
-| **阅读** | `pages/learn.tsx`（今日/目标列表/复习）、`pages/plan.tsx`（目标详情） | `/today` `/plans` `/plan/*` `/review` `/cards` `/due` `/quiz/*` | `service` 目标段 + `core/planGate` + `core/cards` + `core/srs` | `plans/`、`cards/`、`quiz-sessions/`、`progress.json` |
-| **笔记（实验）** | `pages/insights.tsx`、`pages/book.tsx` | `/insights` `/concept` `/books` `/book/*` | `insights.ts` + `books.ts` + `core/concepts|insights|books` | `concepts/`、`insights/`、`books/` |
+| **阅读** | `pages/learn.tsx`（今日）、`pages/plan.tsx`（目标详情） | `/today` `/plans` `/plan/*` `/quiz/*` | `service` 目标段 + `core/knowledge` + `core/plans` + `core/srs` | `plans/`、`knowledge.json`、`quiz-sessions/` |
+| **笔记/自编书（已冻结）** | `pages/insights.tsx`、`pages/book.tsx`（导航隐藏） | `/insights` `/concept` `/books` `/book/*` | `insights.ts` + `books.ts` + `core/concepts|insights|books` | `concepts/`、`insights/`、`books/` |
 | 设置/生成 | `pages/settings.tsx` + 各页轮询 | `/settings*` `/generate/*` `/jobs/*` | `generation.ts` + `jobs.ts` + `providers/*` | `settings.json`、`jobs/*.json` |
 
 ## 4. 数据布局
@@ -114,11 +114,11 @@ npm run check       # 全量闸门：build + 13 个 service/http/ui 检查（见
 ```text
 materials/<mid>/   manifest.json / pages / source / layout / units/<uid>/{notes.md,meta.json,quiz.json,blocks.json,extras}
 concepts/<cid>.json      全局概念，跨资料共享
-plans/<pid>.json         目标、裁剪单、尝试、卡点、掌握点、判定题
+plans/<pid>.json         目标、节级路线、掌握点（含 1–4 档）、交付物与期限
 cards/<cid>.json         判定卡（结案时退役/删除）
 quiz-sessions/<sid>.json 自适应练习会话
 books/<bid>/             自编书：book.json + chapters/*.md + 章节练习 + book.md
-progress.json            旧进度（单元 FSRS + 概念掌握度）；knowledge.json 是新的唯一知识点状态
+progress.json            旧进度（阅读 / 单元 FSRS）；知识点状态只在 knowledge.json
 insights/<iid>.json      洞察卡
 jobs/<jobId>.json        页面内生成任务
 knowledge.json           知识点空间：掌握度 / 到期 / 证据 / 结案
@@ -132,12 +132,12 @@ settings.json            引擎与学习偏好（0600）
 | 书架列表 / 封面 / 归档 | `client/pages/library.tsx`、`components/cover.tsx` | `core/views.ts`、`service.library/materialState` | `npm run build` + `check-client` |
 | 阅读器 / PDF 渲染 / 分页 | `client/components/reader.tsx`、`client/pdf.ts` | `host/pdf.ts`、`service.layout`、`core/layout.ts` | `check-pdf-route`、`check-blocks`、`tests/layout.test.ts` |
 | 导入 / 目录切分 / 页码范围 | `host/import.ts`、`host/structure.ts`、`host/pdf.ts` | `core/library.ts`、`core/ids.ts` | `tests/structure.test.ts`；旧库用 `scripts/reclose-ranges.mjs` 干跑 |
-| 今日面板 | `client/pages/learn.tsx`（today） | `service.todayView`、`core/planGate`、`core/progress` | `check-plan` |
-| 目标 / 裁剪 / 判定 / 结案 | `client/pages/plan.tsx`（目标详情）、`client/pages/learn.tsx`（目标列表、NewGoalDialog） | `service.createGoal/updatePlan/recordQuestions/recordJudgement/closePlan`、`core/plans`、`core/planGate`、`core/cards` | `check-plan`、`check-judge`、`check-plan-routes` |
-| 复习 / FSRS | `client/pages/learn.tsx`（review） | `service.review/reviewCard`、`core/srs`、`core/progress`、`core/cards` | `tests/srs.test.ts`、`tests/cards.test.ts` |
-| 过关测试 / 练习会话 | `client/pages/practice.tsx`、`client/components/quiz.tsx` | `host/quizSessions.ts`（会话流程）、`quizSessionEngine.ts`（出题/补题/结案研判）、`quizSessionViews.ts`（视图与评级）、`core/quiz.ts`、`core/plans.ts`（掌握点，唯一进度）、`core/types.ts`/`views.ts` | `check-api`、`tests/quiz-adaptive.test.ts`、`tests/quiz-session-judge.test.ts`、`tests/mastery-quiz.test.ts` |
-| 笔记 / 概念 / 洞察 | `client/pages/insights.tsx` | `host/insights.ts`、`core/insights`、`core/concepts` | `check-api`、`tests/insight.test.ts` |
-| 自编书 | `client/pages/book.tsx` | `host/books.ts`、`generation.generateBook*`、`core/books` | `check-generation` |
+| 今日面板 | `client/pages/learn.tsx`（today） | `service.todayView`、`core/knowledge`、`core/plans` | `check-plan` |
+| 目标 / 路线 / 档位 / 结案 | `client/pages/plan.tsx`（目标详情）、`client/pages/learn.tsx`（NewGoalDialog） | `service.createGoal/updatePlan/closePlan`、`goalProgressOf`、`core/plans`、`core/knowledge` | `check-plan`、`tests/goal-progress.test.ts` |
+| 复习 / FSRS | 今日到期列表、聚焦复习（`/quiz/session/start` 带 `concept`） | `core/knowledge`、`core/srs`；旧的 `/review` `/cards` 是兼容层 | `tests/knowledge.test.ts`、`tests/srs.test.ts` |
+| 过关测试 / 练习会话 | `client/pages/practice.tsx`、`client/components/quiz.tsx` | `host/quizSessions.ts`（会话流程）、`quizSessionEngine.ts`（出题/补题/结案研判）、`quizSessionViews.ts`（视图与结算）、`core/quiz.ts`、`core/knowledge.ts`（唯一进度）、`core/plans.ts` | `check-api`、`tests/quiz-adaptive.test.ts`、`tests/quiz-session-judge.test.ts` |
+| 笔记 / 概念 / 洞察（冻结） | `client/pages/insights.tsx` | `host/insights.ts`、`core/insights`、`core/concepts` | `check-api`、`tests/insight.test.ts` |
+| 自编书（冻结） | `client/pages/book.tsx` | `host/books.ts`、`generation.generateBook*`、`core/books` | `check-generation` |
 | 页面内生成 / 任务 | `host/generation.ts`、`host/jobs.ts` | `host/generate/prompts.ts`、`host/providers/*`、`core/jobs`、`core/settings` | `check-generation`、`check-blocks` |
 | 设置 / 引擎 | `client/pages/settings.tsx` | `host/settings.ts`、`core/settings`、`providers/*` | `check-api`、`tests/settings.test.ts` |
 | 主题 / 外观（纸·墨） | `client/theme.ts` | `client/styles.ts` 顶部 token 块、`components/ui.tsx` 的 `ThemeToggle` | `npm run build` + `check-client` |
@@ -188,13 +188,13 @@ service.ts / generation.ts / routes.ts / tools.ts 都只是外壳，方法体在
 
 | 文件 | 行数 | 读法 |
 |---|---|---|
-| `src/client/styles.ts` | 2006 | 只在改样式时按 class 名搜 |
-| `src/client/pages/plan.tsx` | 1048 | 目标详情按区块跳读 |
-| `src/client/pages/learn.tsx` | 841 | 按 tab / 组件名跳读 |
-| `src/host/service/plans.ts` | 545 | 按方法名跳读（`updatePlan` 一个方法就 80 多行） |
-| `src/host/generation/normalize.ts` | 507 | 按 `normalize*` / `sanitize*` 名定位 |
-| `src/client/components/reader.tsx` | 1137 | 按分块/页/全屏函数名跳读 |
-| `src/client/components/quiz.tsx` | 732 | 按状态（index/answer/summary/history）跳读 |
+| `src/client/styles.ts` | 2202 | 只在改样式时按 class 名搜 |
+| `src/client/pages/plan.tsx` | 1109 | 目标详情按区块跳读 |
+| `src/client/pages/learn.tsx` | 835 | 按今日/复习/目标组件名跳读 |
+| `src/host/service/plans.ts` | 625 | 按方法名跳读（`updatePlan` 一个方法就 80 多行） |
+| `src/host/generation/normalize.ts` | 632 | 按 `normalize*` / `sanitize*` 名定位 |
+| `src/client/components/reader.tsx` | 1239 | 按分块/页/全屏函数名跳读 |
+| `src/client/components/quiz.tsx` | 979 | 按状态（index/answer/summary/history）跳读 |
 
 host 侧已经没有需要整读的文件：改接口先开 `routes/<域>.ts`，改行为先开
 `service/<域>.ts` 或 `generation/<域>.ts`，每个都是几百行的单域文件。
@@ -214,7 +214,7 @@ host 侧已经没有需要整读的文件：改接口先开 `routes/<域>.ts`，
 - 不默认批量生成导读/自编书/洞察（实验功能），除非用户明确要求。
 - 不在 `client` 里直接读写文件或调 `node:fs`。
 - 不为单个功能新建第二套 service / 状态文件。
-- 不删除 `planGate` 的结案门（独立证据 ≥3、判定阈值）——那是产品防自欺的机关。
+- 不删除防自欺规则（证据去重、模型判定、自评不计进度、结案要求全到档位）；`planGate` 的旧结案门作为兼容层保留，但新目标走知识点结案。
 
 ## 8. 术语与历史包袱
 
@@ -224,13 +224,14 @@ host 侧已经没有需要整读的文件：改接口先开 `routes/<域>.ts`，
 | 学习之路 | 阅读 | 代码里仍有 `learn` / `plan` 命名 |
 | 精读稿 | 导读（实验） | 校验规则仍叫 `notes` / `writeUnit` |
 | 大道至简 | 笔记（实验） | `insights` / `concepts` |
-| 阶段一 | 当前主回路 | README 里指目标→裁剪→尝试→判定→结案 |
+| 阶段一 | 旧兼容层 | 目标→裁剪→尝试→判定→结案；新主回路见 POSITIONING §3 |
 
 已知的双轨（改之前先确认改哪条）：
 
-1. **两套复习**：`cards`（判定题答错生成，主回路）与 `due`（按节 FSRS，旧账，复习页底部）。新功能默认接 `cards`。
-2. **两条生成**：页面内 job（`generation` + `jobs`，默认）与聊天回退（`goal.ts` 的 `promptSession`，无引擎时）。
-3. **三个实验面**：导读、自编书、洞察卡；默认不在「今日」出现。
+1. **进度双轨**：`knowledge.json` 是唯一知识点状态（新主回路）；`progress.json`/`cards`/`plans.mastery.passedAt` 是旧账。新功能一律接 knowledge。
+2. **练习双模**：目标内练习写进度；目标外/无目标为自由练习，不写进度（`quizSessions.start` 的 `free`）。
+3. **两条生成**：页面内 job（`generation` + `jobs`，默认）与聊天回退（`goal.ts` 的 `promptSession`，无引擎时）。
+4. **三个实验面**：导读、自编书、洞察卡；导航隐藏，不在「今日」出现。
 
 ## 9. 验证矩阵
 
@@ -266,6 +267,10 @@ scripts/checks/
 - 原文件 PDF 走 Range 流式；前端 pdf.js 由 Host 提供 `lib/pdfjs/*`，不要引 CDN。
 - 资产（HTML/SVG）路由带 sandbox CSP；不要放宽。
 - 自编书/导读生成前先确认用户要风格，不要一次生成整本。
+- 目标必须带交付物与期限；期限在 `/generate/plan`、`study_generate` 与新建目标弹窗三处都强制。
+- 知识点目标四档：了解 0.6 / 会用 0.75 / 能讲 0.85 / 创新 0.95；练习只考目标内、未到阈值的点。
+- 通过 = 目标知识点全到档位 + 模型结案研判；题量/评级不得作为通过门槛。自由练习不得写进度。
+- 结案规则：所有目标概念达标，且下次复习在 `max(30 天, 距期限 × 1.5)` 之外；旧目标无掌握点时回退旧判定门。
 
 ## 11. 文档索引
 
