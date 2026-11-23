@@ -22,6 +22,15 @@
 | 加一个 agent 工具 | `host/tools/<域>.ts` | `host/service/<域>.ts` 的操作函数（不要另写一套逻辑） | `tests/tools.test.ts` + 手动调用 |
 | 文案 / 语气 | `docs/VOICE.md` | 对应 `client/**/*.tsx`、`host/generate/*Prompts.ts` | `check-voice` |
 
+## 板块 → 入口 → 端点 → 落盘
+
+| 板块 | 界面入口 | Host 端点 | 主要规则/服务 | 落盘 |
+|---|---|---|---|---|
+| **书架** | `pages/library.tsx`、`components/reader.tsx`、`components/cover.tsx` | `/library` `/material` `/unit` `/layout` `/pdf` `/import*` `/unit/complete` | `service` 资料段 + `import.ts` + `structure.ts` + `pdf.ts` + `core/layout` | `materials/<mid>/**`、`progress.json` |
+| **阅读** | `pages/learn.tsx`（今日）、`pages/plan.tsx`（目标详情） | `/today` `/plans` `/plan/*` `/quiz/*` | `service` 目标段 + `core/knowledge` + `core/plans` + `core/srs` | `plans/`、`knowledge.json`、`quiz-sessions/` |
+| **笔记/自编书（冻结）** | `pages/insights.tsx`、`pages/book.tsx`（导航隐藏） | `/insights` `/concept` `/books` `/book/*` | `insights.ts` + `books.ts` + `core/concepts|insights|books` | `concepts/`、`insights/`、`books/` |
+| **设置/生成** | `pages/settings.tsx` + 各页轮询 | `/settings*` `/generate/*` `/jobs/*` | `generation.ts` + `jobs.ts` + `providers/*` | `settings.json`、`jobs/*.json`、`usage.json` |
+
 ### 端点速查：路径 → 文件（改接口先查这里，不必 grep 路径字符串）
 
 - **GET**：`/health` `/settings` `/jobs` `/jobs/:id` `/usage` → `routes/admin.ts`；`/library` `/material` `/unit` `/layout` → `routes/library.ts`；`/due` `/today` → `routes/reading.ts`；`/plans` `/plan` → `routes/plans.ts`；`/quiz` `/quiz/sessions` `/quiz/session` → `routes/practice.ts`；`/concepts` `/concept` `/insights` `/insight` `/books` `/book` `/book/chapter` `/book/export` → `routes/notes.ts`
