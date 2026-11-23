@@ -12,7 +12,7 @@ DSH Web GUI 的书桌插件：把目标翻译成「读哪些节、每个知识�
 | `src/client/` | React 面板，只读 `/study-api`，从不直接写文件 |
 | `scripts/` | 构建与检查：`build.mjs` 与 `checks/{service,http,ui,adhoc}/` |
 | `tests/` | node:test 纯逻辑单测 |
-| `docs/` | 定位、文案，以及 AGENTS 的导航与规则细则 |
+| `docs/` | AGENTS 的导航与规则细则（产品与文案已并入 DESIGN） |
 | `vendor/` | pdf.js / marked / katex 运行时，勿改 |
 | `tooling/` | esbuild 二进制，勿改 |
 | `lib/` | 构建产物（git 忽略），勿改 |
@@ -43,7 +43,7 @@ DSH Web GUI 的书桌插件：把目标翻译成「读哪些节、每个知识�
 
 ## 文档上限
 
-- `AGENTS.md` 120 / `DESIGN.md` 140 / `ARCHITECTURE.md` 120（行；超了先删旧内容再加）
+- `AGENTS.md` 120 / `DESIGN.md` 180 / `ARCHITECTURE.md` 120（行；超了先删旧内容再加）
 - `npm run check:docs` 读这一节，并按目录地图与模块表校验路径真实存在。
 
 ## 文档
@@ -52,7 +52,6 @@ DSH Web GUI 的书桌插件：把目标翻译成「读哪些节、每个知识�
 |---|---|
 | `README.md` | 主文档：功能、主链路、掌握度规则、API、数据布局 |
 | `DESIGN.md` | 产品规范；加功能前读「不做什么」 |
-| `docs/VOICE.md` | 面向读者的文案口径 |
 | `ARCHITECTURE.md` | 模块边界、契约、失败模式、测试策略 |
 | `docs/AGENT-NAV.md` | 改动导航、端点/工具速查、阅读预算、验证矩阵 |
 | `docs/AGENT-RULES.md` | 硬约束与历史包袱（双轨、术语） |

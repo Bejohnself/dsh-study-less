@@ -20,7 +20,7 @@
 | 主题 / 外观（纸·墨） | `client/theme.ts` | `client/styles/base.ts`（token 块）、`components/ui.tsx` 的 `ThemeToggle` | `npm run build` + `check-client` |
 | 加一个 HTTP 端点 | `host/routes.ts`（分发）+ 对应 `host/routes/<域>.ts` | 同一个 service 方法；**同步 `host/tools/<域>.ts` 若 agent 也要用** | `check-api` + 对应 route check |
 | 加一个 agent 工具 | `host/tools/<域>.ts` | `host/service/<域>.ts` 的操作函数（不要另写一套逻辑） | `tests/tools.test.ts` + 手动调用 |
-| 文案 / 语气 | `docs/VOICE.md` | 对应 `client/**/*.tsx`、`host/generate/*Prompts.ts` | `check-voice` |
+| 文案 / 语气 | `DESIGN.md`（文案口径） | 对应 `client/**/*.tsx`、`host/generate/*Prompts.ts` | `check-voice` |
 
 ## 板块 → 入口 → 端点 → 落盘
 

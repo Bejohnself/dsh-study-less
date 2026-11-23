@@ -2,7 +2,7 @@
  * Voice gate: the few copy mistakes that are cheap to catch mechanically.
  *
  * This is not a linter for taste — it only blocks the openings that reliably
- * turn the desk back into a form (docs/VOICE.md「不可以」). Anything subtler
+ * turn the desk back into a form (DESIGN.md「文案口径」的「不可以」). Anything subtler
  * than these still needs a human read.
  */
 import { readdir, readFile } from 'node:fs/promises'
