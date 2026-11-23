@@ -279,7 +279,13 @@ scripts/checks/
 - 目标知识点：创建目标时给**每个非 skip 节**抽 3–8 个知识点（顺序执行，避免 manifest 并发写；连续 2 节失败即停）。没有知识点的必需节会阻塞结案并点名，目标页可逐节 `POST /plan/concepts`（agent 用 `study_generate action=concepts`）补。
 - 结案与结案性 `settleIfDone` 都看**遗忘间隔** `forgettingIntervalDays`（`srs.S` 推到 `MAX_STABILITY`，不按 `MAX_SCHEDULE_DAYS=180` 截断），要求大于 `max(30, 距期限 × 1.5)`；`due` 只决定「哪天回来复习」。别把两者混用：拿被截断的 `due` 当门槛会让期限剩 120 天以上的目标永远结不了案。目标里的节没有知识点时不回退到题量或评级，而是明确拦下并点名；在目标页逐节「补知识点」（`/plan/concepts`）后再结案。
 
-## 11. 文档索引
+## 11. 文档上限
+
+- `AGENTS.md` 320 / `DESIGN.md` 90 / `ARCHITECTURE.md` 120（行；超了先删旧内容再加）
+- 现状：AGENTS 287 行。目标压到 120：目录树与速查表保留，历史包袱与双轨说明迁到 `docs/`。
+- `npm run check:docs` 读这一节，别在脚本里另抄上限。
+
+## 12. 文档索引
 
 - [README.md](README.md)：用户向功能与 API 一览。
 - [docs/POSITIONING.md](docs/POSITIONING.md)：产品规范与红线（加功能前必读第八节）。
