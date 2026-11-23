@@ -4,7 +4,7 @@
  * Three top-level sections share one reader and one refresh token:
  * 书架 (library), 阅读 (today/paths/review) and 笔记（实验，insights）.
  * The 笔记（实验）entry can be hidden from settings.
- * Positioning lives in docs/POSITIONING.md; the copy here follows its glossary.
+ * Design lives in DESIGN.md; the copy here follows its glossary.
  * Settings is a utility dialog, not a fourth destination.
  */
 import { useEffect, useMemo, useState } from 'react'

@@ -6,7 +6,7 @@
  * semantic block, and it never explains.
  *
  * Nothing on this screen is a progress record: no page counter, no "read" mark,
- * no time spent. That is a rule, not an omission (docs/POSITIONING.md §3 阅读面,
+ * no time spent. That is a rule, not an omission (DESIGN.md 信息架构,
  * §8.10). The closure gate is the only place that judges anything.
  */import type {ReactElement} from 'react'
 import {PdfPage} from './reader/pdfPage.tsx'

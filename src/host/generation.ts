@@ -35,7 +35,7 @@ import type { UsageCallView } from '../core/views.ts'
 /**
  * The small window's only job: answer the one spot being read, then leave.
  *
- * The answer is never stored (POSITIONING §6 B). Length is capped in the prompt
+ * The answer is never stored (DESIGN.md AI 的位置 B). Length is capped in the prompt
  * because a long answer is how a question window turns into another lecture.
  */
 

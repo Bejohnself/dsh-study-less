@@ -5,7 +5,7 @@
  * JSON contract a real model must satisfy, so this exercises the prompt shape,
  * the validator, the repair path and the unit view that the rail reads.
  *
- * The checks that matter here are the reading-surface rules (POSITIONING §3):
+ * The checks that matter here are the reading-surface rules (DESIGN.md 信息架构):
  * blocks tile the unit, one card per block, no explanation, and merging stays
  * contiguous.
  */

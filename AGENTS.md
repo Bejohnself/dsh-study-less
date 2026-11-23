@@ -1,7 +1,7 @@
 # dsh-study-less（书桌）
 
 DSH Web GUI 的书桌插件：把目标翻译成「读哪些节、每个知识点到哪一档」，只记知识点是否真到档位。
-主文档是 [README.md](README.md)；产品规范与红线在 [docs/POSITIONING.md](docs/POSITIONING.md)。
+主文档是 [README.md](README.md)；产品规范与红线在 [DESIGN.md](DESIGN.md)。
 
 ## 目录地图
 
@@ -43,7 +43,7 @@ DSH Web GUI 的书桌插件：把目标翻译成「读哪些节、每个知识�
 
 ## 文档上限
 
-- `AGENTS.md` 120 / `DESIGN.md` 90 / `ARCHITECTURE.md` 120（行；超了先删旧内容再加）
+- `AGENTS.md` 120 / `DESIGN.md` 140 / `ARCHITECTURE.md` 120（行；超了先删旧内容再加）
 - `npm run check:docs` 读这一节，并按目录地图与模块表校验路径真实存在。
 
 ## 文档
@@ -51,9 +51,8 @@ DSH Web GUI 的书桌插件：把目标翻译成「读哪些节、每个知识�
 | 文件 | 内容 |
 |---|---|
 | `README.md` | 主文档：功能、主链路、掌握度规则、API、数据布局 |
-| `docs/POSITIONING.md` | 产品规范；加功能前读第八节「不做什么」 |
+| `DESIGN.md` | 产品规范；加功能前读「不做什么」 |
 | `docs/VOICE.md` | 面向读者的文案口径 |
-| `DESIGN.md` | 产品定位、指标与非目标的压缩版 |
 | `ARCHITECTURE.md` | 模块边界、契约、失败模式、测试策略 |
 | `docs/AGENT-NAV.md` | 改动导航、端点/工具速查、阅读预算、验证矩阵 |
 | `docs/AGENT-RULES.md` | 硬约束与历史包袱（双轨、术语） |

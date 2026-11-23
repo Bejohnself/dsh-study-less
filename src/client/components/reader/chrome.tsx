@@ -79,7 +79,7 @@ export function Rail({
 /**
  * The small question window: answer, then leave.
  *
- * Never stored (POSITIONING §6 B): closing it loses the exchange, which is what
+ * Never stored (DESIGN.md AI 的位置 B): closing it loses the exchange, which is what
  * keeps it from becoming a second conversation surface.
  */
 export function AskPanel({

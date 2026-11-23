@@ -4,7 +4,7 @@
  * A block is a contiguous page range carrying at most one guiding card. Cards
  * are prompt-only: no answer field exists, and the validator refuses anything
  * that reads like an explanation, because that is how the rail turns back into
- * a summary (see docs/POSITIONING.md §3 阅读面 and §8.1).
+ * a summary (see DESIGN.md 信息架构 and 不做什么).
  *
  * Paragraph ranges are contiguous and cover the unit exactly. That single rule
  * is what lets the rail follow the scroll without storing where anybody read:

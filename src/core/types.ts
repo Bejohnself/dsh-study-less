@@ -353,7 +353,7 @@ export interface PlanGeneration {
 /** Kinds of steps a learning plan can hold. */
 export type PlanStepKind = 'unit' | 'paper-pass' | 'drill' | 'compare'
 
-/** Boundary decision of one step (docs/POSITIONING.md: 必读 / 略读 / 不读). */
+/** Boundary decision of one step (DESIGN.md 核心回路: 必读 / 略读 / 不读). */
 export type Coverage = 'read' | 'skim' | 'skip'
 
 /** How a conclusion was reached (归因三态). */
@@ -663,7 +663,7 @@ export interface UnitMetaFile {
   extras?: { anim?: string[]; code?: string[]; media?: string[]; image?: string[] }
 }
 
-/** What one guiding card asks the reader to do in their head (POSITIONING §3 阅读面). */
+/** What one guiding card asks the reader to do in their head (DESIGN.md 信息架构). */
 export type PromptKind = 'predict' | 'contrast' | 'recall' | 'transfer'
 
 /**

@@ -49,7 +49,7 @@ const SECTION_ORDER = 200
 /** Model-facing announcement of the study desk. */
 export const STUDY_GUIDANCE = [
   '本机已安装 dsh-study-less 插件（DSH Web GUI 的「书桌」），分为三块：书架（知识库）、阅读（今日/目标/复习）、笔记（实验，概念与洞察）。侧栏面板行「书桌」。',
-  '定位规范见 docs/POSITIONING.md，核心是「允许你不读完」：目标（节级路线 + 知识点四档 + 期限）→ 读书做题写知识点 → 到期复习 → 结案。判定题、独立尝试、归因、卡点是旧兼容层。精读稿（现称导读）、自编书、洞察卡属于冻结实验功能，不要默认批量生成。',
+  '定位规范见 DESIGN.md，核心是「允许你不读完」：目标（节级路线 + 知识点四档 + 期限）→ 读书做题写知识点 → 到期复习 → 结案。判定题、独立尝试、归因、卡点是旧兼容层。精读稿（现称导读）、自编书、洞察卡属于冻结实验功能，不要默认批量生成。',
   '工具：study_library / study_import_book / study_structure_set / study_unit_material / study_unit_write / study_unit_verify / study_concept_link / study_concept / study_today / study_plans / study_plan_create / study_plan_update / study_due / study_review / study_generate / study_jobs / study_delete / study_quiz。',
   '导入流程：study_import_book(path) → 看返回的单元 → 必要时 study_structure_set 修正 → 逐节 study_unit_material → study_unit_write（精读稿）→ study_unit_verify。',
   '精读稿硬性要求：必须含「本节目标/前置知识/核心概念/逐步讲解/类比/常见误区/自测/出处」八节；正文≥400字；所有页码引用必须落在该单元 pageStart..pageEnd 内；概念用全局 id（如 consensus/raft）并通过 concepts 参数登记。',

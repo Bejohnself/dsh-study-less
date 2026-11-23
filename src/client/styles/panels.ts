@@ -583,7 +583,7 @@ export const PANELS_CSS = `/* ---------- 0.2: sub navigation, dashboards, insigh
 }
 [data-dsh-study] .study-goal-strip-goal { font-weight: 600; }
 
-/* Goal, crop list, attempts and the closure gate (docs/POSITIONING.md). */
+/* Goal, crop list, attempts and the closure gate (DESIGN.md). */
 [data-dsh-study] .study-goal-card,
 [data-dsh-study] .study-boundary,
 [data-dsh-study] .study-attempts,
