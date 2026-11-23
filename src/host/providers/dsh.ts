@@ -28,7 +28,7 @@ interface StreamChunk {
   type?: string
   text?: string
   reason?: { kind?: string; failure?: { message?: string } }
-  usage?: { inputTokens?: number; outputTokens?: number }
+  usage?: { inputTokens?: number; cacheReadTokens?: number; outputTokens?: number; cost?: number; currency?: string }
 }
 
 /** The Host-model text engine. */
@@ -55,11 +55,14 @@ export class DshTextProvider implements TextProvider {
       ...(request.maxTokens === undefined ? {} : { maxTokens: request.maxTokens }),
       ...(request.temperature === undefined ? {} : { temperature: request.temperature }),
       ...(request.signal === undefined ? {} : { signal: request.signal }),
+      // The effort is the model selection's alone: naming a level a model does
+      // not declare is a hard request error, so generation never overrides it.
       ...(selection.reasoningEffort === undefined ? {} : { reasoningEffort: selection.reasoningEffort }),
     }
 
     let text = ''
     let reasoning = ''
+    let truncated = false
     let usage: TextResult['usage']
     try {
       for await (const raw of this.llm.stream(options)) {
@@ -72,20 +75,27 @@ export class DshTextProvider implements TextProvider {
         } else if (chunk.type === 'usage' && chunk.usage !== undefined) {
           usage = {
             ...(chunk.usage.inputTokens === undefined ? {} : { inputTokens: chunk.usage.inputTokens }),
+            ...(chunk.usage.cacheReadTokens === undefined ? {} : { cacheReadTokens: chunk.usage.cacheReadTokens }),
             ...(chunk.usage.outputTokens === undefined ? {} : { outputTokens: chunk.usage.outputTokens }),
+            ...(chunk.usage.cost === undefined ? {} : { cost: chunk.usage.cost }),
+            ...(chunk.usage.currency === undefined ? {} : { currency: chunk.usage.currency }),
           }
         } else if (chunk.type === 'finish' && (chunk.reason?.kind === 'error' || chunk.reason?.kind === 'aborted')) {
           throw new ProviderError(
             chunk.reason.kind === 'aborted' ? 'aborted' : 'llm',
             chunk.reason.failure?.message ?? 'DSH 模型调用失败',
           )
-        } else if (chunk.type === 'finish' && chunk.reason?.kind === 'max-tokens' && text.trim().length === 0) {
+        } else if (chunk.type === 'finish' && chunk.reason?.kind === 'max-tokens') {
           // A reasoning model spends the same output budget on its thinking: a
           // small maxTokens can be used up before the first answer token.
-          throw new ProviderError(
-            'max-tokens',
-            '模型把输出预算用在了思考过程上，没有返回正文；请提高最大输出长度，或把推理强度调低',
-          )
+          if (text.trim().length === 0) {
+            throw new ProviderError(
+              'max-tokens',
+              '模型把输出预算用在了思考过程上，没有返回正文；请提高最大输出长度，或把推理强度调低',
+            )
+          }
+          // Partial answer: keep it, but tell the caller it stopped at the cap.
+          truncated = true
         }
       }
     } catch (error) {
@@ -103,6 +113,7 @@ export class DshTextProvider implements TextProvider {
     return {
       text,
       model: selection.model,
+      ...(truncated ? { truncated: true } : {}),
       ...(usage === undefined ? {} : { usage }),
     }
   }

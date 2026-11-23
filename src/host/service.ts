@@ -11,14 +11,14 @@ import { normalizeSettings } from '../core/settings.ts'
 import { readJson } from '../core/store.ts'
 import { localDate } from '../core/time.ts'
 import type { AttemptMove, BlockFile, BlockInput, ParagraphRecord, Coverage, MaterialManifest, PlanGeneration, PlanStepKind, Provenance, QuizBank, QuizItem, Rating, StructureNode, UnitMetaFile } from '../core/types.ts'
-import type { CardView, ConceptCard, ConceptDetailView, PlanDetailView, PlanSummary, QuizSubmitView, TodayView } from '../core/views.ts'
+import type { ConceptCard, ConceptDetailView, PlanDetailView, PlanSummary, QuizSubmitView, TodayView } from '../core/views.ts'
 import { ORIGINAL_PAGE_CAP, type CompleteOptions, type CompleteResult, type DueItem, type MaterialCard, type MaterialStateView, type PageSlice, type UnitView } from '../core/views.ts'
 import { type ImportRequest, type ImportResult } from './import.ts'
 
 import { StudyError } from './service/error.ts'
 import { library, materialState, pdfSource, pdfAvailable, unit, unitMaterial, complete, uncomplete, importOp, importUpload, importFromUrl, structureSet, layout, mergeBlock, manifest, archiveMaterial, deleteMaterial } from './service/library.ts'
-import { due, todayView, review, dueCardList, reviewCard, concepts, conceptView } from './service/learning.ts'
-import { createGoal, promptPlanInChat, planList, planView, createPlan, updatePlan, closePlan, setPlanGeneration, recordQuestions, recordJudgement, deletePlan, attachMasteryConcepts } from './service/plans.ts'
+import { due, todayView, review, concepts, conceptView } from './service/learning.ts'
+import { createGoal, promptPlanInChat, planList, planView, createPlan, updatePlan, closePlan, setPlanGeneration, deletePlan } from './service/plans.ts'
 import { writeUnit, verifyUnit, writeConcepts, hasNotes, quiz, writeQuiz, writeBlocks, submitQuiz, attachInsights } from './service/authoring.ts'
 
 export { StudyError }
@@ -200,27 +200,6 @@ export class StudyService {
     return planView(this, planId)
   }
 
-  async recordQuestions(
-    planId: string,
-    items: Array<{ q: string; why?: string; ref?: string }>,
-  ): Promise<PlanDetailView> {
-    return recordQuestions(this, planId, items)
-  }
-
-  async recordJudgement(
-    planId: string,
-    questionId: string,
-    result: {
-      answer: string
-      verdict: 'pass' | 'partial' | 'fail'
-      missing?: string[]
-      advice?: string
-      judgedBy?: { engine: string; model?: string }
-    },
-  ): Promise<PlanDetailView> {
-    return recordJudgement(this, planId, questionId, result)
-  }
-
   async createPlan(input: {
     goal: string
     steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string; coverage?: Coverage; skipReason?: string }>
@@ -239,9 +218,9 @@ export class StudyService {
       setStep?: { n: number; done: boolean }
       setStatus?: 'active' | 'paused' | 'done'
       setGoal?: string
-      replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string }>
-      /** Replace the goal's knowledge map (written with the steps). */
-      replaceMastery?: Array<{ title: string; standard: string; target?: string; concepts?: string[] }>
+      replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string; level?: 1 | 2 | 3 | 4 }>
+      /** Depth required of one step's section. */
+      setLevel?: { n: number; level: 1 | 2 | 3 | 4 }
       /** Goal facts: deliverable, deadline and audience. null clears a field. */
       setMeta?: { deliverable?: string | null; deadline?: string | null; audience?: string | null; threshold?: number }
       /** Crop one step: read, skim or skip (skip needs a reason). */
@@ -261,14 +240,6 @@ export class StudyService {
 
   async setPlanGeneration(planId: string, generation: PlanGeneration): Promise<void> {
     return setPlanGeneration(this, planId, generation)
-  }
-
-  async dueCardList(date = this.today()): Promise<CardView[]> {
-    return dueCardList(this, date)
-  }
-
-  async reviewCard(cardId: string, rating: Rating): Promise<{ card: CardView; due: string }> {
-    return reviewCard(this, cardId, rating)
   }
 
   async import(request: ImportRequest): Promise<ImportResult> {
@@ -311,10 +282,6 @@ export class StudyService {
     return quiz(this, materialId, unitId)
   }
 
-  async attachMasteryConcepts(planId: string, target: string, conceptIds: readonly string[]): Promise<void> {
-    return attachMasteryConcepts(this, planId, target, conceptIds)
-  }
-
   async writeConcepts(
     materialId: string,
     unitId: string,
@@ -351,7 +318,7 @@ export class StudyService {
     return archiveMaterial(this, materialId, archived)
   }
 
-  async deletePlan(planId: string): Promise<{ deleted: boolean }> {
+  async deletePlan(planId: string): Promise<{ deleted: boolean; sessions: number; books: number }> {
     return deletePlan(this, planId)
   }
 

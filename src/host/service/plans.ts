@@ -4,22 +4,31 @@
  * Free functions over StudyService. The class in ../service.ts keeps the signatures and
  * forwards here, so routes, tools and tests keep talking to the service object.
  */
+import { readdir, rm, unlink } from 'node:fs/promises'
+import { join } from 'node:path'
 import { slugify, splitUnitKey, uniqueSlug } from '../../core/ids.ts'
 import { listManifests } from '../../core/library.ts'
-import { readProgress } from '../../core/progress.ts'
 import { listConcepts } from '../../core/concepts.ts'
-import { decayedMastery, ensureKnowledge, thresholdForLevel } from '../../core/knowledge.ts'
-import { deletePlan as removePlanFile, goalConcepts, listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../../core/plans.ts'
-import { deleteCard, judgementCardId, listCards, retirePlanCards, upsertJudgementCard } from '../../core/cards.ts'
-import { deriveStuckPoints, gateStatus, planProgress, summarizeBoundary, thresholdOf } from '../../core/planGate.ts'
+import { SETTLE_MIN_DAYS, decayedMastery, ensureKnowledge, forgettingIntervalDays, thresholdForLevel } from '../../core/knowledge.ts'
+import { deletePlan as removePlanFile, goalSections, listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../../core/plans.ts'
+import { planProgress, summarizeBoundary, thresholdOf } from '../../core/planGate.ts'
 import { hash32 } from '../../core/srs.ts'
 import { daysBetween } from '../../core/time.ts'
-import type { AttemptMove, AttemptRecord, Coverage, MaterialManifest, PlanGeneration, PlanRecord, PlanStepKind, Provenance } from '../../core/types.ts'
-import type { PlanDetailView, PlanSummary } from '../../core/views.ts'
+import { readJson } from '../../core/store.ts'
+import type { LibraryPaths } from '../../core/paths.ts'
+import type { AttemptMove, AttemptRecord, Coverage, MasteryLevel, MaterialManifest, PlanGeneration, PlanRecord, PlanStepKind, Provenance, QuizSession, UnitMetaFile } from '../../core/types.ts'
+import type { PlanDetailView, PlanSectionView, PlanSummary } from '../../core/views.ts'
 import { goalPrompt } from '../service/prompts.ts'
-import { cardView, planTargets, stepView } from '../service/views.ts'
+import { planTargets, stepView } from '../service/views.ts'
 import { StudyError } from './error.ts'
 import type { StudyService } from '../service.ts'
+
+/** One goal at a time: creation is refused while any plan is still open. */
+function assertSingleGoal(plans: readonly PlanRecord[]): void {
+  const open = plans.find(plan => plan.status !== 'done')
+  if (open === undefined) return
+  throw new StudyError('conflict', `目前已有目标「${open.goal}」，一个书桌同时只跑一个；先结案或删掉它再加新的`)
+}
 
 export async function createGoal(svc: StudyService, input: {
   goal: string
@@ -43,6 +52,7 @@ export async function createGoal(svc: StudyService, input: {
   })
 
   const plans = await listPlans(svc.paths)
+  assertSingleGoal(plans)
   const planId = uniqueSlug(slugify(goal, `g-${hash32(goal).toString(36)}`), new Set(plans.map(plan => plan.id)))
   const now = new Date().toISOString()
   const plan: PlanRecord = {
@@ -127,22 +137,60 @@ export async function planList(svc: StudyService): Promise<PlanSummary[]> {
 }
 
 /**
+ * The sections a goal requires and the concepts they carry.
+ *
+ * A goal owns no concept list: concepts live on the section
+ * (`units/<uid>/meta.json`), so adding one there makes every goal that reads
+ * that section see it. The goal only decides how deep each section goes.
+ */
+export async function goalConceptLevels(
+  svc: StudyService,
+  plan: PlanRecord,
+): Promise<{
+  levels: Map<string, MasteryLevel>
+  sections: Array<{ target: string; level: MasteryLevel; concepts: string[] }>
+  /** Required sections that carry no knowledge points yet, in route order. */
+  missing: Array<{ target: string; title: string; level: MasteryLevel }>
+}> {
+  const manifests = await listManifests(svc.paths)
+  const levels = new Map<string, MasteryLevel>()
+  const sections: Array<{ target: string; level: MasteryLevel; concepts: string[] }> = []
+  const missing: Array<{ target: string; title: string; level: MasteryLevel }> = []
+  for (const section of goalSections(plan)) {
+    let concepts: string[] = []
+    let title = section.target
+    try {
+      const { materialId, unitId } = splitUnitKey(section.target)
+      const node = manifests
+        .find(manifest => manifest.id === materialId)
+        ?.structure.find(candidate => candidate.uid === unitId)
+      if (node === undefined) continue
+      title = node.title
+      const meta = await readJson<UnitMetaFile | null>(svc.paths.unitMetaFile(materialId, unitId), null)
+      concepts = meta?.concepts ?? []
+    } catch {
+      continue
+    }
+    if (concepts.length === 0) missing.push({ target: section.target, title, level: section.level })
+    sections.push({ target: section.target, level: section.level, concepts })
+    for (const conceptId of concepts) {
+      const existing = levels.get(conceptId)
+      if (existing === undefined || section.level > existing) levels.set(conceptId, section.level)
+    }
+  }
+  return { levels, sections, missing }
+}
+
+/**
  * What still blocks closing this goal, from the knowledge space.
  *
- * A goal closes when every concept it targets is at its level threshold and
- * the next review falls past the deadline rule. Legacy plans without a mastery
- * map keep the old judgement gate, so old data stays closable.
+ * A goal closes when every concept of every required section is at that
+ * section's level threshold and would be remembered past the deadline.
  */
 export async function goalProgressOf(
   svc: StudyService,
   plan: PlanRecord,
-): Promise<{ passed: number; total: number; ready: boolean; reasons: string[] }> {
-  const mastery = plan.mastery ?? []
-  const map = goalConcepts(plan)
-  if (map.size === 0 && mastery.length === 0) {
-    const gate = gateStatus(plan)
-    return { passed: gate.masteryPassed, total: gate.masteryTotal, ready: gate.ready, reasons: gate.reasons }
-  }
+): Promise<{ passed: number; total: number; missingSections: number; ready: boolean; reasons: string[] }> {
   const reasons: string[] = []
   if ((plan.deliverable ?? '').trim().length === 0) {
     reasons.push('缺少交付物：先写清这次要交出什么')
@@ -150,14 +198,17 @@ export async function goalProgressOf(
   if ((plan.deadline ?? '').trim().length === 0) {
     reasons.push('缺少期限：它决定什么时候算完成')
   }
-  const total = map.size
-  if (total === 0) {
-    return {
-      passed: 0,
-      total: 0,
-      ready: false,
-      reasons: [...reasons, '目标还没有挂知识点：先练一节，或在目标页把范围补上'],
-    }
+  const { levels, missing } = await goalConceptLevels(svc, plan)
+  // A required section without knowledge points is invisible to the ledger;
+  // naming it is what stops a goal from closing while half of it was never
+  // measured.
+  for (const section of missing.slice(0, 3)) {
+    reasons.push(`「${section.title}」还没有知识点：先在目标页补上，否则结案会漏掉这一节`)
+  }
+  if (missing.length > 3) reasons.push(`还有 ${missing.length - 3} 节没有知识点`)
+  if (levels.size === 0) {
+    if (missing.length === 0) reasons.push('目标里的节还没有知识点：先练一节，知识点会挂到那一节上')
+    return { passed: 0, total: 0, missingSections: missing.length, ready: false, reasons }
   }
   const knowledge = await ensureKnowledge(svc.paths)
   const today = svc.today()
@@ -165,29 +216,92 @@ export async function goalProgressOf(
   let passed = 0
   let behind = 0
   let toReview = 0
-  for (const [conceptId, level] of map) {
+  for (const [conceptId, level] of levels) {
     const state = knowledge.concepts[conceptId]
     const now = state === undefined ? 0 : decayedMastery(state, today)
     if (now >= thresholdForLevel(level)) passed += 1
     else behind += 1
-    const dueIn = state?.due === undefined ? -1 : daysBetween(today, state.due)
-    if (dueIn <= Math.max(30, horizon * 1.5)) toReview += 1
+    // Ask how long the reader would remember, not whether the calendar's next
+    // review date is far enough out: the 180-day schedule cap used to make any
+    // deadline more than ~120 days away impossible to close.
+    const retains = state === undefined ? 0 : forgettingIntervalDays(state, conceptId)
+    if (retains <= Math.max(SETTLE_MIN_DAYS, horizon * 1.5)) toReview += 1
   }
-  if (behind > 0) reasons.push(`知识点 ${passed}/${total}：还有 ${behind} 个没到档位`)
+  if (behind > 0) reasons.push(`知识点 ${passed}/${levels.size}：还有 ${behind} 个没到档位`)
   if (toReview > 0) reasons.push(`还有 ${toReview} 个知识点需要复习到期限之后`)
-  return { passed, total, ready: reasons.length === 0, reasons }
+  return { passed, total: levels.size, missingSections: missing.length, ready: reasons.length === 0, reasons }
 }
 
 export async function planView(svc: StudyService, planId: string): Promise<PlanDetailView> {
   const plan = await readPlan(svc.paths, planId)
   if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
-  const [manifests, progress, concepts] = await Promise.all([
+  const [manifests, concepts, knowledge] = await Promise.all([
     listManifests(svc.paths),
-    readProgress(svc.paths),
     listConcepts(svc.paths),
+    ensureKnowledge(svc.paths),
   ])
+  const today = svc.today()
   const conceptById = new Map(concepts.map(concept => [concept.id, concept]))
-  const steps = plan.steps.map(step => stepView(step, manifests, conceptById, progress))
+  const masteryOf = (conceptId: string): number => {
+    const state = knowledge.concepts[conceptId]
+    return state === undefined ? 0.5 : decayedMastery(state, today)
+  }
+  const { sections } = await goalConceptLevels(svc, plan)
+  const sectionViews: PlanSectionView[] = sections.map(section => {
+    const threshold = thresholdForLevel(section.level)
+    const conceptStates = section.concepts.map(id => {
+      const mastery = masteryOf(id)
+      return {
+        id,
+        name: conceptById.get(id)?.name ?? id,
+        mastery,
+        threshold,
+        atTarget: mastery >= threshold,
+      }
+    })
+    const weakest = conceptStates.length === 0 ? 0 : Math.min(...conceptStates.map(state => state.mastery))
+    const peaks = section.concepts
+      .map(id => knowledge.concepts[id]?.peak)
+      .filter((value): value is number => typeof value === 'number')
+    const peak = peaks.length === 0 ? undefined : Math.min(...peaks)
+    const { materialId, unitId } = splitUnitKey(section.target)
+    const title = manifests
+      .find(manifest => manifest.id === materialId)
+      ?.structure.find(node => node.uid === unitId)?.title ?? section.target
+    return {
+      target: section.target,
+      title,
+      level: section.level,
+      threshold,
+      concepts: [...section.concepts],
+      mastery: weakest,
+      ...(peak === undefined ? {} : { peak }),
+      atTarget: conceptStates.length > 0 && conceptStates.every(state => state.atTarget),
+      conceptStates,
+    }
+  })
+  const currentN = nextPlanStep(plan)?.n
+  const steps = plan.steps.map(step => {
+    const view = stepView(step, manifests, conceptById, masteryOf)
+    if (step.n === currentN) view.current = true
+    if (view.target !== undefined) {
+      const target = `${view.target.materialId}:${view.target.unitId}`
+      const section = sectionViews.find(candidate => candidate.target === target)
+      if (section !== undefined) {
+        // A section without points has nothing to show as a ratio; the knowledge
+        // block below names the gap instead of printing "0/0".
+        if (section.conceptStates.length > 0) {
+          view.progress = {
+            passed: section.conceptStates.filter(state => state.atTarget).length,
+            total: section.conceptStates.length,
+            mastery: section.mastery,
+          }
+        }
+        view.level = section.level
+      }
+    }
+    return view
+  })
   const bounds = planProgress(plan)
   const pageOf = (target: string): { pageStart: number; pageEnd: number } | null => {
     try {
@@ -200,9 +314,6 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
   }
   const attempts = [...(plan.attempts ?? [])].sort((a, b) => (a.at < b.at ? 1 : -1))
   const goalById = new Map([[plan.id, plan.goal]])
-  const cards = (await listCards(svc.paths))
-    .filter(card => card.planId === plan.id)
-    .map(card => cardView(card, svc.today(), goalById))
   return {
     plan: {
       id: plan.id,
@@ -235,55 +346,14 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
     total: bounds.total,
     boundary: summarizeBoundary(plan, pageOf),
     attempts,
-    stuck: deriveStuckPoints(plan.attempts ?? []),
-    mastery: (plan.mastery ?? []).map(point => ({
-      id: point.id,
-      title: point.title,
-      standard: point.standard,
-      ...(point.target === undefined ? {} : { target: point.target }),
-      concepts: [...(point.concepts ?? [])],
-      ...(point.level === undefined ? {} : { level: point.level }),
-      ...(point.passedAt === undefined ? {} : { passedAt: point.passedAt }),
-    })),
-    sufficiency: plan.sufficiency ?? [],
-    gate: gateStatus(plan),
+    sections: sectionViews,
     goalProgress: await goalProgressOf(svc, plan),
-    cards,
   }
-}
-
-/**
- * Attach extracted concepts to the goal's points on one unit.
- *
- * Goal generation runs before any unit has concepts, so its points can be
- * concept-less. The first practice extracts them; this writes them back so the
- * goal's target map is real from then on.
- */
-export async function attachMasteryConcepts(
-  svc: StudyService,
-  planId: string,
-  target: string,
-  conceptIds: readonly string[],
-): Promise<void> {
-  if (conceptIds.length === 0) return
-  const plan = await readPlan(svc.paths, planId)
-  if (plan === null) return
-  const points = plan.mastery ?? []
-  let changed = false
-  for (const point of points) {
-    if (point.target !== target) continue
-    if ((point.concepts ?? []).length > 0) continue
-    point.concepts = [...conceptIds].slice(0, 8)
-    changed = true
-  }
-  if (!changed) return
-  plan.updatedAt = new Date().toISOString()
-  await writePlan(svc.paths, plan)
 }
 
 export async function createPlan(svc: StudyService, input: {
   goal: string
-  steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string; coverage?: Coverage; skipReason?: string }>
+  steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string; coverage?: Coverage; skipReason?: string; level?: MasteryLevel }>
   hoursPerWeek?: number
   id?: string
   deliverable?: string
@@ -296,6 +366,7 @@ export async function createPlan(svc: StudyService, input: {
     listPlans(svc.paths),
   ])
   const taken = new Set(plans.map(plan => plan.id))
+  assertSingleGoal(plans)
   const plan: PlanRecord = {
     id: input.id ?? uniqueSlug(slugify(input.goal, 'plan'), taken),
     goal: input.goal.trim(),
@@ -312,9 +383,9 @@ export async function createPlan(svc: StudyService, input: {
       ...(step.materials === undefined ? {} : { materials: step.materials }),
       ...(step.coverage === undefined ? {} : { coverage: step.coverage }),
       ...(step.coverage === 'skip' ? { skipReason: step.why } : {}),
+      ...(step.level === undefined ? {} : { level: step.level }),
       why: step.why,
       done: false,
-      ...(step.coverage === undefined ? {} : { coverage: step.coverage }),
       ...(step.skipReason === undefined ? {} : { skipReason: step.skipReason }),
     })),
     createdAt: new Date().toISOString(),
@@ -332,9 +403,9 @@ export async function updatePlan(svc: StudyService,
     setStep?: { n: number; done: boolean }
     setStatus?: 'active' | 'paused' | 'done'
     setGoal?: string
-    replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: Coverage; why: string }>
-    /** Replace the goal's knowledge map (written with the steps). */
-    replaceMastery?: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }>
+    replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: Coverage; why: string; level?: MasteryLevel }>
+    /** Depth required of one step's section. */
+    setLevel?: { n: number; level: MasteryLevel }
     /** Goal facts: deliverable, deadline and audience. null clears a field. */
     setMeta?: { deliverable?: string | null; deadline?: string | null; audience?: string | null; threshold?: number }
     /** Crop one step: read, skim or skip (skip needs a reason). */
@@ -376,34 +447,16 @@ export async function updatePlan(svc: StudyService,
       ...(step.materials === undefined ? {} : { materials: step.materials }),
       ...(step.coverage === undefined ? {} : { coverage: step.coverage }),
       ...(step.coverage === 'skip' ? { skipReason: step.why } : {}),
+      ...(step.level === undefined ? {} : { level: step.level }),
       why: step.why,
       done: false,
     }))
     plan.generation = { status: 'done', updatedAt: new Date().toISOString() }
   }
-  if (input.replaceMastery !== undefined) {
-    // Replanning may redraw the map; a point with the same title keeps its
-    // pass, so a retry does not erase evidence the reader already earned.
-    // Dangling targets and concepts are dropped instead of blocking the map:
-    // a point without a unit is still a goal-level point.
-    const previous = new Map((plan.mastery ?? []).map(point => [point.title, point]))
-    plan.mastery = input.replaceMastery
-      .filter(point => point.title.trim().length > 0 && point.standard.trim().length > 0)
-      .slice(0, 12)
-      .map((point, index) => {
-        const old = previous.get(point.title.trim())
-        const linkedConcepts = (point.concepts ?? []).filter(concept => targets.hasConcept(concept)).slice(0, 8)
-        return {
-          id: `m${index + 1}`,
-          title: point.title.trim().slice(0, 120),
-          standard: point.standard.trim().slice(0, 500),
-          ...(point.target === undefined || !targets.hasUnit(point.target) ? {} : { target: point.target }),
-          ...(linkedConcepts.length === 0 ? {} : { concepts: linkedConcepts }),
-          ...((point.level ?? old?.level) === undefined ? {} : { level: point.level ?? old?.level }),
-          ...(old?.passedAt === undefined ? {} : { passedAt: old.passedAt }),
-        }
-      })
-    if (plan.mastery.length === 0) delete plan.mastery
+  if (input.setLevel !== undefined) {
+    const step = plan.steps.find(candidate => candidate.n === input.setLevel!.n)
+    if (step === undefined) throw new StudyError('invalid', `计划没有第 ${input.setLevel.n} 步`)
+    step.level = input.setLevel.level
   }
 
   if (input.setMeta !== undefined) {
@@ -455,65 +508,6 @@ export async function updatePlan(svc: StudyService,
   if (input.removeAttempt !== undefined) {
     plan.attempts = (plan.attempts ?? []).filter(attempt => attempt.id !== input.removeAttempt)
   }
-  if (input.replaceSufficiency !== undefined) {
-    const previous = new Map((plan.sufficiency ?? []).map(item => [item.q, item]))
-    const next: SufficiencyItem[] = []
-    for (const item of input.replaceSufficiency) {
-      const q = item.q.trim()
-      if (q.length === 0) continue
-      const existing = previous.get(q)
-      const passed = item.passed ?? existing?.passed
-      next.push({
-        ...(existing ?? {}),
-        id: existing?.id ?? `q-${crypto.randomUUID().slice(0, 8)}`,
-        q,
-        ...(passed === undefined ? {} : { passed }),
-      })
-    }
-    const kept = new Set(next.map(item => item.id))
-    for (const item of plan.sufficiency ?? []) {
-      if (!kept.has(item.id)) await deleteCard(svc.paths, judgementCardId(plan.id, item.id))
-    }
-    plan.sufficiency = next
-  }
-  if (input.toggleSufficiency !== undefined) {
-    const item = (plan.sufficiency ?? []).find(candidate => candidate.id === input.toggleSufficiency!.id)
-    if (item === undefined) throw new StudyError('invalid', '判定题不存在')
-    const passed = input.toggleSufficiency.passed
-    const reason = input.toggleSufficiency.reason?.trim() ?? ''
-    const answer = input.toggleSufficiency.answer?.trim() ?? ''
-    if (answer.length > 0) item.answer = answer
-    // Manual control is the self-evaluation path: it only applies when there is
-    // no verdict, or when the user overrules one with a written reason.
-    if (passed && item.verdict !== undefined && item.verdict !== 'pass') {
-      if (reason.length === 0) {
-        throw new StudyError('invalid', '要推翻判定结果，必须写清为什么你认为已经达到标准')
-      }
-      item.selfPass = true
-      item.selfPassReason = reason
-    } else if (passed) {
-      delete item.selfPassReason
-      if (item.verdict === undefined) item.selfPass = true
-    } else {
-      delete item.selfPass
-      delete item.selfPassReason
-    }
-    item.passed = passed
-    // A failed question is the only thing that writes a review card; a passed
-    // one retires it. That is what keeps the queue from growing on its own.
-    if (item.passed) {
-      await deleteCard(svc.paths, judgementCardId(plan.id, item.id))
-    } else {
-      await upsertJudgementCard(svc.paths, {
-        planId: plan.id,
-        questionId: item.id,
-        prompt: item.q,
-        detail: `目标：${plan.goal}`,
-        today: svc.today(),
-      })
-    }
-  }
-
   const issues = validatePlan(plan, targets)
   if (issues.length > 0) throw new StudyError('invalid', '计划未通过校验', { issues })
   await writePlan(svc.paths, plan)
@@ -531,8 +525,6 @@ export async function closePlan(svc: StudyService, planId: string, note?: string
   if (reason.length === 0) delete plan.closureNote
   else plan.closureNote = reason
   await writePlan(svc.paths, plan)
-  // Closing means nothing comes back: the goal's cards leave the queue.
-  await retirePlanCards(svc.paths, plan.id)
   return svc.planView(planId)
 }
 
@@ -543,83 +535,56 @@ export async function setPlanGeneration(svc: StudyService, planId: string, gener
   await writePlan(svc.paths, plan)
 }
 
-export async function recordQuestions(svc: StudyService, 
+/**
+ * Delete a goal and everything it produced.
+ *
+ * Closing a goal keeps every trace; deleting does not. Its practice sessions
+ * (they own the questions written per round) and the book it generated go with
+ * it. The material, its unit banks and the
+ * knowledge ledger stay: those belong to the library and to the reader, not to
+ * one goal.
+ */
+export async function deletePlan(
+  svc: StudyService,
   planId: string,
-  items: Array<{ q: string; why?: string; ref?: string }>,
-  ): Promise<PlanDetailView> {
+): Promise<{ deleted: boolean; sessions: number; books: number }> {
   const plan = await readPlan(svc.paths, planId)
   if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
-  const previous = new Map((plan.sufficiency ?? []).map(item => [item.q, item]))
-  const next: SufficiencyItem[] = []
-  for (const input of items) {
-    const q = input.q.trim()
-    if (q.length === 0) continue
-    const existing = previous.get(q)
-    next.push({
-      ...(existing ?? {}),
-      id: existing?.id ?? `q-${crypto.randomUUID().slice(0, 8)}`,
-      q,
-      ...(input.why === undefined ? {} : { why: input.why }),
-      ...(input.ref === undefined ? {} : { ref: input.ref }),
-    })
-  }
-  if (next.length === 0) throw new StudyError('invalid', '没有可用的判定题')
-  const kept = new Set(next.map(item => item.id))
-  for (const item of plan.sufficiency ?? []) {
-    if (!kept.has(item.id)) await deleteCard(svc.paths, judgementCardId(plan.id, item.id))
-  }
-  plan.sufficiency = next
-  await writePlan(svc.paths, plan)
-  return svc.planView(planId)
+  const sessions = await deletePlanSessions(svc.paths, planId)
+  const books = plan.bookId === undefined ? 0 : await deleteBookDir(svc.paths, plan.bookId)
+  const deleted = await removePlanFile(svc.paths, planId)
+  return { deleted, sessions, books }
 }
 
-export async function recordJudgement(svc: StudyService, 
-  planId: string,
-  questionId: string,
-  result: {
-    answer: string
-    verdict: 'pass' | 'partial' | 'fail'
-    missing?: string[]
-    advice?: string
-    judgedBy?: { engine: string; model?: string }
-  },
-  ): Promise<PlanDetailView> {
-  const plan = await readPlan(svc.paths, planId)
-  if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
-  const item = (plan.sufficiency ?? []).find(candidate => candidate.id === questionId)
-  if (item === undefined) throw new StudyError('invalid', '判定题不存在')
-  const answer = result.answer.trim()
-  if (answer.length === 0) throw new StudyError('invalid', '先写下你的答案，再请判定')
-  item.answer = answer
-  item.verdict = result.verdict
-  item.passed = result.verdict === 'pass'
-  item.judgedAt = new Date().toISOString()
-  delete item.selfPass
-  delete item.selfPassReason
-  if (result.missing === undefined || result.missing.length === 0) delete item.missing
-  else item.missing = result.missing
-  if (result.advice === undefined || result.advice.length === 0) delete item.advice
-  else item.advice = result.advice
-  if (result.judgedBy === undefined) delete item.judgedBy
-  else item.judgedBy = result.judgedBy
-  await writePlan(svc.paths, plan)
-  const feedback = [result.advice, ...(result.missing ?? [])].filter(item => item !== undefined && item.length > 0)
-  if (result.verdict === 'pass') {
-    await deleteCard(svc.paths, judgementCardId(plan.id, item.id))
-  } else {
-    await upsertJudgementCard(svc.paths, {
-      planId: plan.id,
-      questionId: item.id,
-      prompt: item.q,
-      detail: feedback.length === 0 ? `目标：${plan.goal}` : `目标：${plan.goal}\n\n判定：${result.verdict}\n${feedback.join('\n')}`,
-      today: svc.today(),
-    })
+/** Practice sessions opened for one goal; a unit session is left alone. */
+async function deletePlanSessions(paths: LibraryPaths, planId: string): Promise<number> {
+  let entries: string[]
+  try {
+    entries = await readdir(paths.quizSessionsDir)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+    throw error
   }
-  return svc.planView(planId)
+  let removed = 0
+  for (const entry of entries) {
+    if (!entry.endsWith('.json')) continue
+    const file = join(paths.quizSessionsDir, entry)
+    // One unreadable session must not block the delete.
+    const session = await readJson<QuizSession | null>(file, null).catch(() => null)
+    // Plan-scoped practice is gone; only session files written before the removal
+    // carry this scope, and deleting a goal still has to remove them.
+    const legacy = session?.scope as { kind: string; plan?: string } | undefined
+    if (legacy?.kind !== 'plan' || legacy.plan !== planId) continue
+    await unlink(file)
+    removed += 1
+  }
+  return removed
 }
 
-export async function deletePlan(svc: StudyService, planId: string): Promise<{ deleted: boolean }> {
-  const plan = await readPlan(svc.paths, planId)
-  if (plan === null) throw new StudyError('not-found', `计划不存在：${planId}`)
-  return { deleted: await removePlanFile(svc.paths, planId) }
+/** The book generated from this goal, when one exists. */
+async function deleteBookDir(paths: LibraryPaths, bookId: string): Promise<number> {
+  const book = await readJson<{ id: string } | null>(paths.bookFile(bookId), null).catch(() => null)
+  if (book === null) return 0
+  await rm(paths.bookDir(bookId), { recursive: true, force: true })
+  return 1
 }

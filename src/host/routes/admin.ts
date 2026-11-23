@@ -13,7 +13,7 @@ import type { RouteContext } from './shared.ts'
 
 export async function getAdmin(ctx: RouteContext): Promise<void> {
   const { res, path } = ctx
-  const { settings, generation, jobs } = ctx.extras
+  const { settings, generation, jobs, usage } = ctx.extras
   if (path === '/health') {
     send(res, 200, {
       ok: true,
@@ -32,6 +32,11 @@ export async function getAdmin(ctx: RouteContext): Promise<void> {
     })
     return
   }
+  if (path === '/usage') {
+    const serviceUsage = requireService(usage, '用量统计')
+    send(res, 200, { ok: true, value: await serviceUsage.summary() })
+    return
+  }
   if (path === '/jobs') {
     const queue = requireService(jobs, '生成任务')
     send(res, 200, { ok: true, value: await queue.list(30) })
@@ -47,7 +52,23 @@ export async function getAdmin(ctx: RouteContext): Promise<void> {
 
 export async function postAdmin(ctx: RouteContext, body: Record<string, unknown>): Promise<void> {
   const { res, path } = ctx
-  const { settings, generation } = ctx.extras
+  const { settings, generation, restartPlugin } = ctx.extras
+  if (path === '/plugin/restart') {
+    if (restartPlugin === undefined) {
+      send(res, 501, { ok: false, error: { code: 'unsupported', message: '当前 DSH 不支持单插件重启；请重载插件或重启 DSH' } })
+      return
+    }
+    try {
+      restartPlugin()
+      send(res, 202, { ok: true, value: { scheduled: true } })
+    } catch (error) {
+      send(res, 501, {
+        ok: false,
+        error: { code: 'unsupported', message: error instanceof Error ? error.message : String(error) },
+      })
+    }
+    return
+  }
   if (path === '/settings') {
     const serviceSettings = requireService(settings, '设置')
     const next = await serviceSettings.patch(body as SettingsUpdate)

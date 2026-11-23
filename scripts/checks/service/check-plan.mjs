@@ -1,14 +1,15 @@
 /**
  * End-to-end check of the stage-1 loop: goal facts, the crop list, independent
- * attempts, sufficiency questions and the closure gate.
+ * the crop list, attempts and the knowledge-space closure.
  */
 import assert from 'node:assert/strict'
 import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { upsertJudgementCard } from '../../../src/core/cards.ts'
+import { ensureKnowledge, writeKnowledge } from '../../../src/core/knowledge.ts'
 import { LibraryPaths } from '../../../src/core/paths.ts'
 import { addDays } from '../../../src/core/time.ts'
 import { StudyService } from '../../../src/host/service.ts'
+import { QuizSessionService } from '../../../src/host/quizSessions.ts'
 
 const root = fileURLToPath(new URL('../../../.tmp/checks/plan', import.meta.url))
 await rm(root, { recursive: true, force: true })
@@ -32,10 +33,13 @@ const created = await service.createPlan({
   })),
 })
 const pid = created.plan.id
+// One goal at a time: a second creation is refused while this one is open.
+await assert.rejects(
+  () => service.createPlan({ goal: '第二个目标', deliverable: '随便交点什么', deadline: '2026-12-20', steps: [] }),
+  /目前已有目标/,
+)
 assert.equal(created.plan.meta.deliverable, '能独立推导 scaled dot-product attention 并讲给同事 20 分钟')
 console.log('boundary:', JSON.stringify(created.boundary))
-console.log('gate closed before evidence:', created.gate.ready, '|', created.gate.reasons.join(' / '))
-assert.equal(created.gate.ready, false)
 assert.equal(created.total, sections.length)
 
 const first = created.steps[0]
@@ -71,63 +75,33 @@ await service.updatePlan(pid, {
 })
 const withAttempts = await service.planView(pid)
 assert.equal(withAttempts.attempts.length, 4)
-assert.equal(withAttempts.gate.independent, 3)
-assert.equal(withAttempts.gate.unverified, 1)
-assert.equal(withAttempts.stuck.length, 1)
-assert.equal(withAttempts.stuck[0]?.count, 3)
-console.log('attempts:', withAttempts.attempts.length, 'stuck:', JSON.stringify(withAttempts.stuck[0]))
+console.log('attempts:', withAttempts.attempts.length)
 
-const questions = ['能白板推出 Eq.1 吗？', '能说清为什么要除以 sqrt(d) 吗？', '能解释 softmax 的行与列吗？', '能用一句话说明 multi-head 的作用吗？', '能指出论文的一条假设吗？']
-await service.updatePlan(pid, { replaceSufficiency: questions.map(q => ({ q })) })
-let detail = await service.planView(pid)
-// 自评通过必须留下答案：gate 会拦「通过但没写答案」。
-for (const item of detail.sufficiency.slice(0, 3)) {
-  detail = await service.updatePlan(pid, {
-    toggleSufficiency: { id: item.id, passed: true, answer: '自评答案：' + item.q },
-  })
+// Concepts live on the section; the goal only says how deep each section goes.
+// Reaching the gate therefore needs the knowledge space at level, not a
+// duplicate list on the goal.
+const required = cropped.steps.filter(step => step.coverage !== 'skip')
+const conceptOf = (step) => `demo/section-${step.n}`
+for (const step of required) {
+  await service.writeConcepts(mid, step.target.unitId, [{ id: conceptOf(step), name: `第 ${step.n} 节` }])
 }
-assert.equal(detail.gate.passed, 3)
-assert.equal(detail.gate.asked, 5)
-assert.equal(detail.gate.ready, false, '3/5 is below the 80% threshold')
-assert.match(detail.gate.reasons.join(' '), /判定通过 3\/5/)
-
-await assert.rejects(() => service.closePlan(pid), /结案门/)
-
-// 标为「没过」会写一张最小卡；改成「通过」就退役。
-const failed = detail.sufficiency[4]
-await service.updatePlan(pid, { toggleSufficiency: { id: failed.id, passed: false } })
-const tomorrow = addDays(service.today(), 1)
-const dueTomorrow = await service.dueCardList(tomorrow)
-assert.equal(dueTomorrow.length, 1)
-assert.equal(dueTomorrow[0]?.prompt, failed.q)
-assert.ok(dueTomorrow[0]?.goal !== undefined)
-console.log('card written:', dueTomorrow[0]?.id, '| due', dueTomorrow[0]?.due)
-assert.ok(Array.isArray((await service.todayView()).dueCards), 'Today carries the card queue')
-
-const reviewed = await service.reviewCard(dueTomorrow[0].id, 3)
-assert.ok(reviewed.due > tomorrow, 'reviewing pushes the card forward')
-let cardView = await service.planView(pid)
-assert.equal(cardView.cards.length, 1)
-assert.equal(cardView.cards[0]?.reps, 1)
-await service.updatePlan(pid, { toggleSufficiency: { id: failed.id, passed: true, answer: '自评答案：' + failed.q } })
-cardView = await service.planView(pid)
-assert.equal(cardView.cards.length, 0, 'a passed question retires its card')
-console.log('card retired on pass: ok')
-for (const item of detail.sufficiency.slice(3)) {
-  detail = await service.updatePlan(pid, {
-    toggleSufficiency: { id: item.id, passed: true, answer: '自评答案：' + item.q },
-  })
+const knowledge = await ensureKnowledge(service.paths)
+for (const step of required) {
+  knowledge.concepts[conceptOf(step)] = {
+    mastery: 1,
+    peak: 1,
+    streak: 0,
+    attempts: 4,
+    correct: 4,
+    lastAt: new Date().toISOString(),
+    due: '2027-06-01',
+    srs: { S: 200, D: 3, reps: 4, lapses: 0, lastRating: 4 },
+    evidence: {},
+  }
 }
-assert.equal(detail.gate.passed, 5, '5/5 clears the threshold')
-const ready = await service.planView(pid)
-assert.equal(ready.gate.ready, true)
-console.log('gate reasons when ready:', ready.gate.reasons.length)
+await writeKnowledge(service.paths, knowledge)
 
-// 结案要把还挂着的卡一并归档：不再有东西回来找你。
-await upsertJudgementCard(service.paths, { planId: pid, questionId: 'q-leftover', prompt: '结案前遗留的一张卡' })
-assert.equal((await service.dueCardList(addDays(service.today(), 30))).length, 1)
 const closed = await service.closePlan(pid, '白板推完了 5 道判定题')
-assert.equal((await service.dueCardList(addDays(service.today(), 30))).length, 0, 'closing retires the goal cards')
 assert.equal(closed.plan.status, 'done')
 assert.ok(closed.plan.meta.closedAt !== undefined)
 assert.equal(closed.plan.meta.closureNote, '白板推完了 5 道判定题')
@@ -144,4 +118,17 @@ assert.equal(after.plans[0]?.deliverable, created.plan.meta.deliverable)
 assert.ok(after.knowledge !== undefined, 'today carries the knowledge space')
 assert.ok(after.goal !== undefined, 'today carries the active goal block')
 console.log('reopened plan is back on the today page | knowledge space present')
+
+// The goal sets a depth per section; the concepts stay on the section. Practice
+// is goal-only, so a covered section must be runnable and writing progress.
+const goalStep = 1
+const goalUnit = sections[0].uid
+await service.updatePlan(pid, { setLevel: { n: goalStep, level: 3 } })
+const sessions = new QuizSessionService(service.paths, service)
+const quizIndex = await sessions.index({ material: mid, unit: goalUnit })
+assert.equal(quizIndex.blocked, undefined, 'a goal section must be runnable, not blocked')
+const linked = await service.planView(pid)
+assert.equal(linked.sections[0]?.level, 3, 'the depth is read from the step')
+assert.ok((linked.sections[0]?.concepts ?? []).length > 0, 'section concepts come from the unit itself')
+console.log('goal section at 能讲, runnable:', linked.sections[0].concepts.join(', '))
 console.log('plan check: ok')

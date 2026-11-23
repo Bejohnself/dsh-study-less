@@ -2,7 +2,7 @@
  * HTTP smoke test for the 0.2 API surface.
  *
  * Runs against a throwaway root and a fake text engine, so it checks routing,
- * masking, jobs, quiz submission and insights without touching the real library.
+ * masking, jobs and quiz submission without touching the real library.
  */
 import { createServer } from 'node:http'
 import { rm } from 'node:fs/promises'
@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { LibraryPaths } from '../../../src/core/paths.ts'
 import { BookService } from '../../../src/host/books.ts'
 import { GenerationService } from '../../../src/host/generation.ts'
+import { UsageService } from '../../../src/host/usage.ts'
 import { InsightService } from '../../../src/host/insights.ts'
 import { JobQueue } from '../../../src/host/jobs.ts'
 import { QuizSessionService } from '../../../src/host/quizSessions.ts'
@@ -22,6 +23,7 @@ await rm(root, { recursive: true, force: true })
 const paths = new LibraryPaths(root)
 const service = new StudyService(paths)
 const settings = new SettingsService(paths)
+const usage = new UsageService(paths, settings)
 const insights = new InsightService(paths)
 const books = new BookService(paths, service)
 const quizSessions = new QuizSessionService(paths, service, books)
@@ -89,7 +91,7 @@ const fake = {
 }
 
 await settings.patch({ text: { kind: 'dsh', model: 'fake' }, study: { autoQuiz: true, autoInsight: true } })
-const generation = new GenerationService(paths, { service, insights, settings, jobs, books, textProvider: () => fake })
+const generation = new GenerationService(paths, { service, insights, settings, jobs, books, usage, textProvider: () => fake })
 const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 mid = imported.manifest.id
 const node = imported.manifest.structure.find(candidate => candidate.kind === 'section') ?? imported.manifest.structure[0]
@@ -126,7 +128,7 @@ const book = await books.create({
   updatedAt: new Date().toISOString(),
 })
 
-const routes = makeStudyRoutes(service, { settings, insights, generation, jobs, quizSessions, books })
+const routes = makeStudyRoutes(service, { settings, insights, generation, jobs, quizSessions, books, usage })
 const server = createServer((req, res) => {
   void routes[0].handler(req, res)
 })
@@ -158,12 +160,26 @@ try {
   const saved = await postJson('/settings', { study: { autoQuiz: false } })
   console.log('settings save:', saved.status, saved.body.value.study.autoQuiz)
   await postJson('/settings', { study: { autoQuiz: true } })
+  const usageView = await call('/usage')
+  console.log('usage:', usageView.status, usageView.body.value.totals.calls)
+  const restartUnsupported = await postJson('/plugin/restart', {})
+  console.log('plugin restart unsupported:', restartUnsupported.status)
+  if (restartUnsupported.status !== 501) throw new Error('restart route should degrade to 501 without a loader')
 
-  const booksList = await call('/books')
-  const bookView = await call(`/book?bid=${book.id}`)
-  const bookChapter = await call(`/book/chapter?bid=${book.id}&cid=ch-1`)
-  const bookExport = await fetch(`${base}/book/export?bid=${book.id}`)
-  console.log('book routes:', booksList.status, bookView.status, bookChapter.status, bookExport.status)
+  const frozen = [
+    await call('/books'),
+    await call(`/book?bid=${book.id}`),
+    await call(`/book/chapter?bid=${book.id}&cid=ch-1`),
+    { status: (await fetch(`${base}/book/export?bid=${book.id}`)).status },
+    await call('/insights'),
+    await call('/concepts'),
+    await call('/concept?cid=api/check'),
+    await postJson('/generate/insight', { mid, uid }),
+    await postJson('/generate/book/outline', { pid: planId }),
+  ]
+  const frozenStatuses = frozen.map(result => result.status)
+  console.log('frozen routes:', frozenStatuses.join(','))
+  if (frozenStatuses.some(status => status !== 404)) throw new Error('a frozen route is still served')
 
   const unitJob = await postJson('/generate/unit', { mid, uid })
   console.log('generate unit:', unitJob.status, unitJob.body.value.jobId)
@@ -171,6 +187,16 @@ try {
   console.log('unit job:', finished.status, finished.error ?? finished.result?.quizItems)
   const unit = await call(`/unit?mid=${mid}&uid=${uid}`)
   console.log('unit read:', unit.status, 'notes', unit.body.value.notes?.length, 'quiz', unit.body.value.quiz?.items?.length, 'insights', unit.body.value.insights?.length)
+
+  // The plan page fills one section's knowledge points through this route.
+  await service.writeConcepts(mid, uid, [{ id: 'test/concept', name: '测试概念' }])
+  const planConcepts = await postJson('/plan/concepts', { pid: planId, target: `${mid}:${uid}` })
+  if (planConcepts.status !== 200 || planConcepts.body.value.plan === undefined) {
+    throw new Error('plan concepts route failed: ' + JSON.stringify(planConcepts.body))
+  }
+  const planConceptsBad = await postJson('/plan/concepts', { pid: planId, target: `${mid}:nope` })
+  if (planConceptsBad.status === 200) throw new Error('plan concepts accepted an unknown step')
+  console.log('plan concepts:', planConcepts.status, planConcepts.body.value.extracted)
 
   const submit = await postJson('/quiz/submit', { mid, uid, answers: [{ itemId: 'q1', answer: 0 }] })
   console.log('quiz submit:', submit.status, submit.body.value.score, submit.body.value.ratingSuggestion)
@@ -180,10 +206,14 @@ try {
   const sid = sessionStart.body.value.session.id
   const firstId = sessionStart.body.value.item?.id
   if (sessionStart.status !== 200 || firstId === undefined) throw new Error('quiz session start failed')
-  // A session may ask more than the bank holds: it tops up on demand until the
-  // section's points pass (or the cap), so only the cap bounds it.
+  // A session may ask more than the bank holds: the next round tops it up, so
+  // only the cap bounds one run.
   if (sessionStart.body.value.session.limit < bankCount || sessionStart.body.value.session.limit > 20) {
     throw new Error(`session limit ${sessionStart.body.value.session.limit} out of range for bank ${bankCount}`)
+  }
+  if (!Array.isArray(sessionStart.body.value.points)) throw new Error('quiz session start has no points')
+  if (sessionStart.body.value.points.length > 0 && sessionStart.body.value.session.atTarget === undefined) {
+    throw new Error('quiz session start has points but no at-target count')
   }
   if ('answerIndex' in (sessionStart.body.value.item ?? {})) throw new Error('quiz session leaked answerIndex')
   console.log('quiz session start:', sessionStart.status, 'limit', sessionStart.body.value.session.limit, 'item', firstId)
@@ -217,8 +247,10 @@ try {
     throw new Error('old session was not marked replaced')
   }
   if (oldView.body.value.history?.length !== 1) throw new Error('old session lost its history')
-  if (restarted.body.value.item?.id !== firstId) throw new Error('question order is not stable across sessions')
-  console.log('quiz session restart:', sid2 !== sid, 'orderStable', restarted.body.value.item?.id === firstId)
+  // A spent question is never offered again: the restart moves on instead of
+  // replaying the one already answered.
+  if (restarted.body.value.item?.id === firstId) throw new Error('restart re-asked the question already used')
+  console.log('quiz session restart:', sid2 !== sid, 'newQuestion', restarted.body.value.item?.id !== firstId)
 
   const finishedSession = await postJson('/quiz/session/finish', { sid: sid2 })
   if (finishedSession.body.value.session.status !== 'done' || finishedSession.body.value.session.endedReason !== 'finished') {
@@ -241,23 +273,6 @@ try {
   }
   console.log('quiz session bank change:', stale.body.value.session.endedReason)
 
-  const insightJob = await postJson('/generate/insight', { mid, uid })
-  const insightDone = await wait(insightJob.body.value.jobId)
-  console.log('insight job:', insightDone.status)
-  const list = await call('/insights')
-  console.log('insights list:', list.status, list.body.value.length)
-  const created = await postJson('/insight/create', {
-    title: '手动洞察',
-    oneLiner: '一句话',
-    body: '手动创建的正文，需要足够长才能通过校验，并保留来源页码。',
-    concepts: ['api/check'],
-    sources: [{ material: mid, unit: uid, page }],
-    kind: 'principle',
-  })
-  console.log('insight create:', created.status, created.body.value.id)
-  const pin = await postJson('/insight/pin', { iid: created.body.value.id, pinned: true })
-  console.log('insight pin:', pin.status, pin.body.value.pinned)
-
   const archived = await postJson('/material/archive', { mid, archived: true })
   console.log('archive:', archived.status, archived.body.value.archived)
   const shelf = await call('/library')
@@ -267,9 +282,6 @@ try {
 
   const retry = await postJson('/plan/retry-chat', { pid: planId })
   console.log('retry chat prompt:', retry.status, retry.body.value.prompted, retry.body.value.prompt.length > 100)
-
-  const bookDelete = await postJson('/book/delete', { bid: book.id })
-  console.log('book delete:', bookDelete.status, booksList.body.value.length)
 
   await postJson('/plan/delete', { pid: planId })
   const plans = await call('/plans')
@@ -281,7 +293,8 @@ try {
   console.log('shelf after delete:', afterDelete.body.value.length)
   const conceptsAfter = await call('/concepts')
   const insightsAfter = await call('/insights')
-  console.log('concepts/insights after delete:', conceptsAfter.body.value.length, insightsAfter.body.value.length)
+  console.log('frozen after delete:', conceptsAfter.status, insightsAfter.status)
+  if (conceptsAfter.status !== 404 || insightsAfter.status !== 404) throw new Error('frozen notes routes are still served')
 } finally {
   server.close()
 }

@@ -18,6 +18,7 @@ import type { JobQueue } from '../jobs.ts'
 import type { QuizSessionService } from '../quizSessions.ts'
 import { StudyError, type StudyService } from '../service.ts'
 import type { SettingsService } from '../settings.ts'
+import type { UsageService } from '../usage.ts'
 
 /** One Host route registration. */
 export interface StudyRoute {
@@ -34,6 +35,9 @@ export interface StudyRouteExtras {
   insights?: InsightService
   generation?: GenerationService
   jobs?: JobQueue
+  usage?: UsageService
+  /** Restart only this plugin's loader entry, not the DSH process. */
+  restartPlugin?: () => void
 }
 
 /** One request, already authenticated, narrowed and parsed. */

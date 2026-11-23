@@ -8,7 +8,7 @@ import { validateBlocks } from '../../core/blocks.ts'
 import { assertConceptId } from '../../core/ids.ts'
 import { structureNodeOf, writeManifest } from '../../core/library.ts'
 import { upsertConcept } from '../../core/concepts.ts'
-import { recordAttempts } from '../../core/progress.ts'
+import { questionFingerprint, recordEvidence } from '../../core/knowledge.ts'
 import { gradeQuizItem } from '../../core/quiz.ts'
 import { ratingFromScore } from '../../core/srs.ts'
 import { readJson, writeJsonAtomic, writeTextAtomic } from '../../core/store.ts'
@@ -177,8 +177,8 @@ export async function quiz(svc: StudyService, materialId: string, unitId: string
 export async function writeQuiz(svc: StudyService, materialId: string, unitId: string, items: readonly QuizItem[]): Promise<QuizBank> {
   const manifest = await svc.manifest(materialId)
   const node = structureNodeOf(manifest, unitId)
-  const issues = validateQuizBank(items, { pageStart: node.pageStart, pageEnd: node.pageEnd })
-  if (issues.length > 0) throw new StudyError('invalid', '练习题未通过校验', { issues })
+  const validation = validateQuizBank(items, { pageStart: node.pageStart, pageEnd: node.pageEnd })
+  if (!validation.ok) throw new StudyError('invalid', '练习题未通过校验', { issues: validation.issues })
   const bank: QuizBank = {
     version: 1,
     unit: unitId,
@@ -243,8 +243,8 @@ export async function submitQuiz(svc: StudyService,
   const bank = await svc.quiz(materialId, unitId)
   if (bank === null) throw new StudyError('not-found', '这一节还没有练习题，先让 AI 生成一组')
   const byId = new Map(bank.items.map(item => [item.id, item]))
-  const attempts: Array<{ conceptId: string; correct: boolean }> = []
   const rows: QuizSubmitView['attempts'] = []
+  const at = new Date().toISOString()
   let objective = 0
   let correct = 0
   for (const answer of answers) {
@@ -265,10 +265,19 @@ export async function submitQuiz(svc: StudyService,
     if (verdict.correct !== null) {
       objective += 1
       if (verdict.correct) correct += 1
-      for (const conceptId of item.concepts) attempts.push({ conceptId, correct: verdict.correct })
+      // Same ledger as the session path: an objective answer is evidence.
+      const fingerprint = questionFingerprint(item.question)
+      for (const conceptId of item.concepts) {
+        await recordEvidence(svc.paths, {
+          conceptId,
+          fingerprint,
+          verdict: verdict.correct ? 'pass' : 'fail',
+          difficulty: item.difficulty ?? 2,
+          at,
+        })
+      }
     }
   }
-  if (attempts.length > 0) await recordAttempts(svc.paths, attempts)
   const score = objective === 0 ? 0.5 : correct / objective
   return { score, ratingSuggestion: ratingFromScore(score), attempts: rows }
 }

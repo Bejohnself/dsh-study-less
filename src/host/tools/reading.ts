@@ -2,6 +2,7 @@
  * Reading tools: today, due queue and review ratings.
  */
 import { objectSchema, refusal, renderJson, type StudyToolDefinition, type ToolContext } from './shared.ts'
+import type { Rating } from '../../core/types.ts'
 import { StudyError } from '../service/error.ts'
 
 export function readingTools({ service, extras }: ToolContext): StudyToolDefinition[] {

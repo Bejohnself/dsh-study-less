@@ -6,48 +6,35 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
-import type {
-  CardView,
-  DueItem,
-  MaterialCard,
-  PlanSummary,
-  TodayView,
-  UnitView,
-} from '../../core/views.ts'
+import type { MaterialCard, PlanSummary, TodayView } from '../../core/views.ts'
 import { api, errorText, post } from '../api.ts'
 import { MASCOT } from '../mascot.ts'
 import { currentSessionId, openConversation } from '../actions.ts'
 import { typeLabel } from '../labels.ts'
 import { EmptyState, Modal, ProgressBar, SubNav, Toast } from '../components/ui.tsx'
 
-export type LearnTab = 'today' | 'paths' | 'review'
-
-
 /** The learning-path dashboard. */
 /** The reading entry: one today panel over the knowledge space. */
 export function LearnPage({
   onOpenUnit,
-  onOpenConcept,
   onOpenPlan,
   onReviewConcept,
-  onOpenLibrary,
+  onCreateGoal,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
-  onOpenConcept: (cid: string) => void
   onOpenPlan: (pid: string) => void
   onReviewConcept: (mid: string, uid: string, conceptId: string) => void
-  onOpenLibrary: () => void
+  onCreateGoal: () => void
   refreshToken: number
 }): ReactElement {
   return (
     <div className="study-learn">
       <TodayPanel
         onOpenUnit={onOpenUnit}
-        onOpenConcept={onOpenConcept}
         onOpenPlan={onOpenPlan}
         onReviewConcept={onReviewConcept}
-        onOpenLibrary={onOpenLibrary}
+        onCreateGoal={onCreateGoal}
         refreshToken={refreshToken}
       />
     </div>
@@ -56,17 +43,15 @@ export function LearnPage({
 
 function TodayPanel({
   onOpenUnit,
-  onOpenConcept,
   onOpenPlan,
   onReviewConcept,
-  onOpenLibrary,
+  onCreateGoal,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
-  onOpenConcept: (cid: string) => void
   onOpenPlan: (pid: string) => void
   onReviewConcept: (mid: string, uid: string, conceptId: string) => void
-  onOpenLibrary: () => void
+  onCreateGoal: () => void
   refreshToken: number
 }): ReactElement {
   const [data, setData] = useState<TodayView | null>(null)
@@ -91,8 +76,8 @@ function TodayPanel({
   if (data === null) return <div className="study-empty">正在整理今天的任务…</div>
 
   const dueKnowledge = data.knowledge?.due ?? []
-  const dueCount = dueKnowledge.length + data.dueCards.length + data.due.length
-  const nothing = dueCount === 0 && data.next === null && data.weak.length === 0 && data.plans.length === 0
+  const dueCount = dueKnowledge.length
+  const nothing = dueCount === 0 && data.next === null && data.plans.length === 0 && data.goal === undefined
 
   return (
     <div className="study-today">
@@ -120,8 +105,8 @@ function TodayPanel({
       {nothing ? (
         <EmptyState
           title="还没定目标呢。"
-          hint="先挑一本书，再说清要交出什么、什么时候、给谁看——边界是从那句话推出来的，不是从目录。"
-          action={{ label: '去书架挑一本', onClick: onOpenLibrary }}
+          hint="先写清要交出什么、什么时候、给谁看；书只是完成它的材料，边界由目标推出来。"
+          action={{ label: '新建一个目标', onClick: onCreateGoal }}
         />
       ) : null}
 
@@ -129,7 +114,7 @@ function TodayPanel({
         <section className="study-panel study-panel-goal">
           <h3>当前目标</h3>
           {data.goal === undefined ? (
-            <p className="study-muted">还没有目标。所有练习都只算「随便练」，不写进度。先点右上角「＋ 新建目标」。</p>
+            <p className="study-muted">还没有目标。练习只在目标里跑并写进度。先点右上角「＋ 新建目标」。</p>
           ) : (
             <button type="button" className="study-next-card" onClick={() => onOpenPlan(data.goal!.id)}>
               <span className="study-next-title">{data.goal.goal}</span>
@@ -139,6 +124,7 @@ function TodayPanel({
               </span>
               <span className="study-next-why">
                 知识点 {data.goal.passed}/{data.goal.total}
+                {data.goal.missingSections > 0 ? ` · 还有 ${data.goal.missingSections} 节没有知识点` : ''}
                 {data.goal.readyToClose ? ' · 可以结案了' : ' · 未达成'}
               </span>
             </button>
@@ -148,7 +134,11 @@ function TodayPanel({
         <section className="study-panel study-panel-next">
           <h3>接着读</h3>
           {data.next === null ? (
-            <p className="study-muted">这几本都学完了。剩下的事只有两件：复习，和结案。</p>
+            <p className="study-muted">
+              {data.goal === undefined
+                ? '还没有目标。先定一个目标，才知道接下来读哪一节。'
+                : '这个目标的节都读完了。剩下的事只有复习和结案。'}
+            </p>
           ) : (
             <button
             type="button"
@@ -167,76 +157,36 @@ function TodayPanel({
         <section className="study-panel">
           <h3>该复习了</h3>
           {dueCount === 0 ? (
-            <p className="study-muted">今天没有到期的知识点。练习过的概念会按 FSRS 排下一次；到目标且下次复习落在目标期之后，就自动结案。</p>
+            <p className="study-muted">
+              {data.goal === undefined
+                ? '还没有目标。目标内的知识点到期后才会出现在这里。'
+                : '今天没有到期的知识点。练习过的概念会按 FSRS 排下一次；到目标且下次复习落在目标期之后，就自动结案。'}
+            </p>
           ) : (
             <ul className="study-list">
               {dueKnowledge.slice(0, 6).map(entry => (
                 <li key={entry.conceptId}>
-                  <button
-                    type="button"
-                    className="study-item"
-                    onClick={() => {
-                      if (entry.materialId !== undefined && entry.unitId !== undefined) {
-                        onReviewConcept(entry.materialId, entry.unitId, entry.conceptId)
-                      } else {
-                        onOpenConcept(entry.conceptId)
-                      }
-                    }}
-                  >
-                    <span className="study-item-title">{entry.name}</span>
-                    <span className="study-item-meta">
-                      掌握 {Math.round(entry.mastery * 100)}% / 目标 {Math.round(entry.target * 100)}%
-                      {entry.overdueDays > 0 ? ` · 逾期 ${entry.overdueDays} 天` : ' · 今天到期'}
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {data.dueCards.slice(0, 4).map(card => (
-                <li key={card.id}>
-                  <button
-                    type="button"
-                    className="study-item"
-                    onClick={() => {
-                      if (card.planId !== undefined) onOpenPlan(card.planId)
-                    }}
-                  >
-                    <span className="study-item-title">{card.prompt}</span>
-                    <span className="study-item-meta">
-                      卡片 · {card.goal ?? '来自目标'}
-                      {card.overdueDays > 0 ? ` · 逾期 ${card.overdueDays} 天` : ''}
-                    </span>
-                  </button>
-                </li>
-              ))}
-              {data.due.slice(0, 6).map(item => (
-                <li key={item.key}>
-                  <button type="button" className="study-item" onClick={() => onOpenUnit(item.materialId, item.unitId)}>
-                    <span className="study-item-title">{item.title}</span>
-                    <span className="study-item-meta">
-                      {item.materialTitle} · 到期 {item.due}
-                      {item.overdueDays > 0 ? ` · 逾期 ${item.overdueDays} 天` : ''}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="study-panel">
-          <h3>练一下最弱的</h3>
-          {data.weak.length === 0 ? (
-            <p className="study-muted">还没攒够数据。学几节、做几道题，这里就会冒出该加固的概念。</p>
-          ) : (
-            <ul className="study-list">
-              {data.weak.map(concept => (
-                <li key={concept.id}>
-                  <button type="button" className="study-item" onClick={() => onOpenConcept(concept.id)}>
-                    <span className="study-item-title">{concept.name}</span>
-                    <span className="study-item-meta">
-                      掌握度 {Math.round(concept.mastery * 100)}% · {concept.occurrences} 处出现
-                    </span>
-                  </button>
+                  {entry.materialId === undefined || entry.unitId === undefined ? (
+                    <div className="study-item">
+                      <span className="study-item-title">{entry.name}</span>
+                      <span className="study-item-meta">
+                        掌握 {Math.round(entry.mastery * 100)}% / 目标 {Math.round(entry.target * 100)}%
+                        {entry.overdueDays > 0 ? ` · 逾期 ${entry.overdueDays} 天` : ' · 今天到期'}
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="study-item"
+                      onClick={() => onReviewConcept(entry.materialId!, entry.unitId!, entry.conceptId)}
+                    >
+                      <span className="study-item-title">{entry.name}</span>
+                      <span className="study-item-meta">
+                        掌握 {Math.round(entry.mastery * 100)}% / 目标 {Math.round(entry.target * 100)}%
+                        {entry.overdueDays > 0 ? ` · 逾期 ${entry.overdueDays} 天` : ' · 今天到期'}
+                      </span>
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -321,259 +271,6 @@ function PlansPanel({
 }
 
 /** One plan with its steps and inline generation. */
-
-/** The due-review queue and one-card session. */
-function ReviewPanel({
-  onOpenUnit,
-  onOpenConcept,
-  onChange,
-  refreshToken,
-}: {
-  onOpenUnit: (mid: string, uid: string) => void
-  onOpenConcept: (cid: string) => void
-  onChange: () => void
-  refreshToken: number
-}): ReactElement {
-  const [cards, setCards] = useState<CardView[] | null>(null)
-  const [due, setDue] = useState<DueItem[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [index, setIndex] = useState(0)
-  const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
-  const reportError = useCallback((message: string) => {
-    setToast({ message, tone: 'error' })
-  }, [])
-
-  const reload = useCallback(async () => {
-    const [cardList, dueList] = await Promise.all([api<CardView[]>('/cards'), api<DueItem[]>('/due')])
-    setCards(cardList)
-    setDue(dueList)
-  }, [])
-
-  useEffect(() => {
-    let alive = true
-    setError(null)
-    reload().catch(reason => {
-      if (alive) setError(errorText(reason))
-    })
-    return () => {
-      alive = false
-    }
-  }, [reload, refreshToken])
-
-  useEffect(() => {
-    if (toast === null) return
-    const timer = window.setTimeout(() => setToast(null), 3200)
-    return () => window.clearTimeout(timer)
-  }, [toast])
-
-  if (error !== null) return <div className="study-empty">无法读取复习队列：{error}</div>
-  if (cards === null || due === null) return <div className="study-empty">正在读取复习队列…</div>
-
-  if (cards.length === 0 && due.length === 0) {
-    return (
-      <EmptyState
-        title="今天没有到期的卡。"
-        hint="卡只会从判错里长出来：答对就退役，结案就消失。所以这一栏空着是好事。旧账留在下面。"
-      />
-    )
-  }
-
-  const current = cards[Math.min(index, cards.length - 1)]
-
-  return (
-    <div className="study-review">
-      {current === undefined ? null : (
-        <>
-          <div className="study-today-line">
-            <span className="study-muted">
-              待复习 {cards.length} 张卡片 · 当前第 {Math.min(index + 1, cards.length)} 张
-            </span>
-            <span className="study-today-spacer" />
-            <span className="study-item-meta">{current.goal ?? '来自目标'}</span>
-          </div>
-          <CardReview
-            key={current.id}
-            card={current}
-            onRated={async () => {
-              setCards(await api<CardView[]>('/cards'))
-              setIndex(0)
-              onChange()
-            }}
-            onError={reportError}
-          />
-        </>
-      )}
-
-      {due.length === 0 ? null : (
-        <>
-          <h3 className="study-section-title">旧：按节复习 {due.length}</h3>
-          <p className="study-muted">这些是阶段一之前按整节排的到期单元；新目标只用卡片复习。</p>
-          <div className="study-due-list">
-            {due.map(item => (
-              <button key={item.key} type="button" className="study-due-row" onClick={() => onOpenUnit(item.materialId, item.unitId)}>
-                <span>{item.title}</span>
-                <span className="study-item-meta">
-                  {item.materialTitle} · {item.due}
-                  {item.overdueDays > 0 ? ' · 逾期 ' + item.overdueDays + ' 天' : ''}
-                </span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-
-      {toast !== null ? <Toast message={toast.message} tone={toast.tone} /> : null}
-      <div className="study-muted">薄弱概念在「笔记 / 概念」里查看；练习在阅读器的「练习」标签。</div>
-    </div>
-  )
-}
-
-/** One card: recall the answer, reveal the context, then rate. */
-function CardReview({
-  card,
-  onRated,
-  onError,
-}: {
-  card: CardView
-  onRated: () => void
-  onError: (message: string) => void
-}): ReactElement {
-  const [revealed, setRevealed] = useState(false)
-  const [busy, setBusy] = useState(false)
-
-  const rate = async (rating: 1 | 2 | 3 | 4): Promise<void> => {
-    setBusy(true)
-    try {
-      await post('/card/review', { cid: card.id, rating })
-      setRevealed(false)
-      onRated()
-    } catch (reason) {
-      onError(errorText(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <section className="study-review-card">
-      <h3>{card.prompt}</h3>
-      <div className="study-item-meta">
-        {card.overdueDays > 0 ? '逾期 ' + card.overdueDays + ' 天 · ' : ''}
-        已复习 {card.reps} 次
-      </div>
-      <p className="study-review-prompt">先合上笔记，把这道题完整答出来（能写就写），再揭示对照。</p>
-      {revealed ? (
-        <div className="study-review-notes">{card.detail ?? '这道题没有额外对照：答得出才算过。'}</div>
-      ) : (
-        <button type="button" className="study-primary study-primary-tight" onClick={() => setRevealed(true)}>
-          揭示对照
-        </button>
-      )}
-      <div className="study-review-ratings">
-        {([1, 2, 3, 4] as const).map(rating => (
-          <button
-            key={rating}
-            type="button"
-            className={'study-rating study-rating-' + rating}
-            disabled={busy}
-            onClick={() => void rate(rating)}
-          >
-            {rating === 1 ? '重来' : rating === 2 ? '困难' : rating === 3 ? '良好' : '简单'}
-          </button>
-        ))}
-      </div>
-      <p className="study-muted">评级只影响这张卡的下次到期；结案的目标不会再来找你。</p>
-    </section>
-  )
-}
-
-/** One review card: recall first, reveal notes, then rate. */
-function ReviewCard({
-  item,
-  onRated,
-  onError,
-}: {
-  item: DueItem
-  onRated: () => Promise<void>
-  onError: (message: string) => void
-}): ReactElement {
-  const [unit, setUnit] = useState<UnitView | null>(null)
-  const [revealed, setRevealed] = useState(false)
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    let alive = true
-    api<UnitView>(`/unit?mid=${encodeURIComponent(item.materialId)}&uid=${encodeURIComponent(item.unitId)}`)
-      .then(value => {
-        if (alive) setUnit(value)
-      })
-      .catch(reason => {
-        if (alive) onError(errorText(reason))
-      })
-    return () => {
-      alive = false
-    }
-  }, [item.materialId, item.unitId, onError])
-
-  const rate = async (rating: 1 | 2 | 3 | 4): Promise<void> => {
-    setBusy(true)
-    try {
-      await post('/review', { mid: item.materialId, uid: item.unitId, rating })
-      await onRated()
-    } catch (reason) {
-      onError(errorText(reason))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const excerpt = useMemo(() => {
-    const notes = unit?.notes ?? ''
-    const core = /##\s*核心概念([\s\S]*?)(?:\n##\s|$)/.exec(notes)?.[1]?.trim()
-    const goal = /##\s*本节目标([\s\S]*?)(?:\n##\s|$)/.exec(notes)?.[1]?.trim()
-    return (core ?? goal ?? notes).slice(0, 1200)
-  }, [unit?.notes])
-
-  return (
-    <section className="study-review-card">
-      <h3>{item.title}</h3>
-      <div className="study-item-meta">
-        {item.materialTitle} · 到期 {item.due}
-        {item.overdueDays > 0 ? ` · 逾期 ${item.overdueDays} 天` : ''}
-      </div>
-      <p className="study-review-prompt">先合上笔记，用一句话复述这一节在讲什么，再揭示对照。</p>
-      {revealed ? (
-        <div className="study-review-notes">
-          {unit === null ? (
-            '正在载入对照…'
-          ) : unit.notes === null ? (
-            <span className="study-muted">这一节还没有导读，可以直接看原文页，或只按理解评级。</span>
-          ) : (
-            <p>{excerpt}</p>
-          )}
-        </div>
-      ) : (
-        <button type="button" className="study-primary study-primary-tight" onClick={() => setRevealed(true)}>
-          揭示最小对照
-        </button>
-      )}
-      <div className="study-review-ratings">
-        {([1, 2, 3, 4] as const).map(rating => (
-          <button
-            key={rating}
-            type="button"
-            className={`study-rating study-rating-${rating}`}
-            disabled={busy}
-            onClick={() => void rate(rating)}
-          >
-            {rating === 1 ? '重来' : rating === 2 ? '困难' : rating === 3 ? '良好' : '简单'}
-          </button>
-        ))}
-      </div>
-      <p className="study-muted">评级会更新 FSRS 的稳定度与下一次到期日；不用追求全部简单。</p>
-    </section>
-  )
-}
 
 /** The goal wizard: pick materials, describe the target, generate inline. */
 export function NewGoalDialog({

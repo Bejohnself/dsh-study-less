@@ -12,9 +12,9 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
     tools.push({
       name: 'study_generate',
       description:
-        '在页面内用已配置的文本引擎生成内容，不再把 prompt 发进聊天。action=plan 编排路径；unit 生成/重写精读稿（可顺带出题与洞察）；quiz 生成练习题；insight 从单元或概念提炼洞察。返回 jobId，用 study_jobs 或页面轮询进度；未配置引擎时请在设置里配置，或让用户回到对话。',
+        '在页面内用已配置的文本引擎生成内容，不再把 prompt 发进聊天。action=plan 编排路径；concepts 给一节补齐知识点；unit 生成/重写精读稿（顺带出题）；quiz 生成练习题。plan/unit/quiz 返回 jobId，用 study_jobs 或页面轮询进度；concepts 同步返回写入的概念。未配置引擎时请在设置里配置，或让用户回到对话。',
       parameters: objectSchema({
-        action: { type: 'string', enum: ['plan', 'unit', 'quiz', 'insight'] },
+        action: { type: 'string', enum: ['plan', 'concepts', 'unit', 'quiz'] },
         goal: { type: 'string', description: 'plan 的目标' },
         deliverable: { type: 'string', description: 'plan 要交出的东西（目标边界的依据）' },
         deadline: { type: 'string', description: 'plan 的期限 YYYY-MM-DD（必填）' },
@@ -23,15 +23,14 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
         materials: { type: 'array', items: { type: 'string' }, description: 'plan 选中的资料 id' },
         hoursPerWeek: { type: 'number' },
         depth: { type: 'string', enum: ['deep', 'overview'] },
-        material: { type: 'string', description: 'unit/quiz/insight 的资料 id' },
-        unit: { type: 'string', description: 'unit/quiz/insight 的单元 uid' },
+        material: { type: 'string', description: 'unit/quiz 的资料 id' },
+        unit: { type: 'string', description: 'unit/quiz 的单元 uid' },
         planId: { type: 'string', description: 'unit 可附带路径上下文' },
-        concept: { type: 'string', description: 'insight 可改为跨资料合并一个概念' },
       }, ['action']),
       output: { schema: {}, render: renderJson },
       async execute(args) {
         const input = args as {
-          action: 'plan' | 'unit' | 'quiz' | 'insight'
+          action: 'plan' | 'concepts' | 'unit' | 'quiz'
           goal?: string
           deliverable?: string
           deadline?: string
@@ -43,7 +42,6 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
           material?: string
           unit?: string
           planId?: string
-          concept?: string
         }
         try {
           if (input.action === 'plan') {
@@ -67,6 +65,15 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
               })),
             }
           }
+          if (input.action === 'concepts') {
+            if (input.material === undefined || input.unit === undefined) {
+              throw new StudyError('invalid', 'concepts 需要 material 与 unit')
+            }
+            return {
+              ok: true,
+              ...(await generation.extractUnitConcepts({ material: input.material, unit: input.unit })),
+            }
+          }
           if (input.action === 'unit') {
             if (input.material === undefined || input.unit === undefined) throw new StudyError('invalid', 'unit 需要 material 与 unit')
             return {
@@ -82,16 +89,7 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
             if (input.material === undefined || input.unit === undefined) throw new StudyError('invalid', 'quiz 需要 material 与 unit')
             return { ok: true, ...(await generation.generateQuiz({ material: input.material, unit: input.unit })) }
           }
-          if (input.concept !== undefined) {
-            return { ok: true, ...(await generation.generateInsights({ concept: input.concept })) }
-          }
-          if (input.material === undefined || input.unit === undefined) {
-            throw new StudyError('invalid', 'insight 需要 material+unit 或 concept')
-          }
-          return {
-            ok: true,
-            ...(await generation.generateInsights({ material: input.material, unit: input.unit })),
-          }
+          throw new StudyError('invalid', `未知 action：${String(input.action)}`)
         } catch (error) {
           return refusal(error)
         }
@@ -134,8 +132,6 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
         action: { type: 'string', enum: ['start', 'answer', 'appeal', 'finish', 'get'] },
         mid: { type: 'string' },
         uid: { type: 'string' },
-        bid: { type: 'string', description: '自编书 id（与 cid 一起）' },
-        cid: { type: 'string', description: '自编书章节 id' },
         sid: { type: 'string' },
         itemId: { type: 'string' },
         answer: {},
@@ -150,8 +146,6 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
           action: 'start' | 'answer' | 'appeal' | 'finish' | 'get'
           mid?: string
           uid?: string
-          bid?: string
-          cid?: string
           sid?: string
           itemId?: string
           answer?: unknown
@@ -162,16 +156,14 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
         }
         try {
           if (input.action === 'start') {
-            if ((input.mid === undefined || input.uid === undefined) && (input.bid === undefined || input.cid === undefined)) {
-              throw new StudyError('invalid', 'start 需要 mid+uid 或 bid+cid')
+            if (input.mid === undefined || input.uid === undefined) {
+              throw new StudyError('invalid', 'start 需要 mid 与 uid')
             }
             return {
               ok: true,
               ...(await sessions.start({
                 ...(input.mid === undefined ? {} : { material: input.mid }),
                 ...(input.uid === undefined ? {} : { unit: input.uid }),
-                ...(input.bid === undefined ? {} : { book: input.bid }),
-                ...(input.cid === undefined ? {} : { chapter: input.cid }),
                 ...(input.limit === undefined ? {} : { limit: input.limit }),
                 ...(input.restart === true ? { restart: true } : {}),
               })),

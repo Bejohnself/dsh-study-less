@@ -11,7 +11,7 @@ import { assertSegment, splitUnitKey } from './ids.ts'
 import type { LibraryPaths } from './paths.ts'
 import { readJson, writeJsonAtomic } from './store.ts'
 import { coverageOf } from './planGate.ts'
-import type { MasteryPoint, PlanRecord, PlanStep } from './types.ts'
+import type { MasteryLevel, PlanRecord, PlanStep } from './types.ts'
 
 /** Read one plan, or null when missing. */
 export async function readPlan(paths: LibraryPaths, planId: string): Promise<PlanRecord | null> {
@@ -118,7 +118,12 @@ export function validatePlan(plan: PlanRecord, targets: PlanTargets): string[] {
  * win over 'skim' ones: the minimal set is what the goal actually needs.
  */
 export function nextStep(plan: PlanRecord): PlanStep | undefined {
-  const open = plan.steps.filter(step => !step.done && coverageOf(step) !== 'skip')
+  const open = plan.steps.filter(
+    step =>
+      (step.kind === 'unit' || step.kind === 'paper-pass') &&
+      !step.done &&
+      coverageOf(step) !== 'skip',
+  )
   return open.find(step => coverageOf(step) === 'read') ?? open[0]
 }
 
@@ -129,36 +134,6 @@ export function stepTarget(step: PlanStep): { material: string; unit: string } |
   return { material: materialId, unit: unitId }
 }
 
-/**
- * The mastery points that belong to one unit.
- *
- * Points without a target are goal-level and never appear in a unit's practice.
- */
-export function masteryPointsFor(plan: PlanRecord, target: string): MasteryPoint[] {
-  return (plan.mastery ?? []).filter(point => point.target === target)
-}
-
-/**
- * Mark one mastery point as passed.
- * This is the single writer of goal-mastery progress: the quiz session calls it
- * after an AI-judged pass. Passing is monotonic, so an appeal that revises an
- * old answer can add evidence but never removes a point.
- */
-export async function markMasteryPassed(
-  paths: LibraryPaths,
-  planId: string,
-  pointId: string,
-  at: string = new Date().toISOString(),
-): Promise<boolean> {
-  const plan = await readPlan(paths, planId)
-  if (plan === null) return false
-  const point = (plan.mastery ?? []).find(candidate => candidate.id === pointId)
-  if (point === undefined || point.passedAt !== undefined) return false
-  point.passedAt = at
-  await writePlan(paths, plan)
-  return true
-}
-
 /** The goal currently driving today; newest active wins. */
 export function activePlan(plans: readonly PlanRecord[]): PlanRecord | undefined {
   return [...plans]
@@ -166,32 +141,30 @@ export function activePlan(plans: readonly PlanRecord[]): PlanRecord | undefined
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
 }
 
-/** Concepts one goal requires in one unit, with the deepest required level. */
-export function goalTargetsForUnit(
-  plan: PlanRecord,
-  target: string,
-): Map<string, { level: MasteryLevel; pointId: string }> {
-  const out = new Map<string, { level: MasteryLevel; pointId: string }>()
-  for (const point of plan.mastery ?? []) {
-    if (point.target !== target) continue
-    for (const conceptId of point.concepts ?? []) {
-      const level = point.level ?? 2
-      const existing = out.get(conceptId)
-      if (existing === undefined || level > existing.level) out.set(conceptId, { level, pointId: point.id })
-    }
+/** Depth this goal asks of one section; a repeated step keeps the deepest. */
+export function goalLevelOf(plan: PlanRecord, target: string): MasteryLevel {
+  let level: MasteryLevel | undefined
+  for (const step of plan.steps) {
+    if (step.target !== target) continue
+    const stepLevel = step.level ?? 2
+    if (level === undefined || stepLevel > level) level = stepLevel
   }
-  return out
+  return level ?? 2
 }
 
-/** Every concept one goal requires, with its deepest level. */
-export function goalConcepts(plan: PlanRecord): Map<string, MasteryLevel> {
+/**
+ * Sections this goal requires, in route order, at their deepest level.
+ *
+ * A goal never lists concepts: they belong to the section (`units/<uid>/meta`).
+ * The goal says which sections matter and how deep, and nothing else.
+ */
+export function goalSections(plan: PlanRecord): Array<{ target: string; level: MasteryLevel }> {
   const out = new Map<string, MasteryLevel>()
-  for (const point of plan.mastery ?? []) {
-    for (const conceptId of point.concepts ?? []) {
-      const level = point.level ?? 2
-      const existing = out.get(conceptId)
-      if (existing === undefined || level > existing) out.set(conceptId, level)
-    }
+  for (const step of plan.steps) {
+    if (step.target === undefined || step.coverage === 'skip') continue
+    const level = step.level ?? 2
+    const existing = out.get(step.target)
+    if (existing === undefined || level > existing) out.set(step.target, level)
   }
-  return out
+  return [...out].map(([target, level]) => ({ target, level }))
 }

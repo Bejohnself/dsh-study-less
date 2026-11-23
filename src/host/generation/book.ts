@@ -152,8 +152,8 @@ export async function runBookChapter(svc: GenerationService, bookId: string, cha
       pageStart: Math.min(...chapter.sourceRefs.map(ref => ref.pageStart)),
       pageEnd: Math.max(...chapter.sourceRefs.map(ref => ref.pageEnd)),
     }
-    const issues = validateQuizBank(normalized.exercises, range)
-    if (issues.length > 0) throw new StudyError('invalid', '章节练习未通过校验', { issues })
+    const validation = validateQuizBank(normalized.exercises, range)
+    if (!validation.ok) throw new StudyError('invalid', '章节练习未通过校验', { issues: validation.issues })
     await svc.deps.books.writeChapter(bookId, chapterId, {
       body: normalized.body,
       summary: normalized.summary,

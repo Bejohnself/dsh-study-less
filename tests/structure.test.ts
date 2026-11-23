@@ -79,7 +79,7 @@ test('a chapter that opens a fresh page ends its predecessor before it', () => {
   assert.equal(byTitle(nodes, '第2章 新章').pageEnd, 2)
 })
 
-test('paper passes keep the whole document and sections share the page they start on', () => {
+test('a paper uses sections without generating three reading passes', () => {
   const pages = pagesOf([
     ['Abstract', '1 Introduction', 'body'],
     ['intro continued', 'still the introduction', '2 Method', 'method body'],
@@ -90,13 +90,8 @@ test('paper passes keep the whole document and sections share the page they star
     { title: '2 Method', level: 1, page: 2 },
   ]
   const nodes = buildStructure({ type: 'paper', numPages: 3, outline, pages })
-  const passes = nodes.filter(node => node.kind === 'pass')
 
-  assert.equal(passes.length, 3)
-  for (const pass of passes) {
-    assert.equal(pass.pageStart, 1)
-    assert.equal(pass.pageEnd, 3)
-  }
+  assert.equal(nodes.filter(node => node.kind === 'pass').length, 0)
   assert.equal(byTitle(nodes, '1 Introduction').pageEnd, 2)
   assert.equal(byTitle(nodes, '2 Method').pageEnd, 3)
 })

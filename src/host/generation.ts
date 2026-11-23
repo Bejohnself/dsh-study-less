@@ -14,19 +14,23 @@ import { JobQueue, type JobContext } from './jobs.ts'
 import type { InsightService } from './insights.ts'
 import { parseJsonObject, repairPrompt } from './generate/prompts.ts'
 import { textProviderFrom, type EngineDeps } from './providers/index.ts'
-import type { JudgePromptInput, MasteryQuizPromptInput, QuestionPromptInput, QuizJudgePromptInput, SectionJudgePromptInput } from './generate/prompts.ts'
+import type { QuizJudgePromptInput } from './generate/prompts.ts'
 import type { SettingsService } from './settings.ts'
 import type { BookService } from './books.ts'
 import { StudyError, type StudyService } from './service.ts'
-import { ask, generateMasteryQuiz, generateQuestions, judgeAnswer, judgeQuizAnswer, judgeSectionPassed, testEngine } from './generation/chat.ts'
+import { ask, judgeQuizAnswer, testEngine } from './generation/chat.ts'
 import { generatePlan, retryPlan, runPlan } from './generation/plan.ts'
 import { generateUnit, runUnit } from './generation/unit.ts'
 import { generateQuiz, moreQuizItems, runQuiz, runQuizInternal, type MoreQuizItemsInput } from './generation/quiz.ts'
-import { extractConcepts, type ExtractedConcept } from './generation/concepts.ts'
+import { extractConcepts, extractUnitConcepts, type ExtractedConcept } from './generation/concepts.ts'
 import { generateBlocks, runBlocks } from './generation/blocks.ts'
 import { generateInsights, runUnitInsights, runUnitInsightsInternal, runConceptInsights } from './generation/insight.ts'
 import { generateBookOutline, generateBookChapter, generateBookContinuity, runBookOutline, runBookChapter, runBookContinuity } from './generation/book.ts'
+import type { GenerateBlocksInput, GenerateInsightInput, GeneratePlanInput, GenerateQuizInput, GenerateUnitInput, GeneratedQuestion } from './generation/shared.ts'
+export type { GenerateBlocksInput, GenerateInsightInput, GeneratePlanInput, GenerateQuizInput, GenerateUnitInput, GeneratedQuestion } from './generation/shared.ts'
 import { issuesOf } from './generation/normalize.ts'
+import type { UsageService } from './usage.ts'
+import type { UsageCallView } from '../core/views.ts'
 
 /**
  * The small window's only job: answer the one spot being read, then leave.
@@ -42,57 +46,12 @@ export interface GenerationDeps extends EngineDeps {
   settings: SettingsService
   jobs: JobQueue
   books: BookService
-}
-
-/** Plan generation input. */
-export interface GeneratePlanInput {
-  goal: string
-  brief?: string
-  materials: string[]
-  hoursPerWeek?: number
-  depth?: 'deep' | 'overview'
-  deliverable?: string
-  deadline?: string
-  audience?: string
-}
-
-/** Unit generation input. */
-export interface GenerateUnitInput {
-  material: string
-  unit: string
-  planId?: string
-  /** Maximum source characters sent to the model. */
-  maxChars?: number
-}
-
-/** Quiz generation input. */
-export interface GenerateQuizInput {
-  material: string
-  unit: string
-}
-
-/** Insight generation input: one unit or one cross-material concept. */
-export interface GenerateBlocksInput {
-  material: string
-  unit: string
-}
-
-export interface GenerateInsightInput {
-  material?: string
-  unit?: string
-  concept?: string
+  usage: UsageService
 }
 
 type Prompt = { system: string; user: string }
 
 /** A judgement is a short call; do not let it hang the panel. */
-
-/** One question the generator wrote. */
-export interface GeneratedQuestion {
-  q: string
-  why?: string
-  ref?: string
-}
 
 /** What the judge decided about one written answer. */
 export interface JudgeResult {
@@ -102,6 +61,7 @@ export interface JudgeResult {
   confidence: number
   engine: string
   model?: string
+  usage?: UsageCallView
 }
 
 
@@ -143,6 +103,7 @@ export class GenerationService {
       signal: context.signal,
       onProgress: chars => context.report(0.12 + Math.min(0.55, (chars / 8000) * 0.55), `生成中… ${chars} 字`),
     })
+    context.addUsage(await this.deps.usage.record(first.usage))
     context.report(0.7, '校验输出…')
     let issues: string[]
     try {
@@ -158,6 +119,7 @@ export class GenerationService {
       signal: context.signal,
       onProgress: chars => context.report(0.78 + Math.min(0.15, (chars / 8000) * 0.15), `修复中… ${chars} 字`),
     })
+    context.addUsage(await this.deps.usage.record(second.usage))
     try {
       return await accept(parseJsonObject(second.text))
     } catch (error) {
@@ -179,7 +141,7 @@ export class GenerationService {
     return generateUnit(this, input)
   }
 
-  async ask(input: { material: string; unit: string; page?: number; question: string }): Promise<{ answer: string }> {
+  async ask(input: { material: string; unit: string; page?: number; question?: string; quote?: string; action?: string }): Promise<{ answer: string; truncated?: boolean; usage: UsageCallView }> {
     return ask(this, input)
   }
 
@@ -219,25 +181,8 @@ export class GenerationService {
     return runBookContinuity(this, bookId, context)
   }
 
-  async generateQuestions(input: QuestionPromptInput, signal?: AbortSignal): Promise<{ questions: GeneratedQuestion[]; engine: string; model?: string }> {
-    return generateQuestions(this, input, signal)
-  }
-
-  async judgeAnswer(input: JudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
-    return judgeAnswer(this, input, signal)
-  }
-
   async judgeQuizAnswer(input: QuizJudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
     return judgeQuizAnswer(this, input, signal)
-  }
-
-  async masteryQuiz(input: MasteryQuizPromptInput, signal?: AbortSignal): Promise<{ items: QuizItem[]; engine: string; model?: string }> {
-    return generateMasteryQuiz(this, input, signal)
-  }
-
-  /** Confirm that every knowledge point of one section has passed. */
-  async sectionPassed(input: SectionJudgePromptInput, signal?: AbortSignal): Promise<JudgeResult> {
-    return judgeSectionPassed(this, input, signal)
   }
 
   /** Write extra questions for the points still pending in a session. */
@@ -248,6 +193,11 @@ export class GenerationService {
   /** Extract the knowledge points of one unit, so practice has a target list. */
   async extractConcepts(input: { material: string; unit: string }): Promise<ExtractedConcept[]> {
     return extractConcepts(this, input)
+  }
+
+  /** Extract and write one unit's knowledge points; idempotent when it has some. */
+  async extractUnitConcepts(input: { material: string; unit: string }): Promise<{ ids: string[]; extracted: number }> {
+    return extractUnitConcepts(this, input)
   }
 
   async testEngine(kind: 'text' | 'image' | 'animation' | 'embedding'): Promise<Record<string, unknown>> {

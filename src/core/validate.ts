@@ -47,7 +47,8 @@ export interface ValidationResult {
 /** Normalize heading text for comparison (strip markdown markers). */
 function headingOf(line: string): string | null {
   const match = /^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$/.exec(line)
-  return match === null ? null : match[1].trim()
+  const title = match?.[1]
+  return title === undefined ? null : title.trim()
 }
 
 /** Validate generated notes against the unit contract. */

@@ -87,8 +87,16 @@ export class OpenAiTextProvider implements TextProvider {
     const payload = (await response.json().catch(() => null)) as
       | {
           model?: string
-          choices?: Array<{ message?: { content?: unknown } }>
-          usage?: { prompt_tokens?: number; completion_tokens?: number }
+          choices?: Array<{ message?: { content?: unknown }; finish_reason?: string }>
+          usage?: {
+            prompt_tokens?: number
+            completion_tokens?: number
+            prompt_tokens_details?: { cached_tokens?: number }
+            cache_read_input_tokens?: number
+            cost?: number
+            total_cost?: number
+            currency?: string
+          }
         }
       | null
     const content = payload?.choices?.[0]?.message?.content
@@ -100,15 +108,28 @@ export class OpenAiTextProvider implements TextProvider {
           : ''
     if (text.trim().length === 0) throw new ProviderError('empty', '文本接口返回了空内容')
     request.onProgress?.(text.length)
+    const cachedTokens = payload?.usage?.prompt_tokens_details?.cached_tokens
+      ?? payload?.usage?.cache_read_input_tokens
+    const inputTokens = payload?.usage?.prompt_tokens === undefined
+      ? undefined
+      : Math.max(0, payload.usage.prompt_tokens - (cachedTokens ?? 0))
     return {
       text,
       ...(payload?.model === undefined ? {} : { model: payload.model }),
+      ...(payload?.choices?.[0]?.finish_reason === 'length' ? { truncated: true } : {}),
       ...(payload?.usage === undefined
         ? {}
         : {
             usage: {
-              ...(payload.usage.prompt_tokens === undefined ? {} : { inputTokens: payload.usage.prompt_tokens }),
+              ...(inputTokens === undefined ? {} : { inputTokens }),
+              ...(cachedTokens === undefined ? {} : { cacheReadTokens: cachedTokens }),
               ...(payload.usage.completion_tokens === undefined ? {} : { outputTokens: payload.usage.completion_tokens }),
+              ...(payload.usage.cost === undefined
+                ? payload.usage.total_cost === undefined
+                  ? {}
+                  : { cost: payload.usage.total_cost }
+                : { cost: payload.usage.cost }),
+              ...(payload.usage.currency === undefined ? {} : { currency: payload.usage.currency }),
             },
           }),
     }

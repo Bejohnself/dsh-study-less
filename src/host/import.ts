@@ -50,16 +50,15 @@ function titleFromPath(filePath: string): string {
 }
 
 /** Guess whether a PDF is a paper by shape rather than by user input. */
-function inferType(
-  numPages: number,
+export function inferType(
   outlineTitles: readonly string[],
   firstPageText: string,
 ): MaterialType {
   const lowered = outlineTitles.map(title => title.toLowerCase())
   const hasPaperShape =
     lowered.some(title => title.includes('abstract') || title.includes('introduction')) ||
-    /arxiv|abstract|doi:/i.test(firstPageText.slice(0, 4000))
-  return numPages <= 40 && hasPaperShape ? 'paper' : 'book'
+    /arxiv|abstract|\bdoi\b/i.test(firstPageText.slice(0, 4000))
+  return hasPaperShape ? 'paper' : 'book'
 }
 
 /**
@@ -90,7 +89,6 @@ export async function importMaterial(paths: LibraryPaths, request: ImportRequest
   const type =
     request.type ??
     inferType(
-      extraction.numPages,
       extraction.outline.map(entry => entry.title),
       extraction.pages[0]?.text ?? '',
     )

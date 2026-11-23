@@ -6,9 +6,9 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { BookSummary, MaterialCard, MaterialStateView, TocRow } from '../../core/views.ts'
+import type { MaterialCard, MaterialStateView, TocRow } from '../../core/views.ts'
 import { api, errorText, post } from '../api.ts'
-import { isDone, typeLabel } from '../labels.ts'
+import { typeLabel } from '../labels.ts'
 import { BookCover } from '../components/cover.tsx'
 import { UnitReader } from '../components/reader.tsx'
 import { EmptyState, Toast } from '../components/ui.tsx'
@@ -17,20 +17,22 @@ import { EmptyState, Toast } from '../components/ui.tsx'
 export function LibraryPage({
   onOpen,
   onImport,
-  onOpenBook,
+  onChanged,
   refreshToken,
 }: {
   onOpen: (id: string) => void
   onImport: () => void
-  onOpenBook: (bid: string) => void
+  onChanged?: () => void
   refreshToken: number
 }): ReactElement {
   const [cards, setCards] = useState<MaterialCard[] | null>(null)
-  const [books, setBooks] = useState<BookSummary[]>([])
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'new' | 'learning' | 'done'>('all')
   const [showArchived, setShowArchived] = useState(false)
+  const [menu, setMenu] = useState<string | null>(null)
+  const [reloadToken, setReloadToken] = useState(0)
+  const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -46,21 +48,40 @@ export function LibraryPage({
     return () => {
       alive = false
     }
-  }, [refreshToken, showArchived])
+  }, [refreshToken, showArchived, reloadToken])
 
   useEffect(() => {
-    let alive = true
-    api<BookSummary[]>('/books')
-      .then(value => {
-        if (alive) setBooks(value)
-      })
-      .catch(() => {
-        if (alive) setBooks([])
-      })
-    return () => {
-      alive = false
+    if (toast === null) return
+    const timer = window.setTimeout(() => setToast(null), 3200)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
+  const archive = async (card: MaterialCard): Promise<void> => {
+    const archived = card.archived !== true
+    if (!window.confirm(archived ? '归档后从书架隐藏，已学进度和路径仍保留。继续？' : '恢复这本资料到书架？')) return
+    try {
+      await post('/material/archive', { mid: card.id, archived })
+      setMenu(null)
+      setToast({ message: archived ? '已归档。' : '已恢复。', tone: 'ok' })
+      setReloadToken(value => value + 1)
+      onChanged?.()
+    } catch (reason) {
+      setToast({ message: errorText(reason), tone: 'error' })
     }
-  }, [refreshToken])
+  }
+
+  const removeMaterial = async (card: MaterialCard): Promise<void> => {
+    if (!window.confirm('删除这份资料及它的练习、进度？此操作不可恢复。')) return
+    try {
+      await post('/material/delete', { mid: card.id })
+      setMenu(null)
+      setToast({ message: '资料已删除。', tone: 'ok' })
+      setReloadToken(value => value + 1)
+      onChanged?.()
+    } catch (reason) {
+      setToast({ message: errorText(reason), tone: 'error' })
+    }
+  }
 
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase()
@@ -107,29 +128,6 @@ export function LibraryPage({
           ＋ 导入
         </button>
       </div>
-
-      {books.length === 0 ? null : (
-        <section className="study-book-shelf">
-          <h3>自编书</h3>
-          <div className="study-book-shelf-grid">
-            {books.map(book => (
-              <button key={book.id} type="button" className="study-book-mini" onClick={() => onOpenBook(book.id)}>
-                <span className="study-book-mini-cover" aria-hidden="true">
-                  {book.title.slice(0, 2)}
-                </span>
-                <span className="study-book-mini-main">
-                  <span className="study-insight-kind">自编书</span>
-                  <span className="study-book-title">{book.title}</span>
-                  <span className="study-item-meta">
-                    {book.done}/{book.chapters} 章已生成 · {book.status === 'ready' ? '可读' : '编排中'}
-                  </span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
       {filtered.length === 0 ? (
         <div className="study-empty">没有符合筛选的资料。</div>
       ) : (
@@ -137,94 +135,69 @@ export function LibraryPage({
           {filtered.map(card => {
             const percent = card.units === 0 ? 0 : Math.round((card.learnedUnits / card.units) * 100)
             return (
-              <button key={card.id} type="button" className="study-cover-card" onClick={() => onOpen(card.id)}>
-                <BookCover mid={card.id} title={card.title} />
-                <span className="study-cover-badges">
-                  <span className="study-cover-badges-left">
-                    <span className={`study-badge study-badge-${card.type}`}>{typeLabel(card.type)}</span>
-                    {card.archived === true ? <span className="study-badge study-badge-archive">已归档</span> : null}
-                  </span>
-                  {card.dueCount > 0 ? <span className="study-due-badge">{card.dueCount} 待复习</span> : null}
-                </span>
-                <span className="study-cover-foot">
-                  <span className="study-cover-title">{card.title}</span>
-                  <span className="study-cover-meta">
-                    {[card.authors.slice(0, 2).join(' · '), card.year, `${card.pages} 页`, `${card.units} 单元`]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </span>
-                  <span className="study-cover-progress">
-                    <span className="study-progress-bar">
-                      <span style={{ width: `${percent}%` }} />
+              <div key={card.id} className="study-cover-slot">
+                <button type="button" className="study-cover-card" onClick={() => onOpen(card.id)}>
+                  <BookCover mid={card.id} title={card.title} />
+                  <span className="study-cover-badges">
+                    <span className="study-cover-badges-left">
+                      <span className={`study-badge study-badge-${card.type}`}>{typeLabel(card.type)}</span>
+                      {card.archived === true ? <span className="study-badge study-badge-archive">已归档</span> : null}
                     </span>
-                    <span className="study-cover-progress-text">
-                      {card.learnedUnits}/{card.units} 已学{card.verifiedUnits > 0 ? ` · ${card.verifiedUnits} 节已校验` : ''}
+                    {card.dueCount > 0 ? <span className="study-due-badge">{card.dueCount} 待复习</span> : null}
+                  </span>
+                  <span className="study-cover-foot">
+                    <span className="study-cover-title">{card.title}</span>
+                    <span className="study-cover-meta">
+                      {[card.authors.slice(0, 2).join(' · '), card.year, `${card.pages} 页`, `${card.units} 单元`]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                    <span className="study-cover-progress">
+                      <span className="study-progress-bar">
+                        <span style={{ width: `${percent}%` }} />
+                      </span>
+                      <span className="study-cover-progress-text">
+                        {card.learnedUnits}/{card.units} 已学{card.verifiedUnits > 0 ? ` · ${card.verifiedUnits} 节已校验` : ''}
+                      </span>
                     </span>
                   </span>
-                </span>
-              </button>
+                </button>
+                <div className="study-cover-menu-wrap">
+                  <button
+                    type="button"
+                    className="study-cover-menu-btn"
+                    aria-label="资料操作"
+                    onClick={() => setMenu(menu === card.id ? null : card.id)}
+                  >
+                    ⋯
+                  </button>
+                  {menu === card.id ? (
+                    <div className="study-menu" onMouseLeave={() => setMenu(null)}>
+                      <button type="button" onClick={() => void archive(card)}>
+                        {card.archived === true ? '恢复' : '归档'}
+                      </button>
+                      <button type="button" className="study-danger-text" onClick={() => void removeMaterial(card)}>
+                        删除
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             )
           })}
         </div>
       )}
+      {toast !== null ? <Toast message={toast.message} tone={toast.tone} /> : null}
     </div>
   )
 }
 
-/** Table of contents with completion checkboxes. */
-function TocList({
-  state,
-  current,
-  onSelect,
-  onToggle,
-  busy,
-}: {
-  state: MaterialStateView
-  current: string | null
-  onSelect: (uid: string) => void
-  onToggle: (row: TocRow, done: boolean) => void
-  busy: string | null
-}): ReactElement {
-  return (
-    <nav className="study-toc" aria-label="目录">
-      {state.toc.map(row => {
-        const done = isDone(row)
-        const active = current === row.uid
-        return (
-          <div key={row.uid} className={`study-toc-row${active ? ' is-active' : ''}${row.kind === 'pass' ? ' is-pass' : ''}`}>
-            <input
-              type="checkbox"
-              className="study-check"
-              checked={done}
-              disabled={busy === row.uid}
-              aria-label={`标记「${row.title}」学完`}
-              onChange={event => onToggle(row, event.target.checked)}
-            />
-            <button type="button" className="study-toc-title" onClick={() => onSelect(row.uid)}>
-              <span className="study-toc-text">{row.title}</span>
-              <span className="study-toc-meta">
-                p{row.pageStart}
-                {row.pageEnd > row.pageStart ? `–${row.pageEnd}` : ''}
-                {row.status === 'verified' ? ' · 已校验' : row.status === 'drafted' ? ' · 有导读' : ''}
-                {row.due !== undefined ? ` · ${row.due} 到期` : ''}
-              </span>
-            </button>
-          </div>
-        )
-      })}
-    </nav>
-  )
-}
-
-/** Material detail: TOC + shared reader. */
+/** Material detail: the shared reader, nothing else. */
 export function MaterialPage({
   mid,
   initialUid,
   planId,
   onBack,
-  onOpenConcept,
-  onOpenInsight,
-  onOpenPlan,
   onOpenQuiz,
   onChanged,
   refreshToken,
@@ -233,10 +206,6 @@ export function MaterialPage({
   initialUid?: string
   planId?: string
   onBack: () => void
-  onOpenConcept: (cid: string) => void
-  onOpenInsight: (iid: string) => void
-  /** Jump to the goal this range belongs to. */
-  onOpenPlan?: (pid: string) => void
   /** Leave the reader for the unit's practice page. */
   onOpenQuiz?: (mid: string, unit: TocRow, planId?: string) => void
   onChanged?: () => void
@@ -245,8 +214,6 @@ export function MaterialPage({
   const [state, setState] = useState<MaterialStateView | null>(null)
   const [current, setCurrent] = useState<string | null>(initialUid ?? null)
   const [error, setError] = useState<string | null>(null)
-  const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
 
   const reload = useCallback(async () => {
     const value = await api<MaterialStateView>(`/material?mid=${encodeURIComponent(mid)}`)
@@ -264,137 +231,32 @@ export function MaterialPage({
     }
   }, [reload, refreshToken])
 
-  useEffect(() => {
-    if (toast === null) return
-    const timer = window.setTimeout(() => setToast(null), 3200)
-    return () => window.clearTimeout(timer)
-  }, [toast])
-
-  const toggle = useCallback(
-    async (row: TocRow, done: boolean) => {
-      if (state === null) return
-      setBusy(row.uid)
-      try {
-        if (done) {
-          await post('/unit/complete', { mid, uid: row.uid, rating: 3 })
-          setToast({ message: '已记下首次学习，明天进入复习。', tone: 'ok' })
-        } else {
-          await post('/unit/uncomplete', { mid, uid: row.uid })
-          setToast({ message: '已取消勾选。', tone: 'ok' })
-        }
-        await reload()
-        onChanged?.()
-      } catch (reason) {
-        setToast({ message: errorText(reason), tone: 'error' })
-      } finally {
-        setBusy(null)
-      }
-    },
-    [mid, onChanged, reload, state],
-  )
-
-  const removeMaterial = async (): Promise<void> => {
-    if (state === null) return
-    if (!window.confirm('删除这份资料及它的导读、练习、进度？此操作不可恢复。')) return
-    try {
-      await post('/material/delete', { mid })
-      onChanged?.()
-      onBack()
-    } catch (reason) {
-      setToast({ message: errorText(reason), tone: 'error' })
-    }
-  }
-
-  const archive = async (): Promise<void> => {
-    if (state === null) return
-    const archived = state.material.archived !== true
-    if (!window.confirm(archived ? '归档后从清单隐藏，已学进度和路径仍保留。继续？' : '恢复这本资料到清单？')) return
-    try {
-      await post('/material/archive', { mid, archived })
-      setToast({ message: archived ? '已归档。' : '已恢复。', tone: 'ok' })
-      await reload()
-      onChanged?.()
-    } catch (reason) {
-      setToast({ message: errorText(reason), tone: 'error' })
-    }
-  }
-
   if (error !== null) return <div className="study-empty">无法读取这本资料：{error}</div>
   if (state === null) return <div className="study-empty">正在载入目录…</div>
 
-  const next = state.next === undefined ? null : (state.toc.find(row => row.uid === state.next) ?? null)
+  if (current === null) {
+    return (
+      <div className="study-material">
+        <button type="button" className="study-back" onClick={onBack}>
+          ← 返回
+        </button>
+        <div className="study-empty">这份资料还没有可读的节。</div>
+      </div>
+    )
+  }
 
   return (
     <div className="study-material">
-      <div className="study-material-head">
-        <button type="button" className="study-back" onClick={onBack}>
-          ← 清单
-        </button>
-        <div className="study-reader-title">
-          <h2>
-            {state.material.title}
-            {state.material.archived === true ? <span className="study-badge study-badge-archive">已归档</span> : null}
-          </h2>
-          <span className="study-reader-sub">
-            {typeLabel(state.material.type)} · {state.material.units} 单元 · {state.material.learnedUnits} 已学
-            {state.material.dueCount > 0 ? ` · ${state.material.dueCount} 待复习` : ''}
-          </span>
-        </div>
-        <div className="study-inline">
-          {next !== null ? (
-            <button type="button" className="study-next" onClick={() => setCurrent(next.uid)}>
-              下一步：{next.title}
-            </button>
-          ) : null}
-          <button type="button" className="study-ghost" onClick={() => void archive()}>
-            {state.material.archived === true ? '恢复' : '归档'}
-          </button>
-          <button type="button" className="study-ghost study-danger-text" onClick={() => void removeMaterial()}>
-            删除
-          </button>
-        </div>
-      </div>
-
-      {current === null ? (
-        <div className="study-body">
-          <TocList
-            state={state}
-            current={current}
-            busy={busy}
-            onSelect={setCurrent}
-            onToggle={(row, done) => {
-              void toggle(row, done)
-            }}
-          />
-          <div className="study-content">
-            <div className="study-empty">从左侧目录选一节开始。</div>
-          </div>
-        </div>
-      ) : (
-        // The reader owns the full width: its own header carries the section,
-        // the page range and the actions, and the table of contents becomes a
-        // drawer. Nesting it in the 296px column is what squeezed the PDF.
-        <UnitReader
-          mid={mid}
-          uid={current}
-          toc={state.toc}
-          onSelectUnit={setCurrent}
-          {...(planId === undefined ? {} : { planId })}
-          onBack={() => {
-            // Opening from a goal: back leaves the range and returns to the
-            // goal panel, not to an empty reader.
-            if (planId !== undefined) onBack()
-            else setCurrent(null)
-          }}
-          onOpenConcept={onOpenConcept}
-          onOpenInsight={onOpenInsight}
-          {...(onOpenPlan === undefined ? {} : { onOpenPlan })}
-          {...(onOpenQuiz === undefined ? {} : { onOpenQuiz: unit => onOpenQuiz(mid, unit, planId) })}
-          onChanged={onChanged}
-        />
-      )}
-
-      {toast !== null ? <Toast message={toast.message} tone={toast.tone} /> : null}
+      <UnitReader
+        mid={mid}
+        uid={current}
+        toc={state.toc}
+        onSelectUnit={setCurrent}
+        {...(planId === undefined ? {} : { planId })}
+        onBack={onBack}
+        {...(onOpenQuiz === undefined ? {} : { onOpenQuiz: unit => onOpenQuiz(mid, unit, planId) })}
+        onChanged={onChanged}
+      />
     </div>
   )
 }

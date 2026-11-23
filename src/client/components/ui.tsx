@@ -9,6 +9,7 @@ import type { ReactElement, ReactNode } from 'react'
 import type { JobView } from '../../core/views.ts'
 import { jobStatusLabel } from '../labels.ts'
 import { renderInlineMarkdown, renderMarkdown } from '../markdown.ts'
+import { UsageNote } from './usage.tsx'
 import { getPreference, setPreference, subscribePreference, type ThemePreference } from '../theme.ts'
 
 /** A small toast that disappears on its own. */
@@ -209,6 +210,7 @@ export function JobBanner({ job, onCancel }: { job: JobView; onCancel?: () => vo
         ) : null}
       </div>
       <ProgressBar percent={job.progress * 100} />
+      {job.usage === undefined ? null : <UsageNote usage={job.usage} />}
       {job.error === undefined ? null : <p className="study-form-error">{job.error}</p>}
       {job.issues === undefined || job.issues.length === 0 ? null : (
         <ul className="study-job-issues">

@@ -10,7 +10,9 @@ import { parseJsonObject, quizPrompt } from '../generate/prompts.ts'
 import { textProviderFrom } from '../providers/index.ts'
 import { StudyError } from '../service.ts'
 import type { GenerationService } from '../generation.ts'
+import type { GenerateQuizInput } from './shared.ts'
 import { normalizeQuizItems } from './normalize.ts'
+import { QUIZ_WRITE_TIMEOUT_MS, completeStructured } from './shared.ts'
 
 export async function generateQuiz(svc: GenerationService, input: GenerateQuizInput): Promise<{ jobId: string }> {
   if (!(await svc.textReady())) throw new StudyError('unsupported', '还没有配置文本引擎')
@@ -91,11 +93,22 @@ export async function moreQuizItems(svc: GenerationService, input: MoreQuizItems
   })
   const settings = await svc.requireSettings()
   const provider = textProviderFrom(settings, svc.deps)
-  const result = await provider.complete({
-    system: prompt.system,
-    user: prompt.user,
-    temperature: 0.4,
-    maxTokens: 3000,
-  })
-  return normalizeQuizItems(parseJsonObject(result.text)).slice(0, input.count)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), QUIZ_WRITE_TIMEOUT_MS)
+  try {
+    const result = await completeStructured(provider, {
+      system: prompt.system,
+      user: prompt.user,
+      temperature: 0.4,
+      maxTokens: 4_096,
+      signal: controller.signal,
+    })
+    await svc.deps.usage.record(result.usage)
+    return normalizeQuizItems(parseJsonObject(result.text)).slice(0, input.count)
+  } catch (error) {
+    if (controller.signal.aborted) throw new StudyError('unsupported', '补题超时：稍后再试')
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
 }

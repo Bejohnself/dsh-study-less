@@ -31,7 +31,7 @@ export function goalPrompt(plan: PlanRecord, manifests: readonly MaterialManifes
     catalogue,
     '',
     '请按顺序执行：',
-    `1. 用 study_library 确认资料与单元；然后用 study_plan_update 把计划 ${plan.id} 的步骤（unit / paper-pass / drill / compare，每步 why 必须呼应目标，只选真正相关的单元）和 mastery（3–8 个掌握点：title、可判定的 standard、target=<material>:<unit>）一起写出来。Host 会在步骤写入后把它转为 active。`,
+    `1. 用 study_library 确认资料与单元；然后用 study_plan_update 把计划 ${plan.id} 的步骤（只允许 unit / paper-pass，每步 why 必须呼应目标，只选真正相关的单元）和 mastery（3–8 个掌握点：title、可判定的 standard、target=<material>:<unit>）一起写出来。Host 会在步骤写入后把它转为 active。`,
     '2. 从最核心的单元开始：study_unit_material → 按目标重写精读稿（保留固定八节，其中「逐步讲解」优先展开与目标相关的部分，并在「常见误区」后加一段「与目标的关系」）→ study_unit_write → study_unit_verify。',
     '3. 先做 1 节样例，让我确认风格，再继续其余单元；不要一次生成整本书。',
     '4. 全部完成后用三句话总结这条路径与下一步。',

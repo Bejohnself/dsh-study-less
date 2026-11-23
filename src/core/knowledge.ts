@@ -3,14 +3,16 @@
  *
  * Practice answers, reviews and time all write here. A section is only a
  * source of questions; it is never a second progress store. Each record keeps
- * a mastery estimate, its FSRS schedule and deduplicated evidence, so repeating
- * the same question can never inflate progress.
+ * its evidence, a mastery estimate derived from it, and its FSRS schedule, so
+ * repeating the same question can never inflate progress.
  *
- * Decay is computed on read, not written: a concept does not lose history just
- * because the app was closed for a month.
+ * Mastery is recomputed from the evidence whenever it changes: every answer is
+ * folded in time order and the idle time between two answers decays the estimate
+ * first. That is why a month away is not silently undone by the next answer,
+ * and why an appeal can amend one verdict without rewriting history.
  */
 import type { LibraryPaths } from './paths.ts'
-import { initialCard, intervalDays, reviewCard } from './srs.ts'
+import { MAX_STABILITY, initialCard, intervalDays, reviewCard } from './srs.ts'
 import { readJson, updateJson, writeJsonAtomic } from './store.ts'
 import { addDays, daysBetween, localDate } from './time.ts'
 import type { ConceptProgress, MasteryLevel, ProgressFile, Rating, SrsCard } from './types.ts'
@@ -35,6 +37,16 @@ export const DECAY_FLOOR_RATIO = 0.5
 export const MAX_SCHEDULE_DAYS = 180
 /** A concept is only settled when the next review is at least this far out. */
 export const SETTLE_MIN_DAYS = 30
+/** Mastery a concept starts from before any evidence. */
+export const START_MASTERY = 0.5
+/** Gain per answer by difficulty (easy / normal / hard). */
+export const LEARNING_RATE: Readonly<Record<1 | 2 | 3, number>> = { 1: 0.14, 2: 0.18, 3: 0.22 }
+/** A wrong answer costs a tenth of the current estimate, not a quarter. */
+export const FAIL_FACTOR = 0.9
+/** Below target a concept is due again within this many days. */
+export const MAX_OPEN_INTERVAL_DAYS = 7
+/** An appeal that wins counts, but never at full weight. */
+export const APPEAL_WEIGHT = 0.7
 
 /** What one answer proved. */
 export type EvidenceVerdict = 'pass' | 'partial' | 'fail'
@@ -44,6 +56,8 @@ export interface ConceptEvidence {
   verdict: EvidenceVerdict
   difficulty: 1 | 2 | 3
   at: string
+  /** 1 by default; a verdict won on appeal counts less. */
+  weight?: number
 }
 
 /** The state of one concept in the knowledge space. */
@@ -58,8 +72,6 @@ export interface ConceptState {
   /** Local date `YYYY-MM-DD` of the next review. */
   due?: string
   srs: SrsCard
-  /** Per-concept target override; absent means the default. */
-  target?: number
   /** Set when the concept is done for the current horizon. */
   settledAt?: string
   /** Question fingerprint → latest verdict. One question counts once. */
@@ -81,6 +93,8 @@ export interface EvidenceInput {
   verdict: EvidenceVerdict
   difficulty?: 1 | 2 | 3
   at?: string
+  /** Weight of this answer on the gain side; an appeal-won pass uses 0.7. */
+  weight?: number
 }
 
 /** An empty knowledge document. */
@@ -115,30 +129,68 @@ function ratingFor(verdict: EvidenceVerdict, difficulty: 1 | 2 | 3): Rating {
   return difficulty >= 3 ? 3 : 4
 }
 
-/** Mastery gain for one answer; a repeated question counts as review. */
-function nextMastery(
-  state: ConceptState,
-  verdict: EvidenceVerdict,
-  difficulty: 1 | 2 | 3,
-  repeat: boolean,
-): number {
-  const factor = repeat ? 0.3 : 1
-  if (verdict === 'fail') return clamp01(state.mastery * (1 - 0.25 * factor))
-  const credit = verdict === 'pass' ? 1 : 0.5
-  const learningRate = (0.1 + 0.05 * (difficulty - 1)) * factor * credit
-  return clamp01(state.mastery + learningRate * (1 - state.mastery))
-}
-
 function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0
   return Math.min(1, Math.max(0, Number(value.toFixed(4))))
 }
 
+/**
+ * Decay one estimate from `from` to `to`, toward a floor under the peak.
+ *
+ * Pure: it never writes, so a read is always a function of the ledger and the
+ * clock, never of how often something was opened.
+ */
+function decayTo(mastery: number, peak: number, from: string, to: string): number {
+  const days = daysBetween(from, to)
+  if (!Number.isFinite(days) || days <= 0) return mastery
+  const floor = peak * DECAY_FLOOR_RATIO
+  if (mastery <= floor) return mastery
+  return clamp01(floor + (mastery - floor) * Math.pow(0.5, days / DECAY_HALF_LIFE_DAYS))
+}
+
+/** Mastery after idle decay. Pure: it never writes. */
+export function decayedMastery(state: ConceptState, today: string = localDate()): number {
+  if (state.lastAt === undefined) return state.mastery
+  return decayTo(state.mastery, state.peak, localDate(new Date(state.lastAt)), today)
+}
+
+/** One knowledge point measured against the threshold its goal asks for. */
+export interface SectionPointState {
+  id: string
+  name: string
+  mastery: number
+  threshold: number
+  atTarget: boolean
+}
+
+/**
+ * Resolve a section's knowledge points against the one ledger.
+ *
+ * Practice, the plan page and today all read the same numbers: a point is at
+ * target when its decayed mastery reaches the goal's threshold. A point with
+ * no state yet starts from the fresh 0.5 the ledger would give it. Order
+ * follows `targets`, so the caller decides what is shown first.
+ */
+export function sectionPointStates(
+  targets: readonly string[],
+  thresholds: Readonly<Record<string, number>>,
+  knowledge: KnowledgeFile,
+  names: ReadonlyMap<string, string>,
+  today: string,
+): SectionPointState[] {
+  return targets.map(id => {
+    const state = knowledge.concepts[id]
+    const mastery = state === undefined ? START_MASTERY : decayedMastery(state, today)
+    const threshold = thresholds[id] ?? DEFAULT_TARGET
+    return { id, name: names.get(id) ?? id, mastery, threshold, atTarget: mastery >= threshold }
+  })
+}
+
 /** The state of a concept that never had evidence. */
 function freshState(): ConceptState {
   return {
-    mastery: 0.5,
-    peak: 0.5,
+    mastery: START_MASTERY,
+    peak: START_MASTERY,
     streak: 0,
     attempts: 0,
     correct: 0,
@@ -148,47 +200,89 @@ function freshState(): ConceptState {
 }
 
 /**
- * Apply one answer to one concept.
+ * Recompute a concept from its evidence.
  *
- * The update is deterministic: the model only supplies the verdict and the
- * difficulty. Re-answering the same fingerprint counts as review (0.3 weight),
- * and new evidence reopens a settled concept.
+ * Entries are folded oldest first; the idle time between two entries decays the
+ * estimate before the next one applies. Ties break on the fingerprint, so the
+ * same ledger always yields the same number. `target` only shapes the next due
+ * date: a concept short of its goal comes back inside a week.
  */
-export function applyEvidence(existing: ConceptState | undefined, input: EvidenceInput): ConceptState {
-  const state = existing ?? freshState()
-  const at = input.at ?? new Date().toISOString()
-  const day = localDate(new Date(at))
-  const difficulty = input.difficulty ?? 2
-  const repeat = state.evidence[input.fingerprint] !== undefined
-  const rating = ratingFor(input.verdict, difficulty)
-  const srs = state.attempts === 0 ? initialCard(rating) : reviewCard(state.srs, rating)
-  const mastery = nextMastery(state, input.verdict, difficulty, repeat)
+function fold(
+  evidence: Record<string, ConceptEvidence>,
+  options: { conceptId: string; target?: number },
+): ConceptState {
+  const entries = Object.entries(evidence).sort(
+    ([leftKey, left], [rightKey, right]) =>
+      Date.parse(left.at) - Date.parse(right.at) || leftKey.localeCompare(rightKey),
+  )
+  let mastery = START_MASTERY
+  let peak = START_MASTERY
+  let streak = 0
+  let attempts = 0
+  let correct = 0
+  let lastAt: string | undefined
+  let lastDay: string | undefined
+  let srs = initialCard(3)
+  for (const [, entry] of entries) {
+    const day = localDate(new Date(entry.at))
+    if (lastDay !== undefined) mastery = decayTo(mastery, peak, lastDay, day)
+    if (entry.verdict === 'fail') {
+      mastery = clamp01(mastery * FAIL_FACTOR)
+      streak += 1
+    } else {
+      const credit = entry.verdict === 'pass' ? 1 : 0.5
+      const weight = entry.weight ?? 1
+      mastery = clamp01(mastery + LEARNING_RATE[entry.difficulty] * credit * weight * (1 - mastery))
+      streak = 0
+      if (entry.verdict === 'pass') correct += 1
+    }
+    peak = Math.max(peak, mastery)
+    attempts += 1
+    const rating = ratingFor(entry.verdict, entry.difficulty)
+    srs = attempts === 1 ? initialCard(rating) : reviewCard(srs, rating)
+    lastAt = entry.at
+    lastDay = day
+  }
+  const interval = intervalDays(srs.S, { maxIntervalDays: MAX_SCHEDULE_DAYS, fuzzKey: options.conceptId })
+  const open = mastery < (options.target ?? DEFAULT_TARGET) ? Math.min(interval, MAX_OPEN_INTERVAL_DAYS) : interval
   return {
     mastery,
-    peak: Math.max(state.peak, mastery),
-    streak: input.verdict === 'fail' ? state.streak + 1 : 0,
-    attempts: state.attempts + 1,
-    correct: state.correct + (input.verdict === 'pass' ? 1 : 0),
-    lastAt: at,
-    due: addDays(
-      day,
-      intervalDays(srs.S, { maxIntervalDays: MAX_SCHEDULE_DAYS, fuzzKey: input.conceptId }),
-    ),
+    peak,
+    streak,
+    attempts,
+    correct,
+    ...(lastAt === undefined ? {} : { lastAt }),
+    ...(lastDay === undefined ? {} : { due: addDays(lastDay, open) }),
     srs,
-    ...(state.target === undefined ? {} : { target: state.target }),
-    evidence: { ...state.evidence, [input.fingerprint]: { verdict: input.verdict, difficulty, at } },
+    evidence,
   }
 }
 
-/** Mastery after idle decay. Pure: it never writes. */
-export function decayedMastery(state: ConceptState, today: string = localDate()): number {
-  if (state.lastAt === undefined) return state.mastery
-  const last = localDate(new Date(state.lastAt))
-  const days = daysBetween(last, today)
-  if (!Number.isFinite(days) || days <= 0) return state.mastery
-  const floor = state.peak * DECAY_FLOOR_RATIO
-  if (state.mastery <= floor) return state.mastery
-  return clamp01(floor + (state.mastery - floor) * Math.pow(0.5, days / DECAY_HALF_LIFE_DAYS))
+/**
+ * Apply one answer to one concept.
+ *
+ * The update is deterministic: the model only supplies the verdict, the
+ * difficulty and (on appeal) a weight. Answering the same fingerprint again
+ * replaces that entry, so a repeated question cannot add a second gain.
+ */
+export function applyEvidence(
+  existing: ConceptState | undefined,
+  input: EvidenceInput,
+  options: { target?: number } = {},
+): ConceptState {
+  const state = existing ?? freshState()
+  const at = input.at ?? new Date().toISOString()
+  const entry: ConceptEvidence = {
+    verdict: input.verdict,
+    difficulty: input.difficulty ?? 2,
+    at,
+    ...(input.weight === undefined || input.weight === 1 ? {} : { weight: input.weight }),
+  }
+  const evidence = { ...state.evidence, [input.fingerprint]: entry }
+  return fold(evidence, {
+    conceptId: input.conceptId,
+    ...(options.target === undefined ? {} : { target: options.target }),
+  })
 }
 
 /** Threshold that a level requires. */
@@ -201,24 +295,23 @@ export function levelLabel(level: MasteryLevel | undefined): string {
   return MASTERY_LEVELS.find(entry => entry.level === (level ?? 2))?.label ?? '会用'
 }
 
-/** Effective target of one concept. */
-export function targetOf(state: ConceptState | undefined): number {
-  return state?.target ?? DEFAULT_TARGET
-}
-
-/** Review interval implied by a state's FSRS card. */
-export function reviewIntervalDays(state: ConceptState, conceptId: string): number {
-  return intervalDays(state.srs.S, {
-    maxIntervalDays: MAX_SCHEDULE_DAYS,
-    fuzzKey: conceptId,
-  })
+/**
+ * Interval after which the reader would forget the concept.
+ *
+ * Settling and closing ask this question, not "is the next review date far
+ * enough". The calendar cap (`MAX_SCHEDULE_DAYS`) exists so a settled concept
+ * does not drift for years; using it as the gate made any deadline more than
+ * ~120 days away impossible to close.
+ */
+export function forgettingIntervalDays(state: ConceptState, conceptId: string): number {
+  return intervalDays(state.srs.S, { maxIntervalDays: MAX_STABILITY, fuzzKey: conceptId })
 }
 
 /**
- * Settle a concept when the next review falls past the horizon.
+ * Settle a concept when it would survive past the horizon.
  *
- * Only reached concepts settle, and only when reviewing again could not change
- * the outcome before the horizon. A new answer reopens it automatically.
+ * Only reached concepts settle, and only when forgetting could not change the
+ * outcome before the horizon. A new answer reopens it automatically.
  */
 export function settleIfDone(
   state: ConceptState,
@@ -226,11 +319,11 @@ export function settleIfDone(
 ): ConceptState {
   if (state.settledAt !== undefined) return state
   const today = options.today ?? localDate()
-  if (decayedMastery(state, today) < (options.target ?? targetOf(state))) return state
+  if (decayedMastery(state, today) < (options.target ?? DEFAULT_TARGET)) return state
   const horizon = Math.max(0, options.horizonDays ?? DEFAULT_HORIZON_DAYS)
-  const dueIn = state.due === undefined ? reviewIntervalDays(state, options.conceptId) : daysBetween(today, state.due)
-  if (!Number.isFinite(dueIn)) return state
-  if (dueIn <= Math.max(SETTLE_MIN_DAYS, horizon * 1.5)) return state
+  const interval = forgettingIntervalDays(state, options.conceptId)
+  if (!Number.isFinite(interval)) return state
+  if (interval <= Math.max(SETTLE_MIN_DAYS, horizon * 1.5)) return state
   return { ...state, settledAt: new Date().toISOString() }
 }
 
@@ -255,24 +348,10 @@ export function dueConcepts(file: KnowledgeFile, today: string = localDate()): D
       due: state.due,
       overdueDays: Math.max(0, daysBetween(state.due, today)),
       mastery,
-      target: targetOf(state),
+      target: DEFAULT_TARGET,
     })
   }
   out.sort((a, b) => b.overdueDays - a.overdueDays || a.mastery - b.mastery || a.conceptId.localeCompare(b.conceptId))
-  return out
-}
-
-/** Concepts below target, weakest first. */
-export function belowTarget(file: KnowledgeFile, today: string = localDate()): DueConcept[] {
-  const out: DueConcept[] = []
-  for (const [conceptId, state] of Object.entries(file.concepts)) {
-    if (state.settledAt !== undefined) continue
-    const mastery = decayedMastery(state, today)
-    const target = targetOf(state)
-    if (mastery >= target) continue
-    out.push({ conceptId, due: state.due ?? today, overdueDays: 0, mastery, target })
-  }
-  out.sort((a, b) => a.mastery - b.mastery || a.conceptId.localeCompare(b.conceptId))
   return out
 }
 
@@ -293,6 +372,10 @@ export async function writeKnowledge(paths: LibraryPaths, file: KnowledgeFile): 
 /**
  * Record one answer, then settle the concept if the horizon allows.
  *
+ * `target` is the level the current goal asks for, `horizonDays` the time left
+ * until its deadline. Both are read from the goal by the caller; the ledger
+ * itself stores ability only.
+ *
  * `at` is passed in tests; the caller may pass a fake date.
  */
 export async function recordEvidence(
@@ -303,7 +386,11 @@ export async function recordEvidence(
   let recorded: ConceptState | undefined
   await updateJson<KnowledgeFile>(paths.knowledgeFile, emptyKnowledge(), current => {
     const file: KnowledgeFile = { ...current, version: 1, concepts: current.concepts ?? {} }
-    const state = applyEvidence(file.concepts[input.conceptId], input)
+    const state = applyEvidence(
+      file.concepts[input.conceptId],
+      input,
+      options.target === undefined ? {} : { target: options.target },
+    )
     const settled = settleIfDone(state, {
       conceptId: input.conceptId,
       ...(options.target === undefined ? {} : { target: options.target }),

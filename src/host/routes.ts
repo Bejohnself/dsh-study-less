@@ -38,6 +38,20 @@ const GET_GROUPS: readonly GetGroup[] = [getLibrary, getReading, getPlans, getPr
 /** Write groups, tried in order until one answers. */
 const POST_GROUPS: readonly PostGroup[] = [postLibrary, postReading, postPlans, postPractice, postNotes, postGenerate, postAdmin]
 
+/** Experimental surfaces whose code is kept but which are no longer served. */
+function isFrozenPath(path: string): boolean {
+  return (
+    path === '/concepts' ||
+    path === '/concept' ||
+    path === '/books' ||
+    path === '/book' ||
+    path.startsWith('/book/') ||
+    path.startsWith('/insight') ||
+    path === '/generate/insight' ||
+    path.startsWith('/generate/book/')
+  )
+}
+
 /**
  * Build the study API route.
  * @param service - the study service.
@@ -59,6 +73,11 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
       const path = url.pathname.replace(/^\/study-api/, '') || '/'
       const ctx: RouteContext = { service, extras, req, res, path, query: url.searchParams }
 
+      if (isFrozenPath(path)) {
+        send(res, 404, { ok: false, error: { code: 'not-found', message: '这个实验入口已冻结' } })
+        return
+      }
+
       if (method === 'GET' || method === 'HEAD') {
         for (const group of GET_GROUPS) {
           await group(ctx)
@@ -74,7 +93,7 @@ export function makeStudyRoutes(service: StudyService, extras: StudyRouteExtras 
         return
       }
       // The upload streams its own body, so it runs before the JSON body is read.
-      await postImport(ctx)
+      await postImport(ctx, {})
       if (res.headersSent) return
       const body = await readBody(req)
       for (const group of POST_GROUPS) {

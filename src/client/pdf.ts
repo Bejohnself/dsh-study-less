@@ -12,6 +12,35 @@
 export interface PdfViewport {
   width: number
   height: number
+  /** PDF user space → CSS pixels, in pdf.js matrix order [a, b, c, d, e, f]. */
+  transform: number[]
+  /** CSS pixels per PDF point. */
+  scale: number
+}
+
+/** One positioned run of text, as pdf.js reports it. */
+export interface PdfTextItem {
+  str: string
+  transform: number[]
+  /** Run width in PDF points, before scaling. */
+  width: number
+  height: number
+  fontName: string
+  hasEOL?: boolean
+}
+
+/** Font metrics pdf.js extracted for one font name. */
+export interface PdfTextStyle {
+  fontFamily?: string
+  /** Cap height as a fraction of the font size, when the PDF carries it. */
+  ascent?: number
+  descent?: number
+  vertical?: boolean
+}
+
+export interface PdfTextContent {
+  items: Array<PdfTextItem | { type: string }>
+  styles?: Record<string, PdfTextStyle>
 }
 
 export interface PdfRenderTask {
@@ -21,6 +50,7 @@ export interface PdfRenderTask {
 
 export interface PdfPageProxy {
   getViewport(options: { scale: number }): PdfViewport
+  getTextContent(): Promise<PdfTextContent>
   render(params: {
     canvasContext: CanvasRenderingContext2D
     canvas: HTMLCanvasElement
@@ -56,6 +86,9 @@ export const pdfDocuments = new Map<string, Promise<PdfDocumentProxy>>()
 
 /** Page aspect ratios keyed by `mid:page`; measured once, reused on scroll. */
 export const pageRatios = new Map<string, number>()
+
+/** Text runs keyed by `mid:page`; zooming re-lays them out, never refetches. */
+const pdfTexts = new Map<string, Promise<PdfTextContent>>()
 
 /**
  * Load the vendored pdf.js module once.
@@ -113,4 +146,23 @@ export function openPdfDocument(library: PdfJsModule, mid: string): Promise<PdfD
 /** Height/width of one page; falls back to A4 until measured. */
 export function ratioOf(mid: string, page: number): number {
   return pageRatios.get(`${mid}:${page}`) ?? 1.414
+}
+/**
+ * One page's text runs, cached per material+page.
+ *
+ * The reader turns these into transparent spans over the canvas so the browser
+ * can do native selection. Only text is fetched; the canvas render is separate.
+ */
+export function openPdfText(mid: string, page: number): Promise<PdfTextContent> {
+  const key = `${mid}:${page}`
+  const cached = pdfTexts.get(key)
+  if (cached !== undefined) return cached
+  const loading = loadPdfjs().then(async library => {
+    const file = await openPdfDocument(library, mid)
+    const proxy = await file.getPage(page)
+    return proxy.getTextContent()
+  })
+  pdfTexts.set(key, loading)
+  loading.catch(() => pdfTexts.delete(key))
+  return loading
 }

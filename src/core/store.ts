@@ -23,11 +23,19 @@ export async function ensureDir(path: string): Promise<void> {
  */
 export async function readJson<T>(file: string, fallback: T): Promise<T> {
   let text: string
-  try {
-    text = await readFile(file, 'utf8')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return fallback
-    throw error
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      text = await readFile(file, 'utf8')
+      break
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return fallback
+      // A read that lands while a rename-over replaces the file can come back
+      // empty on some filesystems (WSL drvfs reports ENODATA); one retry sees
+      // the new file. Anything that fails twice is a real error.
+      if (attempt === 0 && (code === 'ENODATA' || code === 'EAGAIN' || code === 'EBUSY')) continue
+      throw error
+    }
   }
   try {
     return JSON.parse(text) as T

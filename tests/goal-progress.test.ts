@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeKnowledge, type ConceptState } from '../src/core/knowledge.ts'
+import { writeJsonAtomic } from '../src/core/store.ts'
 import { LibraryPaths } from '../src/core/paths.ts'
 import { goalProgressOf } from '../src/host/service/plans.ts'
 import type { StudyService } from '../src/host/service.ts'
@@ -19,6 +20,38 @@ const today = '2026-03-01'
 
 const service = { paths, today: () => today } as unknown as StudyService
 
+/** One section with its concepts: the single copy the goal reads. */
+async function seedSection(concepts: string[], level: 1 | 2 | 3 | 4 = 3): Promise<void> {
+  await writeJsonAtomic(paths.manifestFile('m1'), {
+    version: 1,
+    id: 'm1',
+    title: '注意力',
+    type: 'book',
+    authors: [],
+    tags: [],
+    identifiers: {},
+    source: { kind: 'pdf', file: 'x.pdf', pages: 10 },
+    structure: [
+      { uid: 'u1', kind: 'section', title: '缩放点积', pageStart: 1, pageEnd: 10 },
+      { uid: 'u2', kind: 'section', title: '未抽点的一节', pageStart: 1, pageEnd: 10 },
+    ],
+    units: [],
+    createdAt: today,
+    updatedAt: today,
+  })
+  await writeJsonAtomic(paths.unitMetaFile('m1', 'u1'), {
+    version: 1,
+    material: 'm1',
+    unit: 'u1',
+    title: '缩放点积',
+    concepts,
+    pageRefs: [1],
+  })
+  planSection.level = level
+}
+
+const planSection: { level: 1 | 2 | 3 | 4 } = { level: 3 }
+
 function plan(overrides: Partial<PlanRecord> = {}): PlanRecord {
   return {
     id: 'p1',
@@ -26,10 +59,8 @@ function plan(overrides: Partial<PlanRecord> = {}): PlanRecord {
     status: 'active',
     deliverable: '推导并讲 20 分钟',
     deadline: '2026-04-01',
-    steps: [],
-    mastery: [
-      { id: 'm1', title: '缩放点积', standard: '能推导', target: 'm1:u1', concepts: ['attn/scaled'], level: 3 },
-      { id: 'm2', title: '多头', standard: '能改代码', target: 'm1:u1', concepts: ['attn/multi'], level: 2 },
+    steps: [
+      { n: 1, kind: 'unit', target: 'm1:u1', why: '核心', done: false, coverage: 'read', level: planSection.level },
     ],
     createdAt: today,
     updatedAt: today,
@@ -37,7 +68,8 @@ function plan(overrides: Partial<PlanRecord> = {}): PlanRecord {
   }
 }
 
-function state(mastery: number, due: string): ConceptState {
+/** S is stability in days: the gate reads it, not the calendar due date. */
+function state(mastery: number, stability = 80): ConceptState {
   return {
     mastery,
     peak: mastery,
@@ -45,19 +77,20 @@ function state(mastery: number, due: string): ConceptState {
     attempts: 3,
     correct: 3,
     lastAt: `${today}T10:00:00+08:00`,
-    due,
-    srs: { S: 40, D: 3, reps: 3, lapses: 0, lastRating: 4 },
+    due: '2026-12-01',
+    srs: { S: stability, D: 3, reps: 3, lapses: 0, lastRating: 4 },
     evidence: {},
   }
 }
 
 test('a goal closes only when every concept is at its level and review is past the deadline rule', async () => {
+  await seedSection(['attn/scaled', 'attn/multi'], 3)
   await writeKnowledge(paths, {
     version: 1,
     updatedAt: today,
     concepts: {
-      'attn/scaled': state(0.9, '2026-12-01'),
-      'attn/multi': state(0.8, '2026-12-01'),
+      'attn/scaled': state(0.9),
+      'attn/multi': state(0.9),
     },
   })
   const ready = await goalProgressOf(service, plan())
@@ -67,12 +100,13 @@ test('a goal closes only when every concept is at its level and review is past t
 })
 
 test('a concept below its level blocks closure', async () => {
+  await seedSection(['attn/scaled', 'attn/multi'], 3)
   await writeKnowledge(paths, {
     version: 1,
     updatedAt: today,
     concepts: {
-      'attn/scaled': state(0.9, '2026-12-01'),
-      'attn/multi': state(0.6, '2026-12-01'),
+      'attn/scaled': state(0.9),
+      'attn/multi': state(0.6),
     },
   })
   const progress = await goalProgressOf(service, plan())
@@ -80,13 +114,15 @@ test('a concept below its level blocks closure', async () => {
   assert.ok(progress.reasons.some(reason => reason.includes('没到档位')))
 })
 
-test('a concept whose next review is too soon also blocks closure', async () => {
+test('a concept the reader would forget too soon also blocks closure', async () => {
+  await seedSection(['attn/scaled', 'attn/multi'], 3)
   await writeKnowledge(paths, {
     version: 1,
     updatedAt: today,
     concepts: {
-      'attn/scaled': state(0.9, '2026-03-10'),
-      'attn/multi': state(0.9, '2026-12-01'),
+      // S=40 days is inside the 46-day rule for a 31-day deadline.
+      'attn/scaled': state(0.9, 40),
+      'attn/multi': state(0.9),
     },
   })
   const progress = await goalProgressOf(service, plan())
@@ -94,13 +130,43 @@ test('a concept whose next review is too soon also blocks closure', async () => 
   assert.ok(progress.reasons.some(reason => reason.includes('复习到期限之后')))
 })
 
+test('a required section without knowledge points blocks closure and is named', async () => {
+  await seedSection(['attn/scaled'], 3)
+  await writeJsonAtomic(paths.unitMetaFile('m1', 'u2'), {
+    version: 1,
+    material: 'm1',
+    unit: 'u2',
+    title: '未抽点的一节',
+    concepts: [],
+    pageRefs: [],
+  })
+  await writeKnowledge(paths, {
+    version: 1,
+    updatedAt: today,
+    concepts: { 'attn/scaled': state(0.9) },
+  })
+  const progress = await goalProgressOf(
+    service,
+    plan({
+      steps: [
+        { n: 1, kind: 'unit', target: 'm1:u1', why: '核心', done: false, coverage: 'read', level: 3 },
+        { n: 2, kind: 'unit', target: 'm1:u2', why: '也要读', done: false, coverage: 'read', level: 3 },
+      ],
+    }),
+  )
+  assert.equal(progress.ready, false)
+  assert.equal(progress.missingSections, 1)
+  assert.ok(progress.reasons.some(reason => reason.includes('未抽点的一节')))
+})
+
 test('a goal with a missing deadline cannot close', async () => {
+  await seedSection(['attn/scaled', 'attn/multi'], 3)
   await writeKnowledge(paths, {
     version: 1,
     updatedAt: today,
     concepts: {
-      'attn/scaled': state(0.9, '2026-12-01'),
-      'attn/multi': state(0.9, '2026-12-01'),
+      'attn/scaled': state(0.9),
+      'attn/multi': state(0.9),
     },
   })
   const progress = await goalProgressOf(service, plan({ deadline: undefined }))

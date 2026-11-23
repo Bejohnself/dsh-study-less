@@ -13,15 +13,12 @@ import { QuizRunner } from '../components/quiz.tsx'
 export function PracticePage({
   mid,
   unit,
-  planId,
   concept,
   onBack,
   onChanged,
 }: {
   mid: string
   unit: TocRow
-  /** Set when the reader was opened from a goal: practice its mastery points. */
-  planId?: string
   /** Set when the today panel sent the reader to review one due concept. */
   concept?: string
   onBack: () => void
@@ -36,13 +33,17 @@ export function PracticePage({
         <div className="study-practice-title">
           <h2>{unit.title}</h2>
           <span className="study-reader-sub">
-            {concept !== undefined ? '到期复习 · 只看这一个知识点' : planId === undefined ? '过关测试' : '过关测试 · 按目标的掌握点出题'} · p{unit.pageStart}–p{unit.pageEnd} ·
+            {concept !== undefined ? '到期复习 · 只看这一个知识点' : '过关测试 · 到档才算过'} · p{unit.pageStart}–p{unit.pageEnd} ·
             一次一题，关了还能接着答
           </span>
         </div>
       </div>
       <div className="study-practice-body">
-        <QuizRunner scope={{ kind: 'unit', mid, uid: unit.uid, ...(concept === undefined ? {} : { concept }) }} onChanged={onChanged} />
+        <QuizRunner
+          scope={{ kind: 'unit', mid, uid: unit.uid, ...(concept === undefined ? {} : { concept }) }}
+          onChanged={onChanged}
+          onExit={onBack}
+        />
       </div>
     </div>
   )

@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildStudyTools } from '../src/host/tools.ts'
 
-/** The 20 tools the desk announces, in registration order. */
+/** The 18 tools the desk announces, in registration order. */
 const EXPECTED = [
   'study_library',
   'study_import_book',
@@ -22,8 +22,6 @@ const EXPECTED = [
   'study_jobs',
   'study_delete',
   'study_quiz',
-  'study_book',
-  'study_insight',
 ]
 
 const extras = {
@@ -57,4 +55,10 @@ test('optional services drop their tools instead of failing', () => {
   assert.equal(names.includes('study_generate'), false)
   assert.equal(names.includes('study_quiz'), false)
   assert.equal(names.includes('study_library'), true)
+})
+
+test('frozen experiment tools never register, even when services exist', () => {
+  const names = buildStudyTools({} as never, extras).map(tool => tool.name)
+  assert.equal(names.includes('study_insight'), false)
+  assert.equal(names.includes('study_book'), false)
 })

@@ -2,6 +2,7 @@
  * Library and authoring tools: materials, unit material, notes and deletion.
  */
 import { objectSchema, refusal, renderJson, type StudyToolDefinition, type ToolContext } from './shared.ts'
+import type { StructureNode } from '../../core/types.ts'
 import { StudyError } from '../service/error.ts'
 
 export function libraryTools({ service, extras }: ToolContext): StudyToolDefinition[] {
@@ -69,7 +70,7 @@ export function libraryTools({ service, extras }: ToolContext): StudyToolDefinit
   tools.push({
     name: 'study_structure_set',
     description:
-      '替换一份资料的学习单元结构（用于修正导入时的目录识别）。单元必须按阅读顺序排列，页码范围不能重叠且必须落在 1..总页数内。教材按小节，论文保留 p1/p2/p3 三遍法单元。',
+      '替换一份资料的学习单元结构（用于修正导入时的目录识别）。单元必须按阅读顺序排列，页码范围不能重叠且必须落在 1..总页数内。教材和论文都按小节切；pass 仅用于兼容旧资料。',
     parameters: objectSchema({
       material: { type: 'string', description: '资料 id' },
       units: {
@@ -194,7 +195,7 @@ export function libraryTools({ service, extras }: ToolContext): StudyToolDefinit
   tools.push({
     name: 'study_delete',
     description:
-      '删除一条学习路径或一份资料。target=plan 只删路径，不动单元和进度；target=material 会删掉资料目录、精读、练习、相关进度，并清理指向它的概念/洞察来源。不可恢复，调用前必须让用户明确确认。',
+      '删除一条学习路径或一份资料，不可恢复，调用前必须让用户明确确认。target=plan 会连它产生的判定卡、按目标开的练习会话和它生成的书一起删掉；资料本身、单元的题库和知识点掌握度保留（结案才是保留痕迹的方式）。target=material 会删掉资料目录、精读、练习、相关进度，并清理指向它的概念/洞察来源。',
     parameters: objectSchema({
       target: { type: 'string', enum: ['plan', 'material'] },
       id: { type: 'string', description: '计划 id 或资料 id' },

@@ -5,20 +5,18 @@
  * in the service. They live outside service.ts so the shape of a shelf card,
  * a plan step or a TOC row can change without scrolling through the service.
  */
-import { overdueDays } from '../../core/cards.ts'
 import { splitUnitKey, unitKey } from '../../core/ids.ts'
 import { unitMetaOf } from '../../core/library.ts'
 import { coverageOf } from '../../core/planGate.ts'
 import { dueUnits } from '../../core/progress.ts'
 import type {
-  CardRecord,
   MaterialManifest,
   PlanStep,
   ProgressFile,
   StructureNode,
   UnitMetaFile,
 } from '../../core/types.ts'
-import type { CardView, ExtraAsset, MaterialCard, PlanStepView, TocRow } from '../../core/views.ts'
+import type { ExtraAsset, MaterialCard, PlanStepView, TocRow } from '../../core/views.ts'
 
 /** Build the media list of one unit from its metadata. */
 export function extrasOf(materialId: string, unitId: string, meta: UnitMetaFile | null): ExtraAsset[] {
@@ -50,28 +48,12 @@ export function extrasOf(materialId: string, unitId: string, meta: UnitMetaFile 
 }
 
 /** Resolve one card for the panel. */
-export function cardView(card: CardRecord, today: string, goalById: ReadonlyMap<string, string>): CardView {
-  const goal = card.planId === undefined ? undefined : goalById.get(card.planId)
-  return {
-    id: card.id,
-    kind: card.kind,
-    ...(card.planId === undefined ? {} : { planId: card.planId }),
-    ...(goal === undefined ? {} : { goal }),
-    prompt: card.prompt,
-    ...(card.detail === undefined ? {} : { detail: card.detail }),
-    due: card.due ?? today,
-    overdueDays: overdueDays(card.due, today),
-    reps: card.srs.reps,
-    ...(card.srs.lastRating === undefined ? {} : { lastRating: card.srs.lastRating }),
-  }
-}
-
 /** Resolve one plan step into human labels. */
 export function stepView(
   step: PlanStep,
   manifests: readonly MaterialManifest[],
   conceptById: ReadonlyMap<string, { id: string; name: string }>,
-  progress: ProgressFile,
+  masteryOf: (conceptId: string) => number,
 ): PlanStepView {
   const view: PlanStepView = {
     n: step.n,
@@ -104,7 +86,7 @@ export function stepView(
     view.concepts = step.concepts.map(id => ({
       id,
       name: conceptById.get(id)?.name ?? id,
-      mastery: progress.concepts[id]?.mastery ?? 0.5,
+      mastery: masteryOf(id),
     }))
   }
   if (step.materials !== undefined) {

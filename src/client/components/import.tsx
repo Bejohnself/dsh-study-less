@@ -2,13 +2,14 @@
  * Import dialog: upload a PDF, point at a local path, or fetch an arXiv paper.
  */
 import { useEffect, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { DragEvent, ReactElement } from 'react'
 import { errorText, post } from '../api.ts'
 import { Modal } from './ui.tsx'
 
 /** Import a local PDF or an arXiv paper. */
 export function ImportDialog({ onClose, onImported }: { onClose: () => void; onImported: (message: string) => void }): ReactElement {
   const [busy, setBusy] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [arxiv, setArxiv] = useState('')
   const [path, setPath] = useState('')
@@ -47,6 +48,19 @@ export function ImportDialog({ onClose, onImported }: { onClose: () => void; onI
     }
   }
 
+  const takeDroppedFile = (event: DragEvent<HTMLLabelElement>): void => {
+    event.preventDefault()
+    setDragging(false)
+    if (busy) return
+    const file = event.dataTransfer.files[0]
+    if (file === undefined) return
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setError('只能拖入 PDF 文件')
+      return
+    }
+    void upload(file)
+  }
+
   const importArxiv = async (): Promise<void> => {
     if (arxiv.trim().length === 0) return
     setBusy(true)
@@ -81,7 +95,24 @@ export function ImportDialog({ onClose, onImported }: { onClose: () => void; onI
     <Modal title="导入资料" subtitle="支持本地 PDF、本地路径与 arXiv；导入时会抽取目录并按页切片。" onClose={onClose} wide>
       <div className="study-field">
         <label className="study-field-label">本地 PDF</label>
-        <label className={`study-file${busy ? ' is-busy' : ''}`}>
+        <label
+          className={`study-file${busy ? ' is-busy' : ''}${dragging ? ' is-drag' : ''}`}
+          onDragEnter={event => {
+            event.preventDefault()
+            if (!busy) setDragging(true)
+          }}
+          onDragOver={event => {
+            event.preventDefault()
+            event.dataTransfer.dropEffect = busy ? 'none' : 'copy'
+            if (!busy) setDragging(true)
+          }}
+          onDragLeave={event => {
+            const next = event.relatedTarget
+            if (next instanceof Node && event.currentTarget.contains(next)) return
+            setDragging(false)
+          }}
+          onDrop={takeDroppedFile}
+        >
           <input
             type="file"
             accept="application/pdf,.pdf"
@@ -91,7 +122,7 @@ export function ImportDialog({ onClose, onImported }: { onClose: () => void; onI
               if (file !== undefined) void upload(file)
             }}
           />
-          <span>{busy ? '上传并解析中…' : '选择 PDF 文件'}</span>
+          <span>{busy ? '上传并解析中…' : dragging ? '松开就导入 PDF' : '选择 PDF 文件，或拖到这里'}</span>
         </label>
       </div>
 

@@ -15,10 +15,6 @@ export async function getReading(ctx: RouteContext): Promise<void> {
     send(res, 200, { ok: true, value: await service.due() })
     return
   }
-  if (path === '/cards') {
-    send(res, 200, { ok: true, value: await service.dueCardList() })
-    return
-  }
   if (path === '/today') {
     send(res, 200, { ok: true, value: await service.todayView() })
     return
@@ -39,13 +35,6 @@ export async function postReading(ctx: RouteContext, body: Record<string, unknow
         revision: optionalRevision(body),
       }),
     })
-    return
-  }
-  if (path === '/card/review') {
-    const cid = requiredString(body, 'cid')
-    const rating = optionalRating(body)
-    if (rating === undefined) throw new StudyError('invalid', '缺少 rating')
-    send(res, 200, { ok: true, value: await service.reviewCard(cid, rating) })
     return
   }
 }

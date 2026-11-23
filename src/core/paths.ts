@@ -29,11 +29,11 @@ export class LibraryPaths {
   readonly insightsDir: string
   readonly jobsDir: string
   readonly quizSessionsDir: string
-  readonly cardsDir: string
   readonly indexDir: string
   readonly progressFile: string
   readonly knowledgeFile: string
   readonly settingsFile: string
+  readonly usageFile: string
 
   readonly root: string
 
@@ -46,18 +46,14 @@ export class LibraryPaths {
     this.insightsDir = join(root, 'insights')
     this.jobsDir = join(root, 'jobs')
     this.quizSessionsDir = join(root, 'quiz-sessions')
-    this.cardsDir = join(root, 'cards')
     this.indexDir = join(root, 'index')
     this.progressFile = join(root, 'progress.json')
     this.knowledgeFile = join(root, 'knowledge.json')
     this.settingsFile = join(root, 'settings.json')
+    this.usageFile = join(root, 'usage.json')
   }
 
-  /** File of one review card. */
-  cardFile(cardId: string): string {
-    assertSegment(cardId, 'card id')
-    return join(this.cardsDir, `${cardId}.json`)
-  }
+
 
   /** Directory of one material. */
   materialDir(materialId: string): string {

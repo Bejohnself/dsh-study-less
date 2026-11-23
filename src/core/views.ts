@@ -4,7 +4,7 @@
  * These are wire shapes, not files: they are computed from manifests, progress
  * and content on demand.
  */
-import type { BoundarySummary, GateStatus, StuckPointView } from './planGate.ts'
+import type { BoundarySummary } from './planGate.ts'
 import type {
   AnimationSettings,
   AttemptMove,
@@ -13,7 +13,6 @@ import type {
   BookChapterMeta,
   BookRecord,
   CapabilitySettings,
-  CardKind,
   GenerationJob,
   InsightKind,
   InsightRecord,
@@ -28,7 +27,6 @@ import type {
   QuizSelfGrade,
   Provenance,
   Rating,
-  SufficiencyItem,
   StudyPreferences,
   TextEngineSettings,
   UnitKind,
@@ -213,18 +211,6 @@ export interface PlanBrief {
 }
 
 /** One review card as the panel shows it. */
-export interface CardView {
-  id: string
-  kind: CardKind
-  planId?: string
-  goal?: string
-  prompt: string
-  detail?: string
-  due: string
-  overdueDays: number
-  reps: number
-  lastRating?: Rating
-}
 
 /** Everything the Today page needs in one read. */
 /** The knowledge-space slice of the today panel. */
@@ -261,6 +247,8 @@ export interface GoalToday {
   /** Concepts at their level threshold / concepts in scope. */
   passed: number
   total: number
+  /** Required sections that still carry no knowledge points. */
+  missingSections: number
   readyToClose: boolean
 }
 
@@ -270,9 +258,6 @@ export interface TodayView {
   knowledge?: KnowledgeToday
   /** The goal driving today; absent means free practice only. */
   goal?: GoalToday
-  /** Cards written by failed sufficiency questions, most overdue first. */
-  dueCards: CardView[]
-  due: DueItem[]
   weak: ConceptCard[]
   next: NextStepView | null
   plans: PlanBrief[]
@@ -294,6 +279,12 @@ export interface PlanStepView {
   target?: { materialId: string; unitId: string; title: string; materialTitle: string; pageStart: number; pageEnd: number }
   concepts?: Array<{ id: string; name: string; mastery: number }>
   materials?: Array<{ id: string; title: string }>
+  /** Knowledge progress of the section: concepts at threshold and average mastery. */
+  progress?: { passed: number; total: number; mastery: number }
+  /** The same step the Today page would suggest next. */
+  current?: boolean
+  /** Depth this goal asks of this section; absent means 会用. */
+  level?: 1 | 2 | 3 | 4
 }
 
 /** One attempt as the panel shows it. */
@@ -312,16 +303,28 @@ export interface PlanMetaView {
   closureNote?: string
 }
 
-/** One mastery point of a goal, with its progress resolved for the UI. */
-export interface MasteryPointView {
-  id: string
+/**
+ * One section of a goal, with the depth it asks for and its progress.
+ *
+ * The section is the unit of requirement: concepts come from the unit itself
+ * (`units/<uid>/meta`), the goal only decides how deep this section must go.
+ */
+export interface PlanSectionView {
+  /** `<material>:<unit>` */
+  target: string
   title: string
-  standard: string
-  target?: string
-  concepts: string[]
   /** 1 了解 / 2 会用 / 3 能讲 / 4 创新. */
-  level?: 1 | 2 | 3 | 4
-  passedAt?: string
+  level: 1 | 2 | 3 | 4
+  /** Required mastery threshold for the level. */
+  threshold: number
+  concepts: string[]
+  /** Current decayed mastery; the weakest concept of the section wins. */
+  mastery: number
+  /** Weakest concept's historical peak, when the section has concepts. */
+  peak?: number
+  /** Every concept of the section is at its threshold. */
+  atTarget: boolean
+  conceptStates: Array<{ id: string; name: string; mastery: number; threshold: number; atTarget: boolean }>
 }
 
 /** One plan in full. */
@@ -343,18 +346,10 @@ export interface PlanDetailView {
   boundary: BoundarySummary
   /** Independent attempts, newest first. */
   attempts: AttemptView[]
-  /** Stuck points derived from the attempts, most frequent first. */
-  stuck: StuckPointView[]
-  /** The knowledge points this goal requires, drawn with the plan. */
-  mastery: MasteryPointView[]
-  /** Sufficiency questions (判定题). */
-  sufficiency: SufficiencyItem[]
-  /** Closure gate: what still blocks closing this goal. */
-  gate: GateStatus
+  /** The sections this goal requires, with their depth and knowledge progress. */
+  sections: PlanSectionView[]
   /** Knowledge-space closure: concepts at level threshold + review settled. */
-  goalProgress: { passed: number; total: number; ready: boolean; reasons: string[] }
-  /** Cards written by this goal's failed questions; closing retires them. */
-  cards: CardView[]
+  goalProgress: { passed: number; total: number; missingSections: number; ready: boolean; reasons: string[] }
 }
 
 /** One plan in a list. */
@@ -466,6 +461,36 @@ export interface BookChapterView {
 }
 
 /** Settings payload; secrets are reduced to `apiKeySet`. */
+/** One model call's token/cost summary for inline display. */
+export interface UsageCallView {
+  inputTokens: number
+  cacheReadTokens?: number
+  outputTokens: number
+  cost?: number
+  currency: string
+  priceSource: 'api' | 'user' | 'mixed' | 'none'
+}
+
+/** One aggregate bucket for the settings usage panel. */
+export interface UsageTotalsView {
+  calls: number
+  inputTokens: number
+  cacheReadTokens: number
+  outputTokens: number
+  cost: number
+  pricedCalls: number
+  unpricedCalls: number
+}
+
+/** The usage ledger as the settings panel reads it. */
+export interface UsageSummaryView {
+  currency: string
+  totals: UsageTotalsView
+  today: UsageTotalsView & { date: string }
+  /** One bucket per day, oldest first; absent days simply have no calls. */
+  days: Array<UsageTotalsView & { date: string }>
+}
+
 export interface SettingsView {
   text: TextEngineView
   image: CapabilityView
@@ -496,9 +521,16 @@ export interface QuizItemView {
   concepts: string[]
   page?: number
   difficulty?: 1 | 2 | 3
-  /** Mastery point this question checks, for plan-scoped practice. */
-  masteryPoint?: string
   masteryTitle?: string
+}
+
+/** The answer a test shortcut fills in; only served for the current item. */
+export interface QuizReferenceView {
+  answer: string
+  /** Zero-based choice index, for choice questions only. */
+  index?: number
+  /** exact: stored answer; rubric: the AI's scoring points stand in; none: nothing stored. */
+  source: 'exact' | 'rubric' | 'none'
 }
 
 /** Feedback revealed after one answer. */
@@ -518,6 +550,8 @@ export interface QuizFeedbackView {
   judged?: QuizJudgeRecord
   /** Re-judging rounds; the last verdict is the current one. */
   appeals?: QuizAppealRecord[]
+  /** Cost of the model call that produced this feedback, when there was one. */
+  usage?: UsageCallView
 }
 
 /** One answered item, rendered from the session's own snapshot. */
@@ -536,6 +570,23 @@ export interface QuizHistoryEntryView {
   at: string
 }
 
+/** Why a unit run writes no progress. */
+/** Why a section cannot be practiced: practice only ever runs inside a goal. */
+export type QuizBlockReason = 'no-goal' | 'outside-goal' | 'no-concepts'
+
+/** One knowledge point of a section, measured against its goal threshold. */
+export interface QuizPointView {
+  id: string
+  name: string
+  /** Decayed mastery today, 0–1. */
+  mastery: number
+  /** Goal threshold for this point, 0–1. */
+  threshold: number
+  atTarget: boolean
+  /** Latest verdict of this session's answers on the point, when any. */
+  answered?: 'pass' | 'partial' | 'fail'
+}
+
 /** Progress and current item of one session. */
 export interface QuizSessionView {
   session: {
@@ -545,15 +596,18 @@ export interface QuizSessionView {
     limit: number
     correct: number
     objective: number
-    /** Knowledge points passed / total, when the section has a target list. */
-    targetsPassed?: number
-    targetsTotal?: number
-    /** Free practice: no goal, no progress writes. */
+    /** Points of this run's target set that reached their threshold. */
+    atTarget?: { passed: number; total: number }
+    /** A focused review of one due concept, not a section pass. */
+    review?: true
+    /** Legacy: a run recorded before practice became goal-only. Never written now. */
     free?: boolean
     startedAt: string
     updatedAt: string
     endedReason?: QuizEndReason
   }
+  /** One row per knowledge point this run measures; empty for book chapters. */
+  points: QuizPointView[]
   item?: QuizItemView
   history: QuizHistoryEntryView[]
   summary?: QuizSessionSummary
@@ -562,6 +616,8 @@ export interface QuizSessionView {
 /** The result of one answer, including the next item when available. */
 export interface QuizAnswerView {
   session: QuizSessionView['session']
+  /** Knowledge points after this answer wrote its evidence. */
+  points: QuizPointView[]
   feedback: QuizFeedbackView
   history: QuizHistoryEntryView[]
   next?: QuizItemView
@@ -590,11 +646,21 @@ export interface QuizSessionIndexView {
     defaultLimit: number
     notes: boolean
     updatedAt?: string
-    /** Plan-scoped practice: how many points of this unit are still open. */
-    mastery?: { open: number; total: number; passed: number }
-    /** Unit practice outside the active goal: questions only, no progress. */
-    free?: boolean
   }
+  /** Every knowledge point of this section, whether open or already at target. */
+  points: QuizPointView[]
+  /** How many of those points are still short of their threshold. */
+  open: number
+  /** Every point is at its threshold: a new run has nothing left to prove. */
+  ready: boolean
+  /** The goal covers this section but it carries no knowledge points yet. */
+  needsConcepts: boolean
+  /** A text engine is available, so concepts and questions can be written. */
+  canGenerate: boolean
+  /** The active goal driving this section, when one covers it. */
+  goal?: { id: string }
+  /** Set when practice is not available: the page says why instead of offering a run. */
+  blocked?: QuizBlockReason
   active: QuizSessionView | null
   recent: QuizSessionRecordView[]
 }
@@ -606,13 +672,19 @@ export interface QuizSessionSummary {
   /** Answers that count as evidence: objective or model-judged. */
   objective: number
   score: number
+  /**
+   * passed: every target point reached its threshold. failed: the run ended
+   * with points short. incomplete: stopped early, replaced or free practice.
+   */
   verdict: 'passed' | 'failed' | 'incomplete'
-  weakConcepts: Array<{ id: string; name: string }>
-  /** Plan-scoped practice: mastery points still open in this unit. */
-  openPoints?: number
-  /** Section practice: how many knowledge points passed. */
-  targets?: { passed: number; total: number }
-  /** Free practice: the run wrote no progress. */
+  /** Ledger state of this run's target set when it closed. */
+  points: QuizPointView[]
+  atTarget?: { passed: number; total: number }
+  /** Points still short of threshold, weakest gap first. */
+  gap: QuizPointView[]
+  /** A focused review of one due concept. */
+  review?: true
+  /** Legacy: a run recorded before practice became goal-only. */
   free?: boolean
 }
 

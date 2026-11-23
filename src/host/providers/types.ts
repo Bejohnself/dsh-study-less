@@ -33,7 +33,17 @@ export interface TextRequest {
 export interface TextResult {
   text: string
   model?: string
-  usage?: { inputTokens?: number; outputTokens?: number }
+  /** The engine stopped at the output budget; the text may end mid-sentence. */
+  truncated?: boolean
+  usage?: {
+    /** Non-cached input tokens. */
+    inputTokens?: number
+    cacheReadTokens?: number
+    outputTokens?: number
+    /** Some gateways report the call's own charge. */
+    cost?: number
+    currency?: string
+  }
 }
 
 /** A text engine. */

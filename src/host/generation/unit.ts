@@ -9,6 +9,7 @@ import { type JobContext } from '../jobs.ts'
 import { unitPrompt } from '../generate/prompts.ts'
 import { StudyError, type WriteUnitResult } from '../service.ts'
 import type { GenerationService } from '../generation.ts'
+import type { GenerateUnitInput } from './shared.ts'
 import { normalizeUnitOutput } from './normalize.ts'
 
 export async function generateUnit(svc: GenerationService, input: GenerateUnitInput): Promise<{ jobId: string }> {
@@ -55,20 +56,13 @@ export async function runUnit(svc: GenerationService, input: GenerateUnitInput, 
   const settings = await svc.deps.settings.current()
   const warnings = [...written.warnings]
   let quizItems = 0
-  let insightIds: string[] = []
+  const insightIds: string[] = []
   if (settings.study.autoQuiz) {
     try {
       const bank = await svc.runQuizInternal(input.material, input.unit, context, 0.9)
       quizItems = bank.items.length
     } catch (error) {
       warnings.push(`练习题生成失败：${error instanceof Error ? error.message : String(error)}`)
-    }
-  }
-  if (settings.study.autoInsight) {
-    try {
-      insightIds = await svc.runUnitInsightsInternal(input.material, input.unit, context, 0.94)
-    } catch (error) {
-      warnings.push(`洞察提炼失败：${error instanceof Error ? error.message : String(error)}`)
     }
   }
   context.report(1, '完成')

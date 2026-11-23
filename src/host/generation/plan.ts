@@ -6,15 +6,16 @@
  */
 import { splitUnitKey } from '../../core/ids.ts'
 import { listManifests } from '../../core/library.ts'
-import { readPlan } from '../../core/plans.ts'
+import { goalSections, readPlan } from '../../core/plans.ts'
 import type { MaterialManifest } from '../../core/types.ts'
 import type { PlanDetailView } from '../../core/views.ts'
 import { type JobContext } from '../jobs.ts'
 import { planPrompt } from '../generate/prompts.ts'
 import { StudyError } from '../service.ts'
 import type { GenerationService } from '../generation.ts'
-import { sanitizeMastery, sanitizePlanSteps, normalizePlanMastery, normalizePlanSteps } from './normalize.ts'
-import { extractConcepts } from './concepts.ts'
+import type { GeneratePlanInput } from './shared.ts'
+import { sanitizePlanSteps, normalizePlanSteps } from './normalize.ts'
+import { extractUnitConcepts } from './concepts.ts'
 
 export async function generatePlan(svc: GenerationService, input: GeneratePlanInput): Promise<{ planId: string; jobId: string }> {
   if (!(await svc.textReady())) {
@@ -76,24 +77,18 @@ export async function runPlan(svc: GenerationService, planId: string, input: Gen
       .map(id => all.find(manifest => manifest.id === id))
       .filter((manifest): manifest is MaterialManifest => manifest !== undefined)
     if (chosen.length === 0) throw new StudyError('not-found', '计划的资料都不存在了')
-    const concepts = (await svc.deps.service.concepts()).map(concept => ({
-      id: concept.id,
-      name: concept.name,
-      mastery: concept.mastery,
-    }))
     const prompt = planPrompt({
       goal: plan.goal,
       ...(plan.brief === undefined ? {} : { brief: plan.brief }),
       depth: input.depth ?? 'deep',
       ...(plan.budget?.hoursPerWeek === undefined ? {} : { hoursPerWeek: plan.budget.hoursPerWeek }),
       manifests: chosen,
-      concepts,
     })
     const validUnits = new Set<string>()
     for (const manifest of chosen) {
       for (const node of manifest.structure) validUnits.add(`${manifest.id}:${node.uid}`)
     }
-    const validConcepts = new Set(concepts.map(concept => concept.id))
+    const validConcepts = new Set((await svc.deps.service.concepts()).map(concept => concept.id))
     const validMaterials = new Set(chosen.map(manifest => manifest.id))
     let count = 0
     let dropped = 0
@@ -104,29 +99,21 @@ export async function runPlan(svc: GenerationService, planId: string, input: Gen
       if (sanitized.steps.length === 0) {
         throw new StudyError('invalid', '计划没有可用的步骤', { issues: sanitized.issues })
       }
-      // The mastery map is written together with the steps: one read gives both
-      // the path and what "done" means, and one write keeps them consistent.
-      const masteryRaw = normalizePlanMastery(parsed)
-      const mastery = sanitizeMastery(masteryRaw, validUnits, validConcepts)
-      if (mastery.points.length === 0) {
-        throw new StudyError('invalid', '计划没有可用的掌握点', { issues: mastery.issues })
-      }
       count = sanitized.steps.length
-      dropped = sanitized.issues.length + mastery.issues.length
-      points = mastery.points.length
-      await svc.deps.service.updatePlan(planId, {
-        replaceSteps: sanitized.steps,
-        replaceMastery: mastery.points,
-      })
+      dropped = sanitized.issues.length
+      points = sanitized.steps.filter(step => step.target !== undefined && step.coverage !== 'skip').length
+      await svc.deps.service.updatePlan(planId, { replaceSteps: sanitized.steps })
     })
     // A goal is only useful once its sections have knowledge points: extract
-    // them now, while the creation job is still running, and hang them on the
-    // mastery map so the route has a real target set from day one.
-    const filled = await ensureGoalConcepts(svc, planId, context)
+    // them now, while the creation job is still running, so the route has a
+    // real target set from day one instead of a copied table of contents.
+    const concepts = await ensureGoalConcepts(svc, planId, context)
     await svc.deps.service.setPlanGeneration(planId, { status: 'done', mode: 'inline', jobId: context.job.id })
     context.report(
       1,
-      `已生成 ${count} 步、${points} 个掌握点${filled === 0 ? '' : `；补了 ${filled} 节的知识点`}${
+      `已生成 ${count} 步、${points} 节定了档${
+        concepts.added === 0 ? '' : `；补了 ${concepts.added} 节的知识点`
+      }${concepts.failed === 0 ? '' : `（${String(concepts.failed)} 节没抽出来，可在目标页补）`}${
         dropped === 0 ? '' : `（忽略 ${dropped} 个无效目标）`
       }`,
     )
@@ -143,43 +130,47 @@ export async function runPlan(svc: GenerationService, planId: string, input: Gen
 }
 
 /**
- * Extract knowledge points for the goal's sections and attach them.
+ * Extract knowledge points for every required section and attach them.
  *
  * Goal generation sees an empty concept library on a fresh import; without this
- * step the goal has no concept targets until the first practice. Six sections
- * is the cap: enough for a focused goal, bounded for the model bill.
+ * step the goal has no concept targets until the first practice, which is what
+ * made the knowledge map look like a copy of the table of contents. Sections
+ * run one at a time because `writeConcepts` rewrites the material manifest;
+ * two failures in a row stop the pass so a broken engine cannot burn the whole
+ * bill. Missing sections stay visible: the closure gate names them and the plan
+ * page offers a per-section retry.
  */
 async function ensureGoalConcepts(
   svc: GenerationService,
   planId: string,
   context: JobContext,
-): Promise<number> {
+): Promise<{ added: number; failed: number }> {
   const plan = await readPlan(svc.paths, planId)
-  if (plan === null) return 0
-  const targets = new Set<string>()
-  for (const point of plan.mastery ?? []) {
-    if (point.target !== undefined) targets.add(point.target)
-  }
-  for (const step of plan.steps) {
-    if (step.target !== undefined && step.coverage !== 'skip') targets.add(step.target)
-  }
-  const list = [...targets].slice(0, 6)
-  let filled = 0
-  for (const [index, target] of list.entries()) {
+  if (plan === null) return { added: 0, failed: 0 }
+  const sections = goalSections(plan)
+  let added = 0
+  let failed = 0
+  let consecutive = 0
+  for (const [index, section] of sections.entries()) {
+    context.report(0.85 + (0.14 * (index + 1)) / sections.length, `正在补第 ${index + 1}/${sections.length} 节的知识点…`)
+    let filled = false
     try {
-      const { materialId, unitId } = splitUnitKey(target)
+      const { materialId, unitId } = splitUnitKey(section.target)
       const unit = await svc.deps.service.unit(materialId, unitId)
-      if ((unit.unit.concepts ?? []).length > 0) continue
-      const concepts = await extractConcepts(svc, { material: materialId, unit: unitId })
-      if (concepts.length === 0) continue
-      await svc.deps.service.writeConcepts(materialId, unitId, concepts)
-      await svc.deps.service.attachMasteryConcepts(planId, target, concepts.map(concept => concept.id))
-      filled += 1
-      context.report(0.85 + (0.1 * (index + 1)) / list.length, `正在补第 ${index + 1} 节的知识点…`)
+      filled = (unit.unit.concepts ?? []).length > 0
+      if (!filled) {
+        const result = await extractUnitConcepts(svc, { material: materialId, unit: unitId }, context)
+        if (result.extracted > 0) added += 1
+        filled = result.ids.length > 0
+      }
     } catch {
-      // A section that cannot be read or extracted is skipped; practice can
-      // still fill it in on first use.
+      failed += 1
+      consecutive += 1
+      if (consecutive >= 2) break
+      continue
     }
+    consecutive = 0
+    if (!filled) failed += 1
   }
-  return filled
+  return { added, failed }
 }

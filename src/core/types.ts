@@ -22,6 +22,9 @@ export type UnitState = 'new' | 'learned' | 'reviewing' | 'suspended'
 /** Review rating, low to high. */
 export type Rating = 1 | 2 | 3 | 4
 
+/** Depth a goal asks of one section: 1 了解 / 2 会用 / 3 能讲 / 4 创新. */
+export type MasteryLevel = 1 | 2 | 3 | 4
+
 /** Where a review event came from. */
 export type ReviewSource = 'first-learn' | 'review' | 'manual'
 
@@ -234,6 +237,22 @@ export interface AnimationSettings extends CapabilitySettings {
 }
 
 /** How units are generated and reviewed. */
+export interface UsagePriceSettings {
+  currency: 'USD' | 'CNY'
+  inputPerMillion: number
+  /** Price for cached input; 0 means use the normal input price. */
+  cacheInputPerMillion: number
+  outputPerMillion: number
+}
+
+/** One user-defined action shown above a text selection. */
+export interface QuickAction {
+  /** Button text; short enough to fit next to the others. */
+  label: string
+  /** One-shot instruction sent with the selected passage. */
+  prompt: string
+}
+
 export interface StudyPreferences {
   targetRetention: number
   maxIntervalDays: number
@@ -246,6 +265,10 @@ export interface StudyPreferences {
   showInsights: boolean
   concurrency: number
   requestTimeoutMs: number
+  /** Optional estimate prices; empty prices mean token-only display. */
+  pricing: UsagePriceSettings
+  /** Up to three actions in the selection bar; [] means no custom buttons. */
+  quickActions: QuickAction[]
 }
 
 /** The single settings document (`settings.json`). */
@@ -286,6 +309,17 @@ export interface JobTarget {
   chapter?: string
 }
 
+/** Token/cost amount shared by jobs and inline answers. */
+export interface UsageAmount {
+  /** Non-cached input tokens. */
+  inputTokens?: number
+  cacheReadTokens?: number
+  outputTokens?: number
+  cost?: number
+  currency?: string
+  priceSource?: 'api' | 'user' | 'mixed' | 'none'
+}
+
 /** One durable generation job (`jobs/<id>.json`). */
 export interface GenerationJob {
   version: 1
@@ -300,7 +334,7 @@ export interface GenerationJob {
   result?: unknown
   error?: string
   issues?: string[]
-  usage?: { inputTokens?: number; outputTokens?: number }
+  usage?: UsageAmount
   createdAt: string
   startedAt?: string
   endedAt?: string
@@ -344,6 +378,8 @@ export interface PlanStep {
   coverage?: Coverage
   /** Why this range can be left out; required when coverage is 'skip'. */
   skipReason?: string
+  /** Depth this goal asks of this section; absent means 2 (会用). */
+  level?: MasteryLevel
 }
 
 /** One independent attempt: a small new thing done, not a page read. */
@@ -358,82 +394,6 @@ export interface AttemptRecord {
   /** Outcome, in the user's own words. */
   result?: string
   at: string
-}
-
-/** One sufficiency question of a goal (判定题). */
-export interface SufficiencyItem {
-  id: string
-  q: string
-  /** Effective conclusion: true only when the answer passed a check. */
-  passed?: boolean
-  /** Why this question is asked (the judge's rubric lives here). */
-  why?: string
-  /** The range this question points at, as `<materialId>:<unitId>`. */
-  ref?: string
-  /** The answer the user wrote before asking for a judgement. */
-  answer?: string
-  /** Verdict of the judge; `missing` says what was absent. */
-  verdict?: JudgeVerdict
-  missing?: string[]
-  advice?: string
-  judgedAt?: string
-  judgedBy?: { engine: string; model?: string }
-  /** The user overruled a negative verdict; always shown as 自评. */
-  selfPass?: boolean
-  selfPassReason?: string
-}
-
-/** How the judge scored one answer. */
-export type JudgeVerdict = 'pass' | 'partial' | 'fail'
-
-/** What a review card asks again. */
-export type CardKind = 'judgement' | 'unit'
-
-/**
- * One review card: the smallest thing the desk asks again.
- *
- * Cards are written only by a failed sufficiency question, so the review queue
- * never grows on its own and every card traces back to a goal the user set.
- */
-export interface CardRecord {
-  version: 1
-  id: string
-  kind: CardKind
-  /** Goal the card belongs to; closing the goal retires its cards. */
-  planId?: string
-  /** Answer/context revealed after a recall attempt. */
-  prompt: string
-  detail?: string
-  srs: SrsCard
-  history: ReviewEvent[]
-  due?: string
-  lastReviewedAt?: string
-  state: 'new' | 'learned' | 'suspended'
-  createdAt: string
-}
-
-/**
- * One knowledge point the goal requires.
- *
- * The map is drawn when the goal is planned, so questions can be written
- * against it instead of against whatever a unit happens to contain.
- * `passedAt` is the only goal-mastery progress variable and lives here, in the
- * plan file: the quiz session is its only writer, nothing else derives or
- * duplicates it.
- */
-export interface MasteryPoint {
-  id: string
-  title: string
-  /** What a passing answer must show (derivable, checkable, falsifiable). */
-  standard: string
-  /** `<material>:<unit>` where this point is practiced. */
-  target?: string
-  /** Global concept ids this point trains. */
-  concepts?: string[]
-  /** 1 了解 / 2 会用 / 3 能讲 / 4 创新; absent means 2. */
-  level?: MasteryLevel
-  /** Set once after an AI-judged pass; passing is monotonic. */
-  passedAt?: string
 }
 
 /** A goal-driven learning plan (`plans/<pid>.json`). */
@@ -455,10 +415,6 @@ export interface PlanRecord {
   audience?: string
   /** Evidence that the goal was reached on the user's own (append-only). */
   attempts?: AttemptRecord[]
-  /** What the goal must master, written with the plan (图景). */
-  mastery?: MasteryPoint[]
-  /** Questions whose answers mean "this is enough" (判定题). */
-  sufficiency?: SufficiencyItem[]
   /** Closure gate threshold in [0, 1]; default 0.8. */
   threshold?: number
   closedAt?: string
@@ -497,8 +453,6 @@ export interface QuizItem {
   difficulty?: 1 | 2 | 3
   /** Optional explanation shown after answering. */
   explanation?: string
-  /** Plan mastery point this item checks (plan-scoped sessions only). */
-  masteryPoint?: string
 }
 
 /** Quiz bank file (`units/<uid>/quiz.json`). */
@@ -575,8 +529,6 @@ export interface BookProgress {
 export type QuizSessionScope =
   | { kind: 'unit'; material: string; unit: string }
   | { kind: 'book'; book: string; chapter?: string }
-  /** Goal practice: questions written for this plan's mastery points in one unit. */
-  | { kind: 'plan'; plan: string; material: string; unit: string }
 
 /** A user's self-grade for a subjective question. */
 export type QuizSelfGrade = 'correct' | 'partial' | 'wrong'
@@ -642,8 +594,6 @@ export interface QuizSessionEntry {
   question?: string
   type?: QuizItemType
   concepts?: string[]
-  /** Plan mastery point this answer was scored against. */
-  masteryPoint?: string
   /** Difficulty at answer time: the rating weights hard questions higher. */
   difficulty?: 1 | 2 | 3
   /** Page anchor at answer time, so an appeal can re-read the source. */
@@ -666,8 +616,6 @@ export interface QuizSession {
   limit: number
   /** Item ids already answered and advanced past. */
   asked: string[]
-  /** Plan-scoped sessions own their questions: they are written per round. */
-  items?: QuizItem[]
   currentId?: string
   history: QuizSessionEntry[]
   startedAt: string
@@ -683,17 +631,17 @@ export interface QuizSession {
   targets?: string[]
   /** Per-concept pass threshold, snapshotted from the goal level. */
   targetThresholds?: Record<string, number>
-  /** Free practice: no goal, no progress writes. */
+  /** Days left until the goal's deadline, snapshotted at start. */
+  horizonDays?: number
+  /**
+   * Legacy: sessions recorded while free practice still existed. Practice is
+   * goal-only now, so these are never written and never resumed; the flags stay
+   * so old history keeps rendering honestly.
+   */
   free?: boolean
-  /** Last AI confirmation attempt; at most a few per session. */
-  sectionCheck?: {
-    verdict: QuizJudgeVerdict
-    missing: string[]
-    at: string
-    checks: number
-    /** Asked count when the check ran, so it is not repeated every answer. */
-    askedAt: number
-  }
+  freeReason?: 'no-goal' | 'outside-goal' | 'goal-no-concepts'
+  /** A focused review of one due concept; closes on its first passing answer. */
+  review?: true
 }
 
 /** Generated notes metadata (`units/<uid>/meta.json`). */

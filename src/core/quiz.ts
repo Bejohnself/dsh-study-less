@@ -11,9 +11,6 @@ import type { QuizBank, QuizItem, QuizSessionEntry, QuizSessionScope } from './t
 /** The most questions one practice session asks by default. */
 export const DEFAULT_SESSION_LIMIT = 8
 
-/** Below this many graded answers one correct run says nothing about mastery. */
-export const MIN_GRADED_FOR_RATING = 5
-
 /** How strongly a weak concept pulls an item to the front. */
 const WEAK_WEIGHT = 3
 /** Unpassed knowledge points of this section pull harder than global weakness. */
@@ -31,18 +28,19 @@ export function needsWrittenJudge(item: QuizItem): boolean {
   return item.type !== 'choice'
 }
 
-/** How many questions one session should ask for this bank. */
-export function defaultSessionLimit(bank: QuizBank): number {
-  return Math.min(DEFAULT_SESSION_LIMIT, bank.items.length)
-}
-
-/** Stable practice order for one bank. */
+/**
+ * Stable practice order for one bank.
+ *
+ * `skip` drops items a knowledge point has already been tested on: one question
+ * proves a point once, so re-asking it would only waste the reader's time.
+ */
 export function orderQuizItems(
   bank: QuizBank,
-  options: { weakConcepts?: ReadonlySet<string> } = {},
+  options: { weakConcepts?: ReadonlySet<string>; skip?: (item: QuizItem) => boolean } = {},
 ): QuizItem[] {
   const weak = options.weakConcepts ?? new Set<string>()
-  const scored = bank.items.map((item, index) => {
+  const items = options.skip === undefined ? bank.items : bank.items.filter(item => !options.skip!(item))
+  const scored = items.map((item, index) => {
     let score = 0
     if (item.concepts.some(concept => weak.has(concept))) score += WEAK_WEIGHT
     if (isObjectiveItem(item)) score += OBJECTIVE_WEIGHT
@@ -229,15 +227,11 @@ export function sharesConcept(a: QuizItem, b: QuizItem): boolean {
 
 /** Whether two sessions draw from the same bank. */
 export function sameQuizScope(a: QuizSessionScope, b: QuizSessionScope): boolean {
-  if (a.kind !== b.kind) return false
   if (a.kind === 'unit' && b.kind === 'unit') {
     return a.material === b.material && a.unit === b.unit
   }
   if (a.kind === 'book' && b.kind === 'book') {
     return a.book === b.book && (a.chapter ?? '') === (b.chapter ?? '')
-  }
-  if (a.kind === 'plan' && b.kind === 'plan') {
-    return a.plan === b.plan && a.material === b.material && a.unit === b.unit
   }
   return false
 }
@@ -249,7 +243,8 @@ export function sameQuizScope(a: QuizSessionScope, b: QuizSessionScope): boolean
  * right answers move to the same concept at an equal-or-harder difficulty.
  * Knowledge points not yet passed pull ahead of everything else. If neither
  * applies, any unattempted item is used; ties follow the bank's order, so a
- * resumed session cannot reshuffle the sequence.
+ * resumed session cannot reshuffle the sequence. `skip` removes items whose
+ * question is already spent on one of its knowledge points.
  */
 export function pickAdaptiveNext(
   items: readonly QuizItem[],
@@ -259,11 +254,18 @@ export function pickAdaptiveNext(
     correct: boolean | null
     /** Knowledge points still pending; items on them are chosen first. */
     focus?: ReadonlySet<string>
+    /** Items that must not be offered again (question already used). */
+    skip?: (item: QuizItem) => boolean
   },
 ): QuizItem | undefined {
   const candidates = items
     .map((item, index) => ({ item, index }))
-    .filter(entry => entry.item.id !== options.current.id && !options.asked.has(entry.item.id))
+    .filter(
+      entry =>
+        entry.item.id !== options.current.id &&
+        !options.asked.has(entry.item.id) &&
+        options.skip?.(entry.item) !== true,
+    )
   if (candidates.length === 0) return undefined
   const currentDifficulty = difficultyOf(options.current)
   const focus = options.focus

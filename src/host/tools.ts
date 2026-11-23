@@ -14,6 +14,9 @@ import { generateTools } from './tools/generate.ts'
 
 export type { StudyToolDefinition, StudyToolExtras }
 
+/** Frozen experimental tools: never registered, even when their services exist. */
+const FROZEN_TOOLS = new Set(['study_insight', 'study_book'])
+
 /**
  * Build every tool the study desk registers.
  * @param service - the live study service.
@@ -27,5 +30,5 @@ export function buildStudyTools(service: StudyService, extras: StudyToolExtras =
     ...readingTools(context),
     ...plansTools(context),
     ...generateTools(context),
-  ]
+  ].filter(tool => !FROZEN_TOOLS.has(tool.name))
 }

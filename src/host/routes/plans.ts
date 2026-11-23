@@ -37,8 +37,34 @@ export async function postPlans(ctx: RouteContext, body: Record<string, unknown>
         ...(typeof body.hoursPerWeek === 'number' ? { hoursPerWeek: body.hoursPerWeek } : {}),
         ...(body.depth === 'deep' || body.depth === 'overview' ? { depth: body.depth } : {}),
         ...(typeof body.sessionId === 'string' ? { sessionId: body.sessionId } : {}),
+        // The goal form sends these; dropping them here left a goal that could
+        // never satisfy the closure gate.
+        ...(typeof body.deliverable === 'string' ? { deliverable: body.deliverable } : {}),
+        ...(typeof body.deadline === 'string' ? { deadline: body.deadline } : {}),
+        ...(typeof body.audience === 'string' ? { audience: body.audience } : {}),
       }),
     })
+    return
+  }
+  if (path === '/plan/concepts') {
+    const pid = requiredString(body, 'pid')
+    const target = requiredString(body, 'target')
+    const serviceGeneration = requireService(generation, '生成引擎')
+    const view = await service.planView(pid)
+    const step = view.steps.find(
+      candidate =>
+        candidate.target !== undefined &&
+        candidate.coverage !== 'skip' &&
+        `${candidate.target.materialId}:${candidate.target.unitId}` === target,
+    )
+    if (step === undefined || step.target === undefined) {
+      throw new StudyError('not-found', '这一步不在这个目标里，或已标为不读')
+    }
+    const extracted = await serviceGeneration.extractUnitConcepts({
+      material: step.target.materialId,
+      unit: step.target.unitId,
+    })
+    send(res, 200, { ok: true, value: { ...extracted, plan: await service.planView(pid) } })
     return
   }
   if (path === '/plan/retry-chat') {
@@ -79,6 +105,7 @@ export async function postPlans(ctx: RouteContext, body: Record<string, unknown>
     const replaceSteps = body.replaceSteps
     const setMeta = body.setMeta as Record<string, unknown> | undefined
     const setCoverage = body.setCoverage as { n?: unknown; coverage?: unknown; reason?: unknown } | undefined
+    const setLevel = body.setLevel as { n?: unknown; level?: unknown } | undefined
     const addAttempt = body.addAttempt as {
       move?: unknown
       what?: unknown
@@ -111,6 +138,16 @@ export async function postPlans(ctx: RouteContext, body: Record<string, unknown>
           ? { replaceSteps: replaceSteps as Parameters<StudyService['updatePlan']>[1]['replaceSteps'] }
           : {}),
         ...(Object.keys(meta).length === 0 ? {} : { setMeta: meta }),
+        ...(setLevel === undefined || typeof setLevel.n !== 'number'
+          ? {}
+          : {
+              setLevel: {
+                n: setLevel.n,
+                level: (setLevel.level === 1 || setLevel.level === 2 || setLevel.level === 3 || setLevel.level === 4
+                  ? setLevel.level
+                  : 2),
+              },
+            }),
         ...(setCoverage === undefined || typeof setCoverage.n !== 'number' || coverage === undefined
           ? {}
           : {
@@ -152,102 +189,6 @@ export async function postPlans(ctx: RouteContext, body: Record<string, unknown>
               },
             }),
       }),
-    })
-    return
-  }
-  if (path === '/plan/questions') {
-    const pid = requiredString(body, 'pid')
-    const serviceGeneration = requireService(generation, '生成引擎')
-    const view = await service.planView(pid)
-    if (!(await serviceGeneration.textReady())) {
-      send(res, 200, { ok: true, value: { generated: false, reason: 'no-engine', plan: view } })
-      return
-    }
-    const ranges = view.steps
-      .filter(step => step.target !== undefined && step.coverage !== 'skip')
-      .map(step => ({
-        id: `${step.target!.materialId}:${step.target!.unitId}`,
-        title: step.target!.title,
-        pages: `${String(step.target!.pageStart)}-${String(step.target!.pageEnd)}`,
-        coverage: (step.coverage === 'skim' ? 'skim' : 'read') as 'read' | 'skim',
-        why: step.why,
-      }))
-    if (ranges.length === 0) throw new StudyError('invalid', '这个目标还没有可读范围，先补上裁剪单')
-    const count = typeof body.count === 'number' ? Math.min(8, Math.max(4, Math.round(body.count))) : 6
-    const generated = await serviceGeneration.generateQuestions({
-      goal: view.plan.goal,
-      ...(view.plan.meta.deliverable === undefined ? {} : { deliverable: view.plan.meta.deliverable }),
-      ...(view.plan.meta.deadline === undefined ? {} : { deadline: view.plan.meta.deadline }),
-      ...(view.plan.meta.audience === undefined ? {} : { audience: view.plan.meta.audience }),
-      ranges,
-      count,
-    })
-    send(res, 200, {
-      ok: true,
-      value: {
-        generated: true,
-        engine: generated.engine,
-        ...(generated.model === undefined ? {} : { model: generated.model }),
-        plan: await service.recordQuestions(
-          pid,
-          generated.questions.map(question => ({
-            q: question.q,
-            ...(question.why === undefined ? {} : { why: question.why }),
-            ...(question.ref === undefined ? {} : { ref: question.ref }),
-          })),
-        ),
-      },
-    })
-    return
-  }
-  if (path === '/plan/judge') {
-    const pid = requiredString(body, 'pid')
-    const qid = requiredString(body, 'qid')
-    const answer = requiredString(body, 'answer').trim()
-    const serviceGeneration = requireService(generation, '生成引擎')
-    const view = await service.planView(pid)
-    const item = view.sufficiency.find(candidate => candidate.id === qid)
-    if (item === undefined) throw new StudyError('not-found', `判定题不存在：${qid}`)
-    if (!(await serviceGeneration.textReady())) {
-      // No engine is not a failure: the panel switches to self-evaluation.
-      send(res, 200, { ok: true, value: { judged: false, reason: 'no-engine', plan: view } })
-      return
-    }
-    const boundary = view.steps
-      .filter(step => step.coverage !== 'skip')
-      .map(step => {
-        const name = step.target?.title ?? step.why
-        const pages = step.target === undefined ? '' : ` p${step.target.pageStart}-${step.target.pageEnd}`
-        return `${name}${pages}（${step.coverage === 'skim' ? '略读' : '必读'}）`
-      })
-    const reference =
-      typeof body.ref === 'string' && body.ref.length > 0 ? await referenceText(service, body.ref) : undefined
-    const judged = await serviceGeneration.judgeAnswer({
-      goal: view.plan.goal,
-      ...(view.plan.meta.deliverable === undefined ? {} : { deliverable: view.plan.meta.deliverable }),
-      ...(view.plan.meta.deadline === undefined ? {} : { deadline: view.plan.meta.deadline }),
-      ...(view.plan.meta.audience === undefined ? {} : { audience: view.plan.meta.audience }),
-      boundary,
-      question: item.q,
-      answer,
-      ...(reference === undefined ? {} : { reference }),
-    })
-    send(res, 200, {
-      ok: true,
-      value: {
-        judged: true,
-        verdict: judged.verdict,
-        missing: judged.missing,
-        ...(judged.advice === undefined ? {} : { advice: judged.advice }),
-        confidence: judged.confidence,
-        plan: await service.recordJudgement(pid, qid, {
-          answer,
-          verdict: judged.verdict,
-          ...(judged.missing.length === 0 ? {} : { missing: judged.missing }),
-          ...(judged.advice === undefined ? {} : { advice: judged.advice }),
-          judgedBy: { engine: judged.engine, ...(judged.model === undefined ? {} : { model: judged.model }) },
-        }),
-      },
     })
     return
   }

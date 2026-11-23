@@ -11,6 +11,7 @@ import { LibraryPaths } from '../../../src/core/paths.ts'
 import { settingsView } from '../../../src/core/settings.ts'
 import { BookService } from '../../../src/host/books.ts'
 import { GenerationService } from '../../../src/host/generation.ts'
+import { UsageService } from '../../../src/host/usage.ts'
 import { InsightService } from '../../../src/host/insights.ts'
 import { JobQueue } from '../../../src/host/jobs.ts'
 import { QuizSessionService } from '../../../src/host/quizSessions.ts'
@@ -22,6 +23,7 @@ await rm(root, { recursive: true, force: true })
 const paths = new LibraryPaths(root)
 const service = new StudyService(paths)
 const settings = new SettingsService(paths)
+const usage = new UsageService(paths, settings)
 const insights = new InsightService(paths)
 const jobs = new JobQueue(paths, { concurrency: () => 1 })
 await jobs.recover()
@@ -57,17 +59,16 @@ const fake = {
       return {
         text: JSON.stringify({
           steps: [
-            { kind: 'unit', target: `${materialId}:${unitId}`, why: '先建立该单元的基本机制' },
-            { kind: 'paper-pass', target: `${materialId}:p1`, why: '再用第一遍把论文主张串起来' },
-            { kind: 'drill', concepts: ['invented/concept'], why: '模型编造的概念应被忽略' },
+            { kind: 'unit', target: `${materialId}:${unitId}`, coverage: 'read', level: 3, why: '先建立该单元的基本机制' },
+            { kind: 'unit', target: `${materialId}:invented-unit`, coverage: 'read', level: 2, why: '模型编造的单元应被忽略' },
           ],
-          mastery: [
-            {
-              title: '缩放点积的原因',
-              standard: '能说明为什么要除以根号 d_k，并指出不缩放会出现什么问题',
-              target: `${materialId}:${unitId}`,
-            },
-          ],
+        }),
+      }
+    }
+    if (text.includes('主题/概念')) {
+      return {
+        text: JSON.stringify({
+          concepts: [{ id: 'test/concept', name: '测试概念', definition: '用于端到端检查的概念', page: pageStart }],
         }),
       }
     }
@@ -180,7 +181,7 @@ const fake = {
 
 await settings.patch({ text: { kind: 'dsh', model: 'fake' }, study: { autoQuiz: true, autoInsight: true } })
 const books = new BookService(paths, service)
-const generation = new GenerationService(paths, { service, insights, settings, jobs, books, textProvider: () => fake })
+const generation = new GenerationService(paths, { service, insights, settings, jobs, books, usage, textProvider: () => fake })
 const quizSessions = new QuizSessionService(paths, service, books, generation)
 
 const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
@@ -204,26 +205,51 @@ const bareDone = await wait(bareQuiz.jobId)
 const bareBank = await service.quiz(materialId, unitId)
 console.log('quiz without notes:', bareDone.status, bareDone.error ?? 'ok', 'items', bareBank?.items.length ?? 0)
 
+// Goal creation extracts the section's knowledge points itself. Without them
+// the route would only be a copy of the table of contents.
 const plan = await generation.generatePlan({ goal: '测试路径', materials: [materialId], depth: 'deep', deadline: '2026-12-31' })
 const planJob = await wait(plan.jobId)
-console.log('plan job:', planJob.status, planJob.error ?? planJob.message)
+if (planJob.status !== 'done') throw new Error('plan job failed: ' + String(planJob.error))
+console.log('plan job:', planJob.status, planJob.message)
 const planView = await service.planView(plan.planId)
 console.log('plan steps:', planView.steps.length, planView.steps.map(step => step.kind).join(','))
-console.log('plan mastery:', planView.mastery.length)
+console.log('plan sections:', planView.sections.length, 'levels', planView.sections.map(section => section.level).join(','))
+const firstPoint = planView.sections[0]
+if (firstPoint === undefined || typeof firstPoint.mastery !== 'number' || typeof firstPoint.threshold !== 'number' || !Array.isArray(firstPoint.conceptStates)) {
+  throw new Error('plan sections are missing visual progress fields')
+}
+if (firstPoint.level !== 3) throw new Error('the section level was not carried through')
+if (!firstPoint.concepts.includes('test/concept')) {
+  throw new Error('goal creation did not extract the section knowledge points')
+}
+if (planView.goalProgress.missingSections !== 0) {
+  throw new Error('a required section still has no knowledge points')
+}
+const firstStepProgress = planView.steps.find(step => step.target?.unitId === unitId)?.progress
+if (firstStepProgress === undefined || firstStepProgress.total === 0) {
+  throw new Error('plan step is missing progress for the visual route')
+}
+console.log('plan visual data:', `${Math.round(firstPoint.mastery * 100)}%`, firstStepProgress.passed + '/' + firstStepProgress.total)
 
-const planQuiz = await quizSessions.start({ plan: plan.planId, material: materialId, unit: unitId })
-console.log('plan quiz start:', planQuiz.item?.masteryPoint, planQuiz.session.limit)
+const planQuiz = await quizSessions.start({ material: materialId, unit: unitId })
+if (planQuiz.session.atTarget?.total !== 1) throw new Error('goal section run has no target point')
+if (planQuiz.points[0]?.threshold !== 0.85) throw new Error('the section threshold was not carried into the run')
+console.log('goal section quiz start:', JSON.stringify(planQuiz.session.atTarget), planQuiz.session.limit, 'item', planQuiz.item?.id)
 const planAnswer = await quizSessions.answer(
   planQuiz.session.id,
   planQuiz.item.id,
   '内积的方差随 d_k 增长，不缩放会让 softmax 梯度饱和。',
 )
+if (planAnswer.session.endedReason === 'completed') throw new Error('one answer must not pass a ledger threshold')
+if (planAnswer.points[0]?.atTarget !== false) throw new Error('a single answer marked the point at target')
 const afterMastery = await service.planView(plan.planId)
 console.log(
-  'plan quiz answer:',
+  'goal section answer:',
   planAnswer.feedback.judged?.verdict,
-  'mastery passed:',
-  afterMastery.mastery.every(point => point.passedAt !== undefined),
+  'at target:',
+  JSON.stringify(planAnswer.session.atTarget),
+  'concepts at target:',
+  afterMastery.sections.every(section => section.conceptStates.every(state => state.atTarget)),
 )
 
 const outline = await generation.generateBookOutline(plan.planId)

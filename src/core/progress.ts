@@ -11,7 +11,7 @@ import { addDays } from './time.ts'
 import { initialCard, intervalDays, reviewCard } from './srs.ts'
 import type { LibraryPaths } from './paths.ts'
 import { readJson, updateJson } from './store.ts'
-import type { ConceptProgress, ProgressFile, Rating, UnitProgress } from './types.ts'
+import type { ProgressFile, Rating, UnitProgress } from './types.ts'
 
 /** Most review events kept per unit. */
 export const HISTORY_LIMIT = 100
@@ -171,47 +171,4 @@ export function dueUnits(progress: ProgressFile, today: string): DueUnit[] {
   }
   due.sort((a, b) => b.overdueDays - a.overdueDays || b.difficulty - a.difficulty || a.key.localeCompare(b.key))
   return due
-}
-
-/** Update one concept's mastery after an attempt. */
-export function applyAttempt(
-  progress: ProgressFile,
-  conceptId: string,
-  correct: boolean,
-  at: string = new Date().toISOString(),
-): ConceptProgress {
-  const existing: ConceptProgress = progress.concepts[conceptId] ?? {
-    mastery: 0.5,
-    attempts: 0,
-    correct: 0,
-    streak: 0,
-  }
-  const mastery = correct ? existing.mastery + 0.15 * (1 - existing.mastery) : existing.mastery * 0.75
-  const next: ConceptProgress = {
-    mastery: Math.min(1, Math.max(0, Number(mastery.toFixed(4)))),
-    attempts: existing.attempts + 1,
-    correct: existing.correct + (correct ? 1 : 0),
-    streak: correct ? 0 : existing.streak + 1,
-    lastSeen: at,
-  }
-  progress.concepts[conceptId] = next
-  return next
-}
-
-/** A concept is weak when mastery is low or the last two attempts failed. */
-export function isWeak(entry: ConceptProgress | undefined): boolean {
-  if (entry === undefined) return true
-  return entry.mastery < 0.45 || entry.streak >= 2
-}
-
-/** Record attempts for a quiz submission, returning the updated progress. */
-export async function recordAttempts(
-  paths: LibraryPaths,
-  attempts: ReadonlyArray<{ conceptId: string; correct: boolean }>,
-): Promise<ProgressFile> {
-  return updateJson<ProgressFile>(paths.progressFile, emptyProgress(), current => {
-    if (attempts.length === 0) return current
-    for (const attempt of attempts) applyAttempt(current, attempt.conceptId, attempt.correct)
-    return touched(current)
-  })
 }

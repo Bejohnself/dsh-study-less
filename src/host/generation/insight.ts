@@ -8,6 +8,7 @@ import { type JobContext } from '../jobs.ts'
 import { conceptInsightPrompt, insightPrompt, PROMPT_VERSION } from '../generate/prompts.ts'
 import { StudyError } from '../service.ts'
 import type { GenerationService } from '../generation.ts'
+import type { GenerateInsightInput } from './shared.ts'
 import { normalizeInsightBatch } from './normalize.ts'
 
 export async function generateInsights(svc: GenerationService, input: GenerateInsightInput): Promise<{ jobId: string }> {

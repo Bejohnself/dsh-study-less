@@ -28,7 +28,6 @@ export async function getPractice(ctx: RouteContext): Promise<void> {
         unit: query.get('uid') ?? undefined,
         book: query.get('bid') ?? undefined,
         chapter: query.get('cid') ?? undefined,
-        plan: query.get('pid') ?? undefined,
       }),
     })
     return
@@ -36,6 +35,14 @@ export async function getPractice(ctx: RouteContext): Promise<void> {
   if (path === '/quiz/session') {
     const sessions = requireService(quizSessions, '练习会话')
     send(res, 200, { ok: true, value: await sessions.get(query.get('sid') ?? '') })
+    return
+  }
+  if (path === '/quiz/session/reference') {
+    const sessions = requireService(quizSessions, '练习会话')
+    send(res, 200, {
+      ok: true,
+      value: await sessions.reference(query.get('sid') ?? '', query.get('itemId') ?? ''),
+    })
     return
   }
 }

@@ -40,7 +40,7 @@ export function notesTools({ service, extras }: ToolContext): StudyToolDefinitio
         occurrences?: Array<{ material: string; unit: string; page: number; role: 'definition' | 'method' | 'evidence' | 'critique' | 'use' }>
       }
       try {
-        const { upsertConcept } = await import('../core/concepts.ts')
+        const { upsertConcept } = await import('../../core/concepts.ts')
         const record = await upsertConcept(service.paths, input)
         return { ok: true, concept: record }
       } catch (error) {

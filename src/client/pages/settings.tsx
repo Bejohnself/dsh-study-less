@@ -6,9 +6,12 @@
  */
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import type { SettingsView } from '../../core/views.ts'
+import type { SettingsView, UsageSummaryView } from '../../core/views.ts'
+import type { QuickAction } from '../../core/types.ts'
+import { MAX_QUICK_ACTIONS, QUICK_LABEL_MAX, QUICK_PROMPT_MAX } from '../../core/settings.ts'
 import { api, errorText, post } from '../api.ts'
 import { ErrorNote, Modal, THEME_STEPS, Toast, themeLabel } from '../components/ui.tsx'
+import { formatCost, formatTokens, UsageHeatmap } from '../components/usage.tsx'
 import { getPreference, setPreference as applyThemePreference, subscribePreference, type ThemePreference } from '../theme.ts'
 
 type CapabilityKey = 'image' | 'animation' | 'embedding'
@@ -40,14 +43,18 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
     embedding: { enabled: false, baseURL: '', model: '', apiKeyEnv: '' },
   })
   const [animationMode, setAnimationMode] = useState<'svg-html' | 'video'>('svg-html')
+  const [quickActions, setQuickActions] = useState<QuickAction[]>([])
 
   const [targetRetention, setTargetRetention] = useState('0.9')
   const [maxIntervalDays, setMaxIntervalDays] = useState('365')
   const [dailyNewUnits, setDailyNewUnits] = useState('0')
   const [autoQuiz, setAutoQuiz] = useState(true)
-  const [autoInsight, setAutoInsight] = useState(true)
   const [verifyNotes, setVerifyNotes] = useState(false)
-  const [showInsights, setShowInsights] = useState(true)
+  const [priceCurrency, setPriceCurrency] = useState<'USD' | 'CNY'>('USD')
+  const [inputPrice, setInputPrice] = useState('0')
+  const [cacheInputPrice, setCacheInputPrice] = useState('0')
+  const [outputPrice, setOutputPrice] = useState('0')
+  const [usage, setUsage] = useState<UsageSummaryView | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -78,13 +85,16 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
           },
         })
         setAnimationMode(value.animation.mode)
+        setQuickActions((value.study.quickActions ?? []).map(action => ({ ...action })))
         setTargetRetention(String(value.study.targetRetention))
         setMaxIntervalDays(String(value.study.maxIntervalDays))
         setDailyNewUnits(String(value.study.dailyNewUnits))
         setAutoQuiz(value.study.autoQuiz)
-        setAutoInsight(value.study.autoInsight)
         setVerifyNotes(value.study.verifyNotes)
-        setShowInsights(value.study.showInsights !== false)
+        setPriceCurrency(value.study.pricing?.currency === 'CNY' ? 'CNY' : 'USD')
+        setInputPrice(String(value.study.pricing?.inputPerMillion ?? 0))
+        setCacheInputPrice(String(value.study.pricing?.cacheInputPerMillion ?? 0))
+        setOutputPrice(String(value.study.pricing?.outputPerMillion ?? 0))
       })
       .catch(reason => {
         if (alive) setError(errorText(reason))
@@ -100,6 +110,18 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
     return () => window.clearTimeout(timer)
   }, [toast])
 
+  useEffect(() => {
+    let alive = true
+    api<UsageSummaryView>('/usage')
+      .then(value => {
+        if (alive) setUsage(value)
+      })
+      .catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [view?.updatedAt])
+
   const test = async (): Promise<void> => {
     setTestResult('测试中…')
     try {
@@ -114,10 +136,29 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
     }
   }
 
+  /** Move one quick action up or down; the array order is the bar order. */
+  const moveQuickAction = (from: number, to: number): void => {
+    setQuickActions(previous => {
+      if (to < 0 || to >= previous.length) return previous
+      const next = [...previous]
+      const [item] = next.splice(from, 1)
+      if (item === undefined) return previous
+      next.splice(to, 0, item)
+      return next
+    })
+  }
+
   const save = async (): Promise<void> => {
     setBusy(true)
     setError(null)
     try {
+      const actions = quickActions
+        .map(action => ({
+          label: action.label.trim().slice(0, QUICK_LABEL_MAX),
+          prompt: action.prompt.trim().slice(0, QUICK_PROMPT_MAX),
+        }))
+        .filter(action => action.label.length > 0 && action.prompt.length > 0)
+        .slice(0, MAX_QUICK_ACTIONS)
       const value = await post<SettingsView>('/settings', {
         text: {
           kind,
@@ -148,9 +189,14 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
           maxIntervalDays: Number(maxIntervalDays),
           dailyNewUnits: Number(dailyNewUnits),
           autoQuiz,
-          autoInsight,
           verifyNotes,
-          showInsights,
+          quickActions: actions,
+          pricing: {
+            currency: priceCurrency,
+            inputPerMillion: Number(inputPrice) || 0,
+            cacheInputPerMillion: Number(cacheInputPrice) || 0,
+            outputPerMillion: Number(outputPrice) || 0,
+          },
         },
       })
       setView(value)
@@ -187,13 +233,6 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
             ))}
           </div>
           <p className="study-muted">现在是「{themeLabel(preference)}」。</p>
-          <p className="study-muted">「笔记（实验）」暂时用不上就收起来；已存的笔记和概念都保留，随时可以再打开。</p>
-          <div className="study-settings-toggles">
-            <label className="study-inline-check">
-              <input type="checkbox" checked={showInsights} onChange={event => setShowInsights(event.target.checked)} />
-              显示「笔记（实验）」入口
-            </label>
-          </div>
         </section>
         <section className="study-settings-section">
           <h3>文本引擎</h3>
@@ -318,6 +357,69 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
         </section>
 
         <section className="study-settings-section">
+          <h3>用量与费用</h3>
+          <p className="study-muted">
+            优先使用接口返回的本次金额；没有返回时按下面的单价估算。缓存输入单价填 0 表示按输入单价计算。只统计学习桌页面内生成的调用。
+          </p>
+          <div className="study-row">
+            <div className="study-field">
+              <label className="study-field-label">货币</label>
+              <select className="study-input" value={priceCurrency} onChange={event => setPriceCurrency(event.target.value as 'USD' | 'CNY')}>
+                <option value="USD">美元 $</option>
+                <option value="CNY">人民币 ¥</option>
+              </select>
+            </div>
+            <div className="study-field">
+              <label className="study-field-label">输入单价 / 百万 token</label>
+              <input className="study-input" type="number" min="0" step="0.01" value={inputPrice} onChange={event => setInputPrice(event.target.value)} />
+            </div>
+            <div className="study-field">
+              <label className="study-field-label" title="0 表示按输入单价计算">缓存输入单价 / 百万 token</label>
+              <input className="study-input" type="number" min="0" step="0.01" value={cacheInputPrice} onChange={event => setCacheInputPrice(event.target.value)} />
+            </div>
+            <div className="study-field">
+              <label className="study-field-label">输出单价 / 百万 token</label>
+              <input className="study-input" type="number" min="0" step="0.01" value={outputPrice} onChange={event => setOutputPrice(event.target.value)} />
+            </div>
+          </div>
+          {usage === null ? null : (
+            <>
+              <div className="study-usage-summary">
+                <div>
+                  <span className="study-field-label">总花费</span>
+                  <strong>
+                    {usage.totals.pricedCalls === 0 && usage.totals.calls > 0
+                      ? '未配置单价'
+                      : `${usage.totals.unpricedCalls > 0 ? '≈ ' : ''}${formatCost(usage.totals.cost, usage.currency)}`}
+                  </strong>
+                </div>
+                <div>
+                  <span className="study-field-label">今天</span>
+                  <strong>
+                    {usage.today.pricedCalls === 0 && usage.today.calls > 0
+                      ? '未配置单价'
+                      : `${usage.today.unpricedCalls > 0 ? '≈ ' : ''}${formatCost(usage.today.cost, usage.currency)}`}
+                  </strong>
+                </div>
+                <div>
+                  <span className="study-field-label">累计调用</span>
+                  <strong>{usage.totals.calls} 次</strong>
+                </div>
+                <div>
+                  <span className="study-field-label">Token</span>
+                  <strong>
+                    {formatTokens(usage.totals.inputTokens)} 输入
+                    {usage.totals.cacheReadTokens > 0 ? ` / ${formatTokens(usage.totals.cacheReadTokens)} 缓存` : ''}
+                    {' / '}{formatTokens(usage.totals.outputTokens)} 输出
+                  </strong>
+                </div>
+              </div>
+              <UsageHeatmap days={usage.days} currency={usage.currency} />
+            </>
+          )}
+        </section>
+
+        <section className="study-settings-section">
           <h3>学习与复习</h3>
           <div className="study-row">
             <div className="study-field">
@@ -339,14 +441,106 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
               生成导读后自动出题
             </label>
             <label className="study-inline-check">
-              <input type="checkbox" checked={autoInsight} onChange={event => setAutoInsight(event.target.checked)} />
-              生成导读后自动提炼洞察
-            </label>
-            <label className="study-inline-check">
               <input type="checkbox" checked={verifyNotes} onChange={event => setVerifyNotes(event.target.checked)} />
               写完后做一次独立校验（后续阶段）
             </label>
           </div>
+        </section>
+
+        <section className="study-settings-section">
+          <h3>划词动作</h3>
+          <p className="study-muted">
+            选中文字后，这些按钮按下面的顺序排在「问一问」前面，点一下就会带着选中的原文直接执行。最多 {MAX_QUICK_ACTIONS}
+            个；「问一问」固定排在最后。
+          </p>
+          {quickActions.map((action, index) => (
+            <div className="study-quick-action" key={index}>
+              <div className="study-row">
+                <div className="study-field study-quick-action-name">
+                  <label className="study-field-label">按钮名</label>
+                  <input
+                    className="study-input"
+                    maxLength={QUICK_LABEL_MAX}
+                    placeholder="翻译"
+                    value={action.label}
+                    disabled={busy}
+                    onChange={event =>
+                      setQuickActions(previous =>
+                        previous.map((item, at) => (at === index ? { ...item, label: event.target.value } : item)),
+                      )
+                    }
+                  />
+                </div>
+                <div className="study-field">
+                  <label className="study-field-label">指令</label>
+                  <input
+                    className="study-input"
+                    maxLength={QUICK_PROMPT_MAX}
+                    placeholder="把这段翻成中文，保留术语和公式，不要总结。"
+                    value={action.prompt}
+                    disabled={busy}
+                    onChange={event =>
+                      setQuickActions(previous =>
+                        previous.map((item, at) => (at === index ? { ...item, prompt: event.target.value } : item)),
+                      )
+                    }
+                  />
+                </div>
+                <div className="study-quick-action-tools">
+                  <button
+                    type="button"
+                    className="study-ghost study-quick-action-move"
+                    title="上移"
+                    aria-label="上移"
+                    disabled={busy || index === 0}
+                    onClick={() => moveQuickAction(index, index - 1)}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="study-ghost study-quick-action-move"
+                    title="下移"
+                    aria-label="下移"
+                    disabled={busy || index === quickActions.length - 1}
+                    onClick={() => moveQuickAction(index, index + 1)}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    className="study-ghost study-quick-action-remove"
+                    disabled={busy}
+                    onClick={() => setQuickActions(previous => previous.filter((_, at) => at !== index))}
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="study-inline">
+            <button
+              type="button"
+              className="study-ghost"
+              disabled={busy || quickActions.length >= MAX_QUICK_ACTIONS}
+              onClick={() => setQuickActions(previous => [...previous, { label: '', prompt: '' }])}
+            >
+              加一个
+            </button>
+            <span className="study-muted">例子：翻译成中文 / 用一句话解释 / 找出这段的隐含假设</span>
+          </div>
+          <p className="study-quick-preview">
+            划词后会看到：
+            {quickActions
+              .filter(action => action.label.trim().length > 0)
+              .map((action, index) => (
+                <span key={`${String(index)}:${action.label}`} className="study-quick-chip">
+                  {action.label.trim()}
+                </span>
+              ))}
+            <span className="study-quick-chip is-ask">问一问</span>
+          </p>
         </section>
 
         {error === null ? null : <ErrorNote message={error} />}

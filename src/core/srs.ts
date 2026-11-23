@@ -44,7 +44,7 @@ function difficultyFor(rating: Rating): number {
 /** A fresh card seeded from the rating given at first completion. */
 export function initialCard(rating: Rating): SrsCard {
   return {
-    S: INITIAL_STABILITY[rating - 1],
+    S: INITIAL_STABILITY[rating - 1] ?? 1.2,
     D: difficultyFor(rating),
     reps: 0,
     lapses: 0,
@@ -76,10 +76,10 @@ export function reviewCard(card: SrsCard, rating: Rating): SrsCard {
       lastRating: 1,
     }
   }
-  const growth = 1 + STABILITY_GAIN[rating - 1] * ((11 - card.D) / 10)
+  const growth = 1 + (STABILITY_GAIN[rating - 1] ?? 0) * ((11 - card.D) / 10)
   return {
     S: clamp(card.S * growth, MIN_STABILITY, MAX_STABILITY),
-    D: clamp(card.D + DIFFICULTY_DELTA[rating - 1], 1, 10),
+    D: clamp(card.D + (DIFFICULTY_DELTA[rating - 1] ?? 0), 1, 10),
     reps: card.reps + 1,
     lapses: card.lapses,
     lastRating: rating,

@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { LibraryPaths } from '../../../src/core/paths.ts'
 import { BookService } from '../../../src/host/books.ts'
 import { GenerationService } from '../../../src/host/generation.ts'
+import { UsageService } from '../../../src/host/usage.ts'
 import { InsightService } from '../../../src/host/insights.ts'
 import { JobQueue } from '../../../src/host/jobs.ts'
 import { SettingsService } from '../../../src/host/settings.ts'
@@ -25,6 +26,7 @@ await rm(root, { recursive: true, force: true })
 const paths = new LibraryPaths(root)
 const service = new StudyService(paths)
 const settings = new SettingsService(paths)
+const usage = new UsageService(paths, settings)
 const insights = new InsightService(paths)
 const jobs = new JobQueue(paths, { concurrency: () => 1 })
 await jobs.recover()
@@ -75,7 +77,7 @@ const fake = {
 }
 
 await settings.patch({ text: { kind: 'dsh', model: 'fake' } })
-const generation = new GenerationService(paths, { service, insights, settings, jobs, books, textProvider: () => fake })
+const generation = new GenerationService(paths, { service, insights, settings, jobs, books, usage, textProvider: () => fake })
 
 const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 const materialId = imported.manifest.id

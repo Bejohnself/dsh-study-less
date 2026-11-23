@@ -1,9 +1,9 @@
 /**
  * Structure detection: turn an extracted PDF into learnable units.
  *
- * Books become section units from the PDF outline, or from heading patterns when
- * there is no outline. Papers always get the three reading passes, plus section
- * units from the outline or from paper heading patterns.
+ * Books and papers both become section units from the PDF outline, or from
+ * heading patterns when there is no outline. Papers keep their paper-specific
+ * heading pattern, but no longer get synthetic reading-pass units.
  */
 import { slugify, uniqueSlug } from '../core/ids.ts'
 import type { MaterialType, StructureNode } from '../core/types.ts'
@@ -86,15 +86,6 @@ function chunked(input: StructureInput): StructureNode[] {
     })
   }
   return nodes
-}
-
-/** The three reading passes every paper starts with. */
-function paperPasses(numPages: number): StructureNode[] {
-  return [
-    { uid: 'p1', kind: 'pass', pass: 1, title: '第一遍：5C 概览', pageStart: 1, pageEnd: numPages },
-    { uid: 'p2', kind: 'pass', pass: 2, title: '第二遍：方法与假设', pageStart: 1, pageEnd: numPages },
-    { uid: 'p3', kind: 'pass', pass: 3, title: '第三遍：可复现与批判', pageStart: 1, pageEnd: numPages },
-  ]
 }
 
 /** Normalize a heading line for comparison (drop numbering, punctuation). */
@@ -236,9 +227,7 @@ export function buildStructure(input: StructureInput): StructureNode[] {
   // Chunked fallbacks already tile the document page by page; the "share the
   // page the next section starts on" rule only applies to real headings.
   let closed = false
-  if (input.type === 'paper') {
-    nodes = [...paperPasses(input.numPages), ...refinedSections]
-  } else if (refinedSections.length >= 2) {
+  if (refinedSections.length >= 2) {
     nodes = refinedSections
   } else {
     nodes = chunked(input)
@@ -258,12 +247,10 @@ export function buildStructure(input: StructureInput): StructureNode[] {
     node.uid = uid
   }
 
-  // Passes keep the whole document; sections close against their neighbours.
-  const sectionNodes = closed
-    ? nodes
-    : closeRanges(nodes.filter(node => node.kind !== 'pass'), input.pages, input.numPages, {
-        chapters: input.type === 'book',
-      })
-  const byUid = new Map(sectionNodes.map(node => [node.uid, node]))
-  return nodes.map(node => (node.kind === 'pass' ? node : (byUid.get(node.uid) ?? node)))
+  // Sections close against their neighbours; a chunked fallback already tiles
+  // the document and needs no closing pass.
+  if (closed) return nodes
+  return closeRanges(nodes, input.pages, input.numPages, {
+    chapters: input.type === 'book',
+  })
 }

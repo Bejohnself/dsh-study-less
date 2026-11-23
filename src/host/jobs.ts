@@ -8,7 +8,7 @@
  */
 import { listJobs, newJob, readJob, writeJob, isTerminal, jobKey } from '../core/jobs.ts'
 import type { LibraryPaths } from '../core/paths.ts'
-import type { GenerationJob, JobKind, JobTarget } from '../core/types.ts'
+import type { GenerationJob, JobKind, JobTarget, UsageAmount } from '../core/types.ts'
 import { StudyError } from './service.ts'
 
 /** What a job body can do while it runs. */
@@ -16,6 +16,8 @@ export interface JobContext {
   job: GenerationJob
   signal: AbortSignal
   report(progress: number, message?: string): void
+  /** Accumulate one model call's tokens and cost on this job. */
+  addUsage(usage: UsageAmount): void
 }
 
 /** A queued job body. */
@@ -154,6 +156,30 @@ export class JobQueue {
         report: (progress, message) => {
           running.progress = Math.max(0, Math.min(1, progress))
           if (message !== undefined) running.message = message
+          this.remembered.set(running.id, running)
+          void this.persist(running, false)
+        },
+        addUsage: usage => {
+          const current = running.usage ?? {}
+          const cost = current.cost === undefined && usage.cost === undefined
+            ? undefined
+            : (current.cost ?? 0) + (usage.cost ?? 0)
+          const sources = [current.priceSource, usage.priceSource].filter(
+            (source): source is NonNullable<UsageAmount['priceSource']> => source !== undefined,
+          )
+          const priceSource = sources.length === 0
+            ? undefined
+            : sources.every(source => source === sources[0]) ? sources[0] : 'mixed'
+          running.usage = {
+            inputTokens: (current.inputTokens ?? 0) + (usage.inputTokens ?? 0),
+            cacheReadTokens: (current.cacheReadTokens ?? 0) + (usage.cacheReadTokens ?? 0),
+            outputTokens: (current.outputTokens ?? 0) + (usage.outputTokens ?? 0),
+            ...(cost === undefined ? {} : { cost }),
+            ...(usage.currency === undefined && current.currency === undefined
+              ? {}
+              : { currency: usage.currency ?? current.currency }),
+            ...(priceSource === undefined ? {} : { priceSource }),
+          }
           this.remembered.set(running.id, running)
           void this.persist(running, false)
         },

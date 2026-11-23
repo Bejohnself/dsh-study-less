@@ -13,3 +13,4 @@ lib/
 .test-blocks/
 .tmp/
 figure/out/
+.archify/

@@ -19,8 +19,8 @@ import { BookPage } from './pages/book.tsx'
 import { SettingsDialog } from './pages/settings.tsx'
 import { ImportDialog } from './components/import.tsx'
 import { Toast, TopNav, ThemeToggle, type TopTab } from './components/ui.tsx'
-import { api } from './api.ts'
-import type { TocRow } from '../core/views.ts'
+import { api, errorText, post } from './api.ts'
+import type { PlanSummary, TocRow } from '../core/views.ts'
 import { PLUGIN_VERSION } from '../core/version.ts'
 
 type View =
@@ -34,12 +34,27 @@ type View =
   | { kind: 'insight'; iid: string }
   | { kind: 'concept'; cid: string }
 
+/** Wait for the Host half to answer again after a plugin-only restart. */
+async function waitForPlugin(): Promise<boolean> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 500))
+    try {
+      await api('/health', { signal: AbortSignal.timeout(1500) })
+      return true
+    } catch {
+      // The plugin entry is briefly disposed while the loader switches it.
+    }
+  }
+  return false
+}
+
 /** The main study desk page. */
 export function StudyApp(): ReactElement {
   const [view, setView] = useState<View>({ kind: 'learn' })
   const [dialog, setDialog] = useState<'import' | 'settings' | 'goal' | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const [toast, setToast] = useState<{ message: string; tone: 'ok' | 'error' } | null>(null)
+  const [restarting, setRestarting] = useState(false)
   const [hostVersion, setHostVersion] = useState<string | null>(null)
 
   const bump = (): void => setRefreshToken(value => value + 1)
@@ -75,9 +90,7 @@ export function StudyApp(): ReactElement {
     if (view.kind === 'library') return '书都在这儿。点一本就开始，不点也不欠谁。'
     if (view.kind === 'material') return '原文、引导、练习，都在这一页。'
     if (view.kind === 'practice') return '一次一题。答完判分，下一题按你答得怎么样来挑。'
-    if (view.kind === 'learn' && view.tab === 'today') return '今天只看三件事：接着读、该复习、练最弱的。'
-    if (view.kind === 'learn' && view.tab === 'paths') return '一个目标串起好几本；每一步都落到真实的一节。'
-    if (view.kind === 'learn' && view.tab === 'review') return '先自己说一遍，再看最小的对照，最后评个级。'
+    if (view.kind === 'learn') return '今天只看三件事：接着读、该复习、练最弱的。'
     if (view.kind === 'plan') return '做完一步，推进一步；够了就结案。'
     if (view.kind === 'book') return '自编书（实验）：有目录、有过渡，能一直读下去。'
     if (view.kind === 'insights' && view.tab === 'insights') return '笔记（实验）：把一本书读成一句话、一条公式、一处对比。'
@@ -86,6 +99,20 @@ export function StudyApp(): ReactElement {
     return '这个概念在每份资料里的位置。'
   }, [view])
 
+  // One goal at a time: refuse a new one before the wizard opens.
+  const openGoal = async (): Promise<void> => {
+    try {
+      const plans = await api<PlanSummary[]>('/plans')
+      const open = plans.find(plan => plan.status !== 'done')
+      if (open !== undefined) {
+        setToast({ message: `目前已有目标「${open.goal}」，一个书桌同时只跑一个；先结案或删掉它再加新的`, tone: 'error' })
+        return
+      }
+    } catch {
+      // Unreadable list: let the dialog's own request report it.
+    }
+    setDialog('goal')
+  }
   const openUnit = (mid: string, uid: string, planId?: string): void => {
     setView({ kind: 'material', mid, uid, ...(planId === undefined ? {} : { planId }) })
   }
@@ -99,7 +126,25 @@ export function StudyApp(): ReactElement {
     }
   }
   const openInsight = (iid: string): void => setView({ kind: 'insight', iid })
-  const openBook = (bid: string, planId?: string): void => setView({ kind: 'book', bid, ...(planId === undefined ? {} : { pid: planId }) })
+
+  const restartPlugin = async (): Promise<void> => {
+    if (restarting) return
+    if (!window.confirm('重启书桌插件？正在进行的生成任务会中断。')) return
+    setRestarting(true)
+    try {
+      await post('/plugin/restart', {})
+      setToast({ message: '插件正在重启…', tone: 'ok' })
+      if (await waitForPlugin()) {
+        window.location.reload()
+        return
+      }
+      setToast({ message: '插件没有在 20 秒内恢复，请刷新页面或重载插件', tone: 'error' })
+    } catch (reason) {
+      setToast({ message: errorText(reason), tone: 'error' })
+    } finally {
+      setRestarting(false)
+    }
+  }
 
   // 过关测试 is a focused run: only theme and settings belong in the bar.
   const focusMode = view.kind === 'practice'
@@ -107,7 +152,7 @@ export function StudyApp(): ReactElement {
   return (
     <div data-dsh-study="" className="study-page">
       <div className={view.kind === 'material' || view.kind === 'practice' ? 'study-shell is-reader' : 'study-shell'}>
-        <div className={focusMode ? 'study-head is-focus' : 'study-head'}>
+        <div className={view.kind === 'material' ? 'study-head is-reader-hidden' : focusMode ? 'study-head is-focus' : 'study-head'}>
           <h1>书桌</h1>
           {focusMode ? null : (
             <span
@@ -142,7 +187,12 @@ export function StudyApp(): ReactElement {
                 设置
               </button>
               {focusMode ? null : (
-                <button type="button" className="study-primary study-primary-tight" onClick={() => setDialog('goal')}>
+                <button type="button" className="study-ghost" disabled={restarting} onClick={() => void restartPlugin()}>
+                  {restarting ? '重启中…' : '重启插件'}
+                </button>
+              )}
+              {focusMode ? null : (
+                <button type="button" className="study-primary study-primary-tight" onClick={() => void openGoal()}>
                   ＋ 新建目标
                 </button>
               )}
@@ -155,7 +205,7 @@ export function StudyApp(): ReactElement {
             refreshToken={refreshToken}
             onOpen={mid => setView({ kind: 'material', mid })}
             onImport={() => setDialog('import')}
-            onOpenBook={bid => openBook(bid)}
+            onChanged={bump}
           />
         ) : null}
 
@@ -166,9 +216,6 @@ export function StudyApp(): ReactElement {
             {...(view.planId === undefined ? {} : { planId: view.planId })}
             refreshToken={refreshToken}
             onBack={() => setView(view.planId === undefined ? { kind: 'library' } : { kind: 'plan', pid: view.planId })}
-            onOpenConcept={openConcept}
-            onOpenInsight={openInsight}
-            onOpenPlan={pid => setView({ kind: 'plan', pid })}
             onOpenQuiz={(mid, unit, planId) =>
               setView({
                 kind: 'practice',
@@ -185,7 +232,6 @@ export function StudyApp(): ReactElement {
           <PracticePage
             mid={view.mid}
             unit={view.unit}
-            {...(view.planId === undefined ? {} : { planId: view.planId })}
             onBack={() =>
               setView({
                 kind: 'material',
@@ -201,10 +247,9 @@ export function StudyApp(): ReactElement {
         {view.kind === 'learn' ? (
           <LearnPage
             onOpenUnit={openUnit}
-            onOpenConcept={openConcept}
             onOpenPlan={pid => setView({ kind: 'plan', pid })}
             onReviewConcept={(mid, uid, conceptId) => void openReview(mid, uid, conceptId)}
-            onOpenLibrary={() => setView({ kind: 'library' })}
+            onCreateGoal={() => setDialog('goal')}
             refreshToken={refreshToken}
           />
         ) : null}
@@ -214,9 +259,6 @@ export function StudyApp(): ReactElement {
             pid={view.pid}
             onBack={() => setView({ kind: 'learn' })}
             onOpenUnit={openUnit}
-            onOpenConcept={openConcept}
-            onOpenInsight={openInsight}
-            onOpenBook={openBook}
             refreshToken={refreshToken}
             onChanged={bump}
           />

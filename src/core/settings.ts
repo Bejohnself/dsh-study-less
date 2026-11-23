@@ -8,11 +8,24 @@
 import type {
   AnimationSettings,
   CapabilitySettings,
+  QuickAction,
   StudyPreferences,
   StudySettings,
   TextEngineSettings,
 } from './types.ts'
 import type { SettingsUpdate, SettingsView } from './views.ts'
+
+/** How many custom actions the selection bar may hold. */
+export const MAX_QUICK_ACTIONS = 3
+/** Button text limit; longer labels would push the bar too wide. */
+export const QUICK_LABEL_MAX = 6
+/** Instruction limit, same as the question cap on /ask. */
+export const QUICK_PROMPT_MAX = 400
+
+/** Ship one example so the feature is visible, editable and easy to copy. */
+export const DEFAULT_QUICK_ACTIONS: QuickAction[] = [
+  { label: '翻译', prompt: '把这段翻成中文，保留术语和公式，不要总结。' },
+]
 
 /** Default study preferences. */
 export const DEFAULT_STUDY: StudyPreferences = {
@@ -20,11 +33,13 @@ export const DEFAULT_STUDY: StudyPreferences = {
   maxIntervalDays: 365,
   dailyNewUnits: 0,
   autoQuiz: true,
-  autoInsight: true,
+  autoInsight: false,
   verifyNotes: false,
   showInsights: true,
   concurrency: 1,
   requestTimeoutMs: 120_000,
+  pricing: { currency: 'USD', inputPerMillion: 0, cacheInputPerMillion: 0, outputPerMillion: 0 },
+  quickActions: DEFAULT_QUICK_ACTIONS.map(action => ({ ...action })),
 }
 
 /** Default text engine: reuse the DSH model unless a custom endpoint is set. */
@@ -49,7 +64,11 @@ export function defaultSettings(): StudySettings {
     image: disabledCapability(),
     animation: { ...disabledCapability(), mode: 'svg-html' },
     embedding: disabledCapability(),
-    study: { ...DEFAULT_STUDY },
+    study: {
+      ...DEFAULT_STUDY,
+      pricing: { ...DEFAULT_STUDY.pricing },
+      quickActions: DEFAULT_STUDY.quickActions.map(action => ({ ...action })),
+    },
     updatedAt: new Date().toISOString(),
   }
 }
@@ -113,6 +132,26 @@ function normalizeText(value: unknown): TextEngineSettings {
   }
 }
 
+/** Trim, drop empty slots, cap the count and the lengths. */
+function normalizeQuickActions(value: unknown): QuickAction[] {
+  // No field at all is an older document: give it the example action. An empty
+  // array is a deliberate "I deleted them all", so keep it empty.
+  if (!Array.isArray(value)) return DEFAULT_QUICK_ACTIONS.map(action => ({ ...action }))
+  const actions: QuickAction[] = []
+  for (const entry of value) {
+    const row = record(entry)
+    const label = str(row.label)
+    const prompt = str(row.prompt)
+    if (label === undefined || prompt === undefined) continue
+    actions.push({
+      label: label.slice(0, QUICK_LABEL_MAX),
+      prompt: prompt.slice(0, QUICK_PROMPT_MAX),
+    })
+    if (actions.length >= MAX_QUICK_ACTIONS) break
+  }
+  return actions
+}
+
 function normalizeStudy(value: unknown): StudyPreferences {
   const input = record(value)
   const target = num(input.targetRetention)
@@ -120,6 +159,11 @@ function normalizeStudy(value: unknown): StudyPreferences {
   const daily = num(input.dailyNewUnits)
   const concurrency = num(input.concurrency)
   const timeout = num(input.requestTimeoutMs)
+  const pricing = record(input.pricing)
+  const currency = pricing.currency === 'CNY' ? 'CNY' : 'USD'
+  const inputPrice = Math.max(0, num(pricing.inputPerMillion) ?? 0)
+  const cachePrice = Math.max(0, num(pricing.cacheInputPerMillion) ?? 0)
+  const outputPrice = Math.max(0, num(pricing.outputPerMillion) ?? 0)
   return {
     targetRetention: clamp(target ?? DEFAULT_STUDY.targetRetention, 0.5, 0.99),
     maxIntervalDays: clamp(Math.round(maxInterval ?? DEFAULT_STUDY.maxIntervalDays), 1, 3650),
@@ -130,6 +174,13 @@ function normalizeStudy(value: unknown): StudyPreferences {
     showInsights: bool(input.showInsights, DEFAULT_STUDY.showInsights),
     concurrency: clamp(Math.round(concurrency ?? DEFAULT_STUDY.concurrency), 1, 4),
     requestTimeoutMs: clamp(Math.round(timeout ?? DEFAULT_STUDY.requestTimeoutMs), 5_000, 600_000),
+    pricing: {
+      currency,
+      inputPerMillion: inputPrice,
+      cacheInputPerMillion: cachePrice,
+      outputPerMillion: outputPrice,
+    },
+    quickActions: normalizeQuickActions(input.quickActions),
   }
 }
 

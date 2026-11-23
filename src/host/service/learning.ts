@@ -6,17 +6,18 @@
  */
 import { unitKey } from '../../core/ids.ts'
 import { listManifests, structureNodeOf } from '../../core/library.ts'
-import { decayedMastery, dueConcepts, ensureKnowledge, targetOf, thresholdForLevel } from '../../core/knowledge.ts'
+import { DEFAULT_TARGET, decayedMastery, dueConcepts, ensureKnowledge, thresholdForLevel } from '../../core/knowledge.ts'
 import { dueUnits, readProgress, recordReview } from '../../core/progress.ts'
 import { listConcepts, readConcept } from '../../core/concepts.ts'
-import { activePlan, goalConcepts, listPlans, nextStep } from '../../core/plans.ts'
-import { dueCards, listCards, reviewCardOnce } from '../../core/cards.ts'
+import { activePlan, listPlans, nextStep } from '../../core/plans.ts'
+import { planProgress } from '../../core/planGate.ts'
 import { addDays, localDate } from '../../core/time.ts'
 import type { Rating } from '../../core/types.ts'
-import type { CardView, ConceptCard, ConceptDetailView, NextStepView, PlanBrief, TodayView } from '../../core/views.ts'
+import type { ConceptCard, ConceptDetailView, NextStepView, PlanBrief, TodayView } from '../../core/views.ts'
 import { type CompleteResult, type DueItem } from '../../core/views.ts'
-import { cardView, rowOf } from '../service/views.ts'
+import { rowOf } from '../service/views.ts'
 import { StudyError } from './error.ts'
+import { goalConceptLevels } from './plans.ts'
 import type { StudyService } from '../service.ts'
 
 export async function due(svc: StudyService, today = svc.today()): Promise<DueItem[]> {
@@ -61,12 +62,16 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     ]),
   )
   const active = activePlan(plans)
-  const goalMap = active === undefined ? new Map<string, 1 | 2 | 3 | 4>() : goalConcepts(active)
+  // A goal owns no concept list: its sections carry them.
+  const goalLevels = active === undefined ? undefined : await goalConceptLevels(svc, active)
+  const goalMap = goalLevels?.levels ?? new Map<string, 1 | 2 | 3 | 4>()
   const thresholdOf = (conceptId: string): number =>
-    goalMap.size === 0 ? targetOf(knowledge.concepts[conceptId]) : thresholdForLevel(goalMap.get(conceptId))
+    goalMap.size === 0 ? DEFAULT_TARGET : thresholdForLevel(goalMap.get(conceptId))
 
   const names = new Map(concepts.map(concept => [concept.id, concept.name]))
-  const inScope = (conceptId: string): boolean => goalMap.size === 0 || goalMap.has(conceptId)
+  // Without an active goal there is no scope: today stays empty instead of
+  // falling back to the whole library.
+  const inScope = (conceptId: string): boolean => goalMap.size > 0 && goalMap.has(conceptId)
   const knowledgeDue = dueConcepts(knowledge, date)
     .filter(entry => inScope(entry.conceptId))
     .map(entry => {
@@ -109,11 +114,12 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
           ...(active.deadline === undefined ? {} : { deadline: active.deadline }),
           passed: goalPassed,
           total: goalMap.size,
-          readyToClose: goalMap.size > 0 && goalPassed === goalMap.size,
+          missingSections: goalLevels?.missing.length ?? 0,
+          readyToClose: goalMap.size > 0 && goalPassed === goalMap.size && (goalLevels?.missing.length ?? 0) === 0,
         }
 
-  // The next reading suggestion follows the goal's section route; without a
-  // goal it falls back to the next unfinished section in book order.
+  // The next reading suggestion follows the goal's section route. Without a
+  // goal there is nothing to suggest: the panel keeps its empty state.
   let next: NextStepView | null = null
   const step = active === undefined ? undefined : nextStep(active)
   if (step?.target !== undefined && step.coverage !== 'skip') {
@@ -132,26 +138,6 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
       }
     }
   }
-  if (next === null && active === undefined) {
-    for (const manifest of manifests) {
-      const node = manifest.structure.find(candidate => {
-        const entry = progress.units[unitKey(manifest.id, candidate.uid)]
-        return entry === undefined || entry.state === 'new' || entry.state === 'suspended'
-      })
-      if (node !== undefined) {
-        next = {
-          source: 'material',
-          materialId: manifest.id,
-          unitId: node.uid,
-          title: node.title,
-          materialTitle: manifest.title,
-          why: '书序下一节',
-        }
-        break
-      }
-    }
-  }
-
   const learnedToday = Object.values(progress.units).filter(entry => {
     const first = entry.firstLearnedAt === undefined ? '' : localDate(new Date(entry.firstLearnedAt))
     const last = entry.lastReviewedAt === undefined ? '' : localDate(new Date(entry.lastReviewedAt))
@@ -163,16 +149,13 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     .map(plan => ({
       id: plan.id,
       goal: plan.goal,
-      done: plan.steps.filter(candidate => candidate.done).length,
-      total: plan.steps.length,
+      ...planProgress(plan),
       gateReady: goalBlock?.readyToClose === true,
       ...(plan.deliverable === undefined ? {} : { deliverable: plan.deliverable }),
     }))
 
   return {
     date,
-    dueCards: [],
-    due: [],
     weak: knowledgeBelow.slice(0, 5).map(entry => {
       const concept = concepts.find(candidate => candidate.id === entry.conceptId)
       return {
@@ -222,26 +205,6 @@ export async function review(svc: StudyService,
   }
 }
 
-export async function dueCardList(svc: StudyService, date = svc.today()): Promise<CardView[]> {
-  const [cards, plans] = await Promise.all([listCards(svc.paths), listPlans(svc.paths)])
-  const goalById = new Map(plans.map(plan => [plan.id, plan.goal]))
-  return dueCards(cards, date).map(card => cardView(card, date, goalById))
-}
-
-export async function reviewCard(svc: StudyService, cardId: string, rating: Rating): Promise<{ card: CardView; due: string }> {
-  const preferences = await svc.preferences()
-  const today = svc.today()
-  const card = await reviewCardOnce(svc.paths, cardId, {
-    rating,
-    today,
-    targetRetention: preferences.targetRetention,
-    maxIntervalDays: preferences.maxIntervalDays,
-  })
-  const plans = await listPlans(svc.paths)
-  const goalById = new Map(plans.map(plan => [plan.id, plan.goal]))
-  return { card: cardView(card, today, goalById), due: card.due ?? today }
-}
-
 export async function concepts(svc: StudyService): Promise<ConceptCard[]> {
   const [records, knowledge] = await Promise.all([listConcepts(svc.paths), ensureKnowledge(svc.paths)])
   const today = svc.today()
@@ -254,7 +217,7 @@ export async function concepts(svc: StudyService): Promise<ConceptCard[]> {
       mastery,
       occurrences: record.occurrences.length,
       materials: [...new Set(record.occurrences.map(occurrence => occurrence.material))],
-      weak: entry === undefined ? true : mastery < targetOf(entry) || entry.streak >= 2,
+      weak: entry === undefined ? true : mastery < DEFAULT_TARGET || entry.streak >= 2,
     }
   })
 }
@@ -262,7 +225,8 @@ export async function concepts(svc: StudyService): Promise<ConceptCard[]> {
 export async function conceptView(svc: StudyService, conceptId: string): Promise<ConceptDetailView> {
   const record = await readConcept(svc.paths, conceptId)
   if (record === null) throw new StudyError('not-found', `概念不存在：${conceptId}`)
-  const [manifests, progress] = await Promise.all([listManifests(svc.paths), readProgress(svc.paths)])
+  const [manifests, knowledge] = await Promise.all([listManifests(svc.paths), ensureKnowledge(svc.paths)])
+  const state = knowledge.concepts[conceptId]
   const byId = new Map(manifests.map(manifest => [manifest.id, manifest]))
   const occurrences: ConceptDetailView['occurrences'] = []
   for (const occurrence of record.occurrences) {
@@ -287,7 +251,17 @@ export async function conceptView(svc: StudyService, conceptId: string): Promise
       prereqOf: record.prereqOf,
       related: record.related,
     },
-    ...(progress.concepts[conceptId] === undefined ? {} : { mastery: progress.concepts[conceptId] }),
+    ...(state === undefined
+      ? {}
+      : {
+          mastery: {
+            mastery: decayedMastery(state, svc.today()),
+            attempts: state.attempts,
+            correct: state.correct,
+            streak: state.streak,
+            ...(state.lastAt === undefined ? {} : { lastSeen: state.lastAt }),
+          },
+        }),
     occurrences,
   }
 }

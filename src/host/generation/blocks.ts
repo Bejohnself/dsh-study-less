@@ -9,6 +9,7 @@ import { type JobContext } from '../jobs.ts'
 import { blocksPrompt } from '../generate/prompts.ts'
 import { StudyError } from '../service.ts'
 import type { GenerationService } from '../generation.ts'
+import type { GenerateBlocksInput } from './shared.ts'
 import { normalizeBlocksOutput } from './normalize.ts'
 
 export async function generateBlocks(svc: GenerationService, input: GenerateBlocksInput): Promise<{ jobId: string }> {

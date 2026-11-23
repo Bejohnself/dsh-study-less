@@ -1,10 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  DEFAULT_SESSION_LIMIT,
-  MIN_GRADED_FOR_RATING,
   conceptStatus,
-  defaultSessionLimit,
   gradeQuizItem,
   isObjectiveItem,
   looksCopiedFromRubric,
@@ -103,14 +100,21 @@ test('order puts weak concepts first, then easier items, then bank order', () =>
   assert.deepEqual(ordered.map(entry => entry.id), ['weak', 'choice-easy', 'choice-hard', 'recall'])
 })
 
-test('default limit is capped by the bank, not by a fixed eight', () => {
-  assert.equal(DEFAULT_SESSION_LIMIT, 8)
-  assert.equal(defaultSessionLimit(bank([current, easySame, hardSame, other, item('x', ['x'], 2)])), 5)
+test('a spent question is never offered again', () => {
+  const spent = new Set(['easy-same'])
+  const next = pickAdaptiveNext([current, easySame, hardSame, other], {
+    asked: new Set(['current']),
+    current,
+    correct: false,
+    skip: candidate => spent.has(candidate.id),
+  })
+  assert.equal(next?.id, 'hard-same', 'the easier same-concept item is spent')
   assert.equal(
-    defaultSessionLimit(bank(Array.from({ length: 10 }, (_, index) => item(`q${String(index)}`, ['a'], 2)))),
-    8,
+    orderQuizItems(bank([current, easySame, hardSame]), { skip: candidate => spent.has(candidate.id) })
+      .map(entry => entry.id)
+      .includes('easy-same'),
+    false,
   )
-  assert.equal(defaultSessionLimit(bank([])), 0)
 })
 
 test('evidence items are written answers, not page-number checks', () => {
@@ -181,7 +185,6 @@ test('two easy answers never rate a run, however correct they are', () => {
   ])
   assert.equal(score.graded, 2)
   assert.equal(score.score, 1)
-  assert.ok(score.graded < MIN_GRADED_FOR_RATING)
 })
 
 test('hard answers weigh more and partial credit counts half', () => {

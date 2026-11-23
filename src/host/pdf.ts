@@ -89,7 +89,6 @@ export async function extractPdf(data: Uint8Array, signal?: AbortSignal): Promis
   if (signal?.aborted) throw new Error('import aborted')
   const task = getDocument({
     data,
-    isEvalSupported: false,
     useSystemFonts: false,
     verbosity: 0,
   })
@@ -158,7 +157,7 @@ export async function extractLayouts(
   signal?: AbortSignal,
 ): Promise<PageLayout[]> {
   if (pages.length === 0) return []
-  const task = getDocument({ data, isEvalSupported: false, useSystemFonts: false, verbosity: 0 })
+  const task = getDocument({ data, useSystemFonts: false, verbosity: 0 })
   try {
     const doc = await task.promise
     const out: PageLayout[] = []

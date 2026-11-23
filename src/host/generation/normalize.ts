@@ -37,7 +37,7 @@ export function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-export const PLAN_KINDS: PlanStepKind[] = ['unit', 'paper-pass', 'drill', 'compare']
+export const PLAN_KINDS: PlanStepKind[] = ['unit', 'paper-pass']
 export const QUIZ_TYPES: QuizItemType[] = ['recall', 'choice', 'cloze', 'apply', 'evidence']
 export const INSIGHT_KINDS: InsightKind[] = ['principle', 'formula', 'contrast', 'pitfall', 'analogy', 'method']
 /** Drop steps that point at units/concepts/materials the library does not have. */
@@ -48,16 +48,17 @@ export function sanitizePlanSteps(
     concepts?: string[]
     materials?: string[]
     coverage?: 'read' | 'skim' | 'skip'
+    level?: 1 | 2 | 3 | 4
     why: string
   }>,
   validUnits: ReadonlySet<string>,
   validConcepts: ReadonlySet<string>,
   validMaterials: ReadonlySet<string>,
 ): {
-  steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; why: string }>
+  steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; level?: 1 | 2 | 3 | 4; why: string }>
   issues: string[]
 } {
-  const kept: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; why: string }> = []
+  const kept: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; level?: 1 | 2 | 3 | 4; why: string }> = []
   const issues: string[] = []
   steps.forEach((step, index) => {
     const label = `第 ${index + 1} 步`
@@ -94,139 +95,6 @@ export function sanitizePlanSteps(
   return { steps: kept, issues }
 }
 
-/** Normalize the plan's mastery map; throws with all shape issues. */
-export function normalizePlanMastery(parsed: unknown): Array<{
-  title: string
-  standard: string
-  target?: string
-  concepts?: string[]
-  level?: 1 | 2 | 3 | 4
-}> {
-  const body = asRecord(parsed)
-  if (!Array.isArray(body.mastery)) throw new StudyError('invalid', '计划缺少掌握点（mastery）', { issues: ['mastery 必须是数组'] })
-  const issues: string[] = []
-  const points: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }> = []
-  body.mastery.forEach((entry, index) => {
-    const row = asRecord(entry)
-    const title = typeof row.title === 'string' ? row.title.trim() : ''
-    const standard = typeof row.standard === 'string' ? row.standard.trim() : ''
-    if (title.length === 0) issues.push(`第 ${index + 1} 个掌握点缺少 title`)
-    if (standard.length === 0) issues.push(`第 ${index + 1} 个掌握点缺少 standard`)
-    const point: { title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 } = { title, standard }
-    if (typeof row.target === 'string' && row.target.includes(':')) point.target = row.target.trim()
-    if (Array.isArray(row.concepts)) point.concepts = row.concepts.map(String)
-    if (row.level === 1 || row.level === 2 || row.level === 3 || row.level === 4) point.level = row.level
-    points.push(point)
-  })
-  if (points.length === 0) issues.push('mastery 为空')
-  if (issues.length > 0) throw new StudyError('invalid', '掌握点结构不合法', { issues })
-  return points
-}
-
-/**
- * Drop mastery points whose unit or concepts do not exist.
- *
- * A point without a real target cannot be practiced, so it is dropped rather
- * than kept as a dangling link. Unknown concept ids are filtered out; the point
- * itself survives if its target is valid.
- */
-export function sanitizeMastery(
-  points: ReadonlyArray<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }>,
-  validUnits: ReadonlySet<string>,
-  validConcepts: ReadonlySet<string>,
-): {
-  points: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }>
-  issues: string[]
-} {
-  const kept: Array<{ title: string; standard: string; target?: string; concepts?: string[]; level?: 1 | 2 | 3 | 4 }> = []
-  const issues: string[] = []
-  for (const [index, point] of points.entries()) {
-    const label = `第 ${index + 1} 个掌握点`
-    let target: string | undefined
-    if (point.target !== undefined) {
-      try {
-        splitUnitKey(point.target)
-      } catch {
-        issues.push(`${label} 的 target 不是 <material>:<unit>：${point.target}`)
-        continue
-      }
-      if (!validUnits.has(point.target)) {
-        issues.push(`${label} 指向不存在的单元：${point.target}`)
-        continue
-      }
-      target = point.target
-    }
-    const concepts = (point.concepts ?? []).filter(concept => {
-      const known = validConcepts.has(concept)
-      if (!known) issues.push(`${label} 指向不存在的概念：${concept}`)
-      return known
-    })
-    if (concepts.length > 8) concepts.length = 8
-    const title = point.title.trim()
-    const standard = point.standard.trim()
-    if (title.length === 0 || standard.length === 0) continue
-    kept.push({
-      title: title.slice(0, 120),
-      standard: standard.slice(0, 500),
-      ...(target === undefined ? {} : { target }),
-      ...(concepts.length === 0 ? {} : { concepts }),
-      ...(point.level === undefined ? {} : { level: point.level }),
-    })
-  }
-  if (kept.length === 0) issues.push('没有可用的掌握点')
-  return { points: kept.slice(0, 12), issues }
-}
-
-/** Normalize the plan-scoped question answer for one unit's open points. */
-export function normalizeMasteryQuizItems(
-  parsed: unknown,
-  input: {
-    points: ReadonlyArray<{ id: string; title: string; concepts: readonly string[] }>
-    range: { pageStart: number; pageEnd: number }
-  },
-): QuizItem[] {
-  const body = asRecord(parsed)
-  const raw = asArray(body.items, 'items')
-  const byId = new Map(input.points.map(point => [point.id, point]))
-  const seen = new Set<string>()
-  const items: QuizItem[] = []
-  for (const entry of raw) {
-    const row = asRecord(entry)
-    const pointId = typeof row.point === 'string' ? row.point.trim() : ''
-    const point = byId.get(pointId)
-    if (point === undefined || seen.has(pointId)) continue
-    const type = row.type === 'apply' || row.type === 'evidence' ? row.type : 'recall'
-    const question = typeof row.question === 'string' ? row.question.trim() : ''
-    if (question.length < 6) continue
-    const rubric = Array.isArray(row.rubric)
-      ? row.rubric.filter((line): line is string => typeof line === 'string' && line.trim().length > 0).slice(0, 5)
-      : []
-    if (rubric.length === 0) continue
-    const allowed = new Set(point.concepts)
-    const concepts = Array.isArray(row.concepts)
-      ? row.concepts.map(String).filter(concept => allowed.has(concept))
-      : []
-    const page = asNumber(row.page)
-    const inside = page !== undefined && page >= input.range.pageStart && page <= input.range.pageEnd
-    const difficulty = asNumber(row.difficulty)
-    seen.add(pointId)
-    items.push({
-      id: `mp-${pointId}-${String(items.length + 1)}`,
-      type,
-      question: question.slice(0, 800),
-      rubric,
-      concepts: concepts.length === 0 ? [...point.concepts] : concepts,
-      origin: 'generated',
-      masteryPoint: pointId,
-      ...(inside ? { page } : {}),
-      difficulty: difficulty === 1 || difficulty === 3 ? difficulty : 2,
-    })
-    if (items.length >= input.points.length) break
-  }
-  if (items.length === 0) throw new StudyError('invalid', '模型没有给出可用的过关题，稍后重试')
-  return items
-}
-
 /** Normalize a plan answer; throws with all shape issues. */
 export function normalizePlanSteps(parsed: unknown): Array<{
   kind: PlanStepKind
@@ -234,12 +102,13 @@ export function normalizePlanSteps(parsed: unknown): Array<{
   concepts?: string[]
   materials?: string[]
   coverage?: 'read' | 'skim' | 'skip'
+  level?: 1 | 2 | 3 | 4
   why: string
 }> {
   const body = asRecord(parsed)
   const raw = asArray(body.steps, 'steps')
   const issues: string[] = []
-  const steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; why: string }> = []
+  const steps: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; level?: 1 | 2 | 3 | 4; why: string }> = []
   raw.forEach((entry, index) => {
     const row = asRecord(entry)
     const kind = row.kind
@@ -249,11 +118,12 @@ export function normalizePlanSteps(parsed: unknown): Array<{
     }
     const why = typeof row.why === 'string' ? row.why.trim() : ''
     if (why.length === 0) issues.push(`第 ${index + 1} 步缺少 why`)
-    const step: { kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; why: string } = {
+    const step: { kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: 'read' | 'skim' | 'skip'; level?: 1 | 2 | 3 | 4; why: string } = {
       kind: kind as PlanStepKind,
       why,
     }
     if (row.coverage === 'read' || row.coverage === 'skim' || row.coverage === 'skip') step.coverage = row.coverage
+    if (row.level === 1 || row.level === 2 || row.level === 3 || row.level === 4) step.level = row.level
     if (kind === 'unit' || kind === 'paper-pass') {
       if (typeof row.target !== 'string' || !row.target.includes(':')) issues.push(`第 ${index + 1} 步缺少 target`)
       else step.target = row.target.trim()
@@ -629,4 +499,16 @@ export function normalizeConcepts(
   }
   if (out.length === 0) throw new StudyError('invalid', '模型没有抽出可用的知识点，稍后重试')
   return out
+}
+
+/** Below this confidence a verdict is not trusted as a pass. */
+export const JUDGE_CONFIDENCE_FLOOR = 0.6
+
+/** Normalize what the model said into a verdict; unknown means partial. */
+export function normalizeVerdict(raw: unknown, confidence: unknown): 'pass' | 'partial' | 'fail' {
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  const score = typeof confidence === 'number' && Number.isFinite(confidence) ? confidence : 1
+  const verdict = value === 'pass' ? 'pass' : value === 'fail' ? 'fail' : 'partial'
+  if (verdict === 'pass' && score < JUDGE_CONFIDENCE_FLOOR) return 'partial'
+  return verdict
 }

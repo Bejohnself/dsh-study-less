@@ -1,9 +1,11 @@
 /**
  * Route-level check of the stage-1 loop: the browser's crop list, attempts,
- * sufficiency questions and the closure gate all travel through /plan/*.
+ * attempts and the knowledge-space closure all travel through /plan/*.
  */
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { rm } from 'node:fs/promises'
+import { ensureKnowledge, writeKnowledge } from '../../../src/core/knowledge.ts'
 import { LibraryPaths } from '../../../src/core/paths.ts'
 import { StudyService } from '../../../src/host/service.ts'
 import { makeStudyRoutes } from '../../../src/host/routes.ts'
@@ -26,6 +28,14 @@ const call = async (path, body) => {
 }
 
 try {
+  // The single-goal rule means a leftover open plan from check-plan would block
+  // creation here; this check only needs the imported sample.
+  for (const plan of await service.planList()) {
+    if (plan.status !== 'done') await service.deletePlan(plan.id)
+  }
+  // This check shares check-plan's library; that run leaves concepts at target,
+  // which would let this goal close before its own gate is exercised.
+  await rm(service.paths.knowledgeFile, { force: true })
   const library = await call('/library')
   const mid = library.body.value[0].id
   const material = await call('/material?mid=' + encodeURIComponent(mid))
@@ -47,9 +57,8 @@ try {
   assert.equal(detail.status, 200)
   const view = detail.body.value
   assert.ok(view.boundary !== undefined, 'plan view carries the crop list')
-  assert.ok(view.gate !== undefined, 'plan view carries the closure gate')
   assert.equal(view.steps[0].coverage, 'read', 'old plans read as read')
-  console.log('detail:', 'total', view.total, '| boundary', JSON.stringify(view.boundary), '| gate', view.gate.ready)
+  console.log('detail:', 'total', view.total, '| boundary', JSON.stringify(view.boundary))
 
   const meta = await call('/plan/update', { pid, setMeta: { deliverable: '能独立推导第 3 节', deadline: '2026-12-20', audience: '组会' } })
   assert.equal(meta.status, 200)
@@ -81,55 +90,34 @@ try {
     })
   }
   assert.equal(attempt.body.value.attempts.length, 3)
-  assert.equal(attempt.body.value.gate.independent, 3)
-  assert.equal(attempt.body.value.stuck[0].count, 3)
-  console.log('attempts:', attempt.body.value.attempts.length, '| stuck', attempt.body.value.stuck[0].count)
+  console.log('attempts:', attempt.body.value.attempts.length)
 
-  const questions = await call('/plan/update', {
-    pid,
-    replaceSufficiency: [{ q: '能推出 Eq.1 吗？' }, { q: '能解释 sqrt(d) 吗？' }],
-  })
-  assert.equal(questions.status, 200)
-  assert.equal(questions.body.value.gate.asked, 2)
-  const firstId = questions.body.value.sufficiency[0].id
-  const passed = await call('/plan/update', {
-    pid,
-    toggleSufficiency: { id: firstId, passed: true, answer: '自评答案：QK^T 除以 sqrt(d) 再 softmax' },
-  })
-  assert.equal(passed.body.value.gate.passed, 1)
-  assert.equal(passed.body.value.gate.ready, false)
-  console.log('gate before closing:', passed.body.value.gate.passed + '/' + passed.body.value.gate.asked, '|', passed.body.value.gate.reasons.join(' / '))
-
-  const refused = await call('/plan/close', { pid })
-  assert.equal(refused.status, 400)
-  assert.equal(refused.body.error.code, 'invalid')
-  console.log('close refused:', refused.status, refused.body.error.message)
-
-  const secondId = passed.body.value.sufficiency[1].id
-  // 标为「没过」会写一张卡；/cards 与 /card/review 是它的两个出口。
-  const failed = await call('/plan/update', { pid, toggleSufficiency: { id: secondId, passed: false } })
-  assert.equal(failed.status, 200)
-  assert.equal(failed.body.value.cards.length, 1, 'a failed question writes one card')
-  assert.equal(failed.body.value.cards[0].prompt, '能解释 sqrt(d) 吗？')
-  const cardsToday = await call('/cards')
-  assert.equal(cardsToday.status, 200)
-  assert.ok(Array.isArray(cardsToday.body.value), 'the due list is an array today')
-  const cardId = failed.body.value.cards[0].id
-  const reviewed = await call('/card/review', { cid: cardId, rating: 3 })
-  assert.equal(reviewed.status, 200)
-  assert.equal(reviewed.body.value.card.reps, 1)
-  assert.ok(reviewed.body.value.due > new Date().toISOString().slice(0, 10))
-  console.log('card:', cardId, '| reviewed reps', reviewed.body.value.card.reps, '| due', reviewed.body.value.due)
-  // 通过必须留下答案，否则结案门会拦住。
-  const bareRetry = await call('/plan/update', { pid, toggleSufficiency: { id: secondId, passed: true } })
-  assert.equal(bareRetry.body.value.gate.ready, false, 'a pass without an answer cannot close the goal')
-  console.log('pass without answer:', bareRetry.body.value.gate.reasons.join(' / '))
-  const retried = await call('/plan/update', {
-    pid,
-    toggleSufficiency: { id: secondId, passed: true, answer: '自评答案：因为方差随 d 增长' },
-  })
-  assert.equal(retried.body.value.cards.length, 0, 'passing retires the card')
-  console.log('card retired on pass: ok')
+  // Closing reads the knowledge space: concepts live on the sections, so give
+  // each required section one and put every concept of it at target.
+  for (const [index, section] of sections.entries()) {
+    const unit = await service.unit(mid, section.uid)
+    if ((unit.unit.concepts ?? []).length === 0) {
+      await service.writeConcepts(mid, section.uid, [{ id: `route/section-${index + 1}`, name: `第 ${index + 1} 节` }])
+    }
+  }
+  const knowledge = await ensureKnowledge(service.paths)
+  for (const section of sections) {
+    const unit = await service.unit(mid, section.uid)
+    for (const conceptId of unit.unit.concepts ?? []) {
+      knowledge.concepts[conceptId] = {
+        mastery: 1,
+        peak: 1,
+        streak: 0,
+        attempts: 4,
+        correct: 4,
+        lastAt: new Date().toISOString(),
+        due: '2027-06-01',
+        srs: { S: 200, D: 3, reps: 4, lapses: 0, lastRating: 4 },
+        evidence: {},
+      }
+    }
+  }
+  await writeKnowledge(service.paths, knowledge)
   const closed = await call('/plan/close', { pid, note: '白板推完了两问' })
   assert.equal(closed.status, 200)
   assert.equal(closed.body.value.plan.status, 'done')

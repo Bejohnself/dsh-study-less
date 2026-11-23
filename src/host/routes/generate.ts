@@ -105,7 +105,9 @@ export async function postGenerate(ctx: RouteContext, body: Record<string, unkno
         material: requiredString(body, 'mid'),
         unit: requiredString(body, 'uid'),
         ...(typeof body.page === 'number' ? { page: body.page } : {}),
-        question: requiredString(body, 'question'),
+        ...(typeof body.question === 'string' ? { question: body.question } : {}),
+        ...(typeof body.action === 'string' ? { action: body.action } : {}),
+        ...(typeof body.quote === 'string' && body.quote.trim().length > 0 ? { quote: body.quote.trim() } : {}),
       }),
     })
     return

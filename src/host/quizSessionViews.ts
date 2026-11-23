@@ -3,18 +3,20 @@
  *
  * The session service owns the run; this module only turns its records into
  * what the panel draws: one question without its answer, feedback after an
- * answer, the history snapshot and the final summary. Keeping it separate
- * keeps scoring rules (`core/quiz`) out of the HTTP-facing service.
+ * answer, the history snapshot and the final summary. It is pure: the ledger
+ * state arrives as `points`, already resolved by the caller.
  */
-import { conceptStatus, scoreQuizSession } from '../core/quiz.ts'
+import { scoreQuizSession } from '../core/quiz.ts'
 import type { QuizItem, QuizJudgeRecord, QuizSelfGrade, QuizSession } from '../core/types.ts'
 import type {
   QuizFeedbackView,
   QuizHistoryEntryView,
   QuizItemView,
+  QuizPointView,
   QuizSessionRecordView,
   QuizSessionSummary,
   QuizSessionView,
+  UsageCallView,
 } from '../core/views.ts'
 
 /** One question, without the answer fields a reader must not see yet. */
@@ -27,7 +29,6 @@ export function itemView(item: QuizItem): QuizItemView {
     concepts: item.concepts,
     ...(item.page === undefined ? {} : { page: item.page }),
     ...(item.difficulty === undefined ? {} : { difficulty: item.difficulty }),
-    ...(item.masteryPoint === undefined ? {} : { masteryPoint: item.masteryPoint }),
   }
 }
 
@@ -58,6 +59,7 @@ export function feedbackOf(
   selfGrade?: QuizSelfGrade,
   judged?: QuizJudgeRecord,
   judgeUnavailable?: string,
+  usage?: UsageCallView,
 ): QuizFeedbackView {
   const expected = expectedAnswerOf(item)
   return {
@@ -69,6 +71,7 @@ export function feedbackOf(
     ...(item.explanation === undefined ? {} : { explanation: item.explanation }),
     ...(judged === undefined ? {} : { judged }),
     ...(judgeUnavailable === undefined ? {} : { judgeUnavailable }),
+    ...(usage === undefined ? {} : { usage }),
   }
 }
 
@@ -96,11 +99,32 @@ export function historyOf(session: QuizSession, items: readonly QuizItem[]): Qui
   })
 }
 
+/** Latest verdict this run produced for one knowledge point. */
+export function answeredOf(session: QuizSession, conceptId: string): QuizPointView['answered'] {
+  for (let index = session.history.length - 1; index >= 0; index -= 1) {
+    const entry = session.history[index]
+    if (entry === undefined || !(entry.concepts ?? []).includes(conceptId)) continue
+    if (entry.judged !== undefined) return entry.judged.verdict
+    if (entry.selfGrade !== undefined) {
+      return entry.selfGrade === 'correct' ? 'pass' : entry.selfGrade === 'partial' ? 'partial' : 'fail'
+    }
+    if (entry.correct === true) return 'pass'
+    if (entry.correct === false) return 'fail'
+    return undefined
+  }
+  return undefined
+}
+
+/** How many points of one run reached their threshold. */
+function atTargetOf(points: readonly QuizPointView[]): { passed: number; total: number } | undefined {
+  if (points.length === 0) return undefined
+  return { passed: points.filter(point => point.atTarget).length, total: points.length }
+}
+
 /** Progress line of one session. */
-export function sessionMetaOf(session: QuizSession): QuizSessionView['session'] {
+export function sessionMetaOf(session: QuizSession, points: readonly QuizPointView[]): QuizSessionView['session'] {
   const score = scoreQuizSession(session.history)
-  const targets = session.targets ?? []
-  const status = targets.length === 0 ? undefined : conceptStatus(session.history, targets)
+  const atTarget = atTargetOf(points)
   return {
     id: session.id,
     status: session.status,
@@ -108,7 +132,8 @@ export function sessionMetaOf(session: QuizSession): QuizSessionView['session'] 
     limit: session.limit,
     correct: score.correct,
     objective: score.graded,
-    ...(status === undefined ? {} : { targetsPassed: status.passed.length, targetsTotal: targets.length }),
+    ...(atTarget === undefined ? {} : { atTarget }),
+    ...(session.review === true ? { review: true } : {}),
     ...(session.free === true ? { free: true } : {}),
     startedAt: session.startedAt,
     updatedAt: session.updatedAt,
@@ -135,40 +160,48 @@ export function recordOf(session: QuizSession): QuizSessionRecordView {
 }
 
 /**
- * Summarise the run from the knowledge state.
+ * Summarise the run from the one ledger.
  *
- * Passing is binary: every section point (or plan mastery point) is done. The
- * evidence count and score stay informative; they no longer block a pass.
- * `names` and `openPoints` come from the caller: this stays free of service IO.
+ * Passing is binary and deterministic: every point this run measured is at its
+ * threshold. A run that stopped early or was replaced is `incomplete`, never a
+ * verdict on ability. A legacy free run (recorded before practice became
+ * goal-only) is `incomplete` too: it measured nothing. The answer count and weighted score
+ * stay informative; they do not decide anything.
  */
-export function summaryOf(
-  session: QuizSession,
-  items: readonly QuizItem[],
-  names: ReadonlyMap<string, string>,
-  openPoints?: number,
-): QuizSessionSummary {
+export function summaryOf(session: QuizSession, points: readonly QuizPointView[]): QuizSessionSummary {
   const score = scoreQuizSession(session.history)
-  const targets = session.targets ?? []
-  const status = targets.length === 0 ? undefined : conceptStatus(session.history, targets)
-  const pointsDone = (status === undefined ? score.score >= 0.7 : status.all) && (openPoints ?? 0) === 0
+  const atTarget = atTargetOf(points)
+  const all = atTarget !== undefined && atTarget.passed === atTarget.total
   const verdict: QuizSessionSummary['verdict'] =
-    session.status !== 'done' ? 'incomplete' : session.endedReason === 'completed' && pointsDone ? 'passed' : 'failed'
-
-  const weakIds = new Set<string>()
-  for (const entry of session.history) {
-    if (entry.correct !== false) continue
-    const item = items.find(candidate => candidate.id === entry.itemId)
-    for (const conceptId of entry.concepts ?? item?.concepts ?? []) weakIds.add(conceptId)
-  }
+    session.status !== 'done'
+      ? 'incomplete'
+      : session.free === true
+        ? 'incomplete'
+        : session.review === true
+          ? session.endedReason === 'completed'
+            ? 'passed'
+            : 'incomplete'
+          : session.endedReason === 'completed' && all
+            ? 'passed'
+            : session.endedReason === 'exhausted'
+              ? 'failed'
+              : 'incomplete'
+  const gap = points
+    .filter(point => !point.atTarget)
+    .sort(
+      (a, b) =>
+        b.threshold - b.mastery - (a.threshold - a.mastery) || a.id.localeCompare(b.id),
+    )
   return {
     asked: session.asked.length,
     correct: score.correct,
     objective: score.graded,
     score: score.score,
     verdict,
-    weakConcepts: [...weakIds].map(id => ({ id, name: names.get(id) ?? id })),
-    ...(openPoints === undefined ? {} : { openPoints }),
+    points: [...points],
+    ...(atTarget === undefined ? {} : { atTarget }),
+    gap,
+    ...(session.review === true ? { review: true } : {}),
     ...(session.free === true ? { free: true } : {}),
-    ...(status === undefined ? {} : { targets: { passed: status.passed.length, total: targets.length } }),
   }
 }
