@@ -464,24 +464,6 @@ export function MasterySky({
               </g>
             )
           })}
-          {zoom === null ? null : (
-            <g className="study-sky-names">
-              {map.stars
-                .filter(star => star.sections.includes(zoom))
-                .map(star => (
-                  <text
-                    key={`name-${star.id}`}
-                    className="study-sky-star-name"
-                    x={star.x}
-                    y={star.y + star.r + 7}
-                    textAnchor="middle"
-                    style={{ animationDelay: `${(hash01(`name:${star.id}`) * 8).toFixed(2)}s` }}
-                  >
-                    {star.name}
-                  </text>
-                ))}
-            </g>
-          )}
         </g>
         {tip === null || tipX === undefined || tipY === undefined ? null : (
           <SkyTooltip cx={tipX} cy={tipY} r={tipR} lines={tip.lines} mapWidth={map.width} />
