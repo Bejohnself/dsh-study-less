@@ -30,6 +30,7 @@ run([
   '--format=esm',
   '--target=node22',
   `--define:${define}`,
+  `--define:__STUDY_PDF_WORKER__=${JSON.stringify('./pdfjs/pdf.worker.mjs')}`,
   '--log-level=warning',
   '--outfile=dist-web/server.mjs',
 ])

@@ -33,7 +33,7 @@ run([
   '--external:react',
   '--external:react-dom',
   `--define:__STUDY_VERSION__=${JSON.stringify(pkg.version)}`,
-  '--sourcemap',
+  `--define:__STUDY_PDF_WORKER__=${JSON.stringify('./pdfjs/pdf.worker.mjs')}`,
   '--log-level=warning',
   '--outfile=lib/index.js',
 ])

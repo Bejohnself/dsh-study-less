@@ -5,8 +5,32 @@
  * jumps by page, and MinerU stays an optional high-fidelity backend for formulas
  * and figures.
  */
-import { getDocument, Util, type PdfDocumentProxy, type PdfOutlineItem, type PdfTextContent } from '../../vendor/pdfjs/pdf.mjs'
+import { fileURLToPath } from 'node:url'
+import * as pdfjs from '../../vendor/pdfjs/pdf.mjs'
+import type { PdfDocumentProxy, PdfOutlineItem, PdfTextContent } from '../../vendor/pdfjs/pdf.mjs'
 import { layoutPage, type LayoutParagraph, type TextBox } from '../core/layout.ts'
+
+const { getDocument, Util } = pdfjs
+
+/**
+ * Where the build ships the Node worker, relative to the bundle.
+ *
+ * pdf.js defaults this to `./pdf.worker.mjs` resolved next to the importing
+ * module; once the Host is bundled that is `lib/` or `dist-web/`, while both
+ * builds copy the worker into `pdfjs/`. The plugin build, the web build and the
+ * source layout each inject or fall back to their own path.
+ *
+ * The vendored facade only types `getDocument`/`Util`, so the switch is reached
+ * through the runtime namespace instead of widening the vendored typings.
+ */
+declare const __STUDY_PDF_WORKER__: string
+const runtime = pdfjs as unknown as { GlobalWorkerOptions: { workerSrc: string } }
+runtime.GlobalWorkerOptions.workerSrc = fileURLToPath(
+  new URL(
+    typeof __STUDY_PDF_WORKER__ === 'string' ? __STUDY_PDF_WORKER__ : '../../vendor/pdfjs/pdf.worker.mjs',
+    import.meta.url,
+  ),
+)
 
 /** One page of extracted text. */
 export interface ExtractedPage {
