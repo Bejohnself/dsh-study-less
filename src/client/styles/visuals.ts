@@ -81,116 +81,53 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
   font-weight: 700;
 }
 [data-dsh-study] .study-route-legend { margin: 2px 0 0; font-size: 11.5px; color: var(--s-faint); }
-[data-dsh-study] .study-seal-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 12px;
-}
-[data-dsh-study] .study-seal-card {
-  position: relative;
+[data-dsh-study] .study-tree { margin-top: 10px; }
+[data-dsh-study] .study-tree-scroll { max-height: 420px; overflow: auto; overscroll-behavior: contain; padding-right: 6px; }
+[data-dsh-study] .study-tree-canvas { position: relative; }
+[data-dsh-study] .study-tree-edges { position: absolute; top: 0; left: 0; pointer-events: none; }
+/* 枝干与叶用同一套墨色：线是骨，点是掌握。 */
+[data-dsh-study] .study-tree-trunk { fill: none; stroke: var(--s-border-strong); stroke-width: 2; stroke-linecap: round; opacity: .75; }
+[data-dsh-study] .study-tree-edge { fill: none; stroke: color-mix(in srgb, var(--s-border-strong) 85%, transparent); stroke-width: 1; }
+[data-dsh-study] .study-tree-edge.is-hub { stroke: var(--s-primary); stroke-width: 1.4; opacity: .5; }
+[data-dsh-study] .study-tree-branch {
+  position: absolute;
+  height: 22px;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 13px 14px;
-  text-align: left;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
   border: 1px solid var(--s-border);
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--s-surface);
   box-shadow: var(--s-shadow-sm);
-  transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--s-text);
+  text-align: left;
 }
-[data-dsh-study] .study-seal-card:hover {
-  transform: translateY(-1px);
-  border-color: var(--s-border-strong);
-  box-shadow: var(--s-shadow-md);
-}
-[data-dsh-study] .study-seal-card.is-unlinked { border-style: dashed; }
-[data-dsh-study] .study-seal-card:disabled { cursor: default; opacity: .7; }
-[data-dsh-study] .study-seal-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-right: 18px; }
-[data-dsh-study] .study-seal-title { font-size: 13.5px; font-weight: 650; line-height: 1.4; }
-[data-dsh-study] .study-seal-level {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--s-border-strong);
-  font-size: 10.5px;
-  color: var(--s-muted);
-}
-[data-dsh-study] .study-seal-main { display: flex; align-items: center; gap: 11px; }
-[data-dsh-study] .study-seal-ring {
-  flex: none;
-  width: 54px;
-  height: 54px;
+[data-dsh-study] .study-tree-branch:hover { border-color: var(--s-border-strong); }
+[data-dsh-study] .study-tree-branch.is-passed { border-color: color-mix(in srgb, var(--s-success) 55%, var(--s-border)); }
+[data-dsh-study] .study-tree-chevron { flex: none; font-size: 10px; color: var(--s-faint); transition: transform 120ms ease; }
+[data-dsh-study] .study-tree-branch:not(.is-collapsed) .study-tree-chevron { transform: rotate(90deg); }
+[data-dsh-study] .study-tree-branch-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-dsh-study] .study-tree-branch-meta { flex: none; font-size: 10.5px; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+[data-dsh-study] .study-tree-leaf {
+  position: absolute;
   border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: conic-gradient(var(--s-primary) var(--seal), var(--s-surface-3) 0);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s-border-strong) 40%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s-border-strong) 55%, transparent);
 }
-[data-dsh-study] .study-seal-hole {
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: var(--s-surface);
-  font-size: 11px;
-  font-weight: 650;
-}
-[data-dsh-study] .study-seal-info { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
-[data-dsh-study] .study-seal-bar {
-  position: relative;
-  height: 7px;
-  margin: 2px 0 1px;
-  border-radius: 999px;
-  background: var(--s-surface-3);
-}
-[data-dsh-study] .study-seal-fill {
+[data-dsh-study] .study-tree-leaf.is-on { box-shadow: 0 0 0 1.5px var(--s-success); }
+[data-dsh-study] .study-tree-leaf-label {
   position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--s-primary) 78%, transparent);
-}
-[data-dsh-study] .study-seal-target {
-  position: absolute;
-  top: -3px;
-  width: 1px;
-  height: 13px;
-  background: var(--s-warning);
-}
-[data-dsh-study] .study-seal-peak {
-  position: absolute;
-  top: -2px;
-  width: 1px;
-  height: 11px;
-  background: var(--s-faint);
-  opacity: .55;
-}
-[data-dsh-study] .study-seal-dots { display: flex; gap: 4px; }
-[data-dsh-study] .study-seal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--s-surface-3); border: 1px solid var(--s-border-strong); }
-[data-dsh-study] .study-seal-dot.is-on { background: var(--s-success); border-color: var(--s-success); }
-[data-dsh-study] .study-seal-standard {
+  right: 8px;
   font-size: 11.5px;
-  line-height: 1.5;
+  line-height: 16px;
   color: var(--s-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
-[data-dsh-study] .study-seal-stamp {
-  position: absolute;
-  top: 8px;
-  right: 10px;
-  padding: 0 4px;
-  border: 1px solid var(--s-danger);
-  border-radius: 2px;
-  color: var(--s-danger);
-  font-size: 10px;
-  line-height: 1.5;
-  transform: rotate(-8deg);
-  letter-spacing: .08em;
-}
+[data-dsh-study] .study-tree-legend { margin: 8px 0 0; font-size: 11.5px; color: var(--s-faint); }
 
 @media (max-width: 900px) {
   [data-dsh-study] .study-boundary-row { grid-template-columns: auto minmax(0, 1fr); }
@@ -211,7 +148,6 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
   /* 状态仍由文字说明，动画只是装饰 */
   [data-dsh-study] .study-spine,
   [data-dsh-study] .study-spine-fill,
-  [data-dsh-study] .study-seal-card,
   [data-dsh-study] .study-mascot,
   [data-dsh-study] .study-sprite,
   [data-dsh-study] .study-cover-ghost,

@@ -5,10 +5,11 @@
  * the editing surface; these components only read the same PlanDetailView data
  * and open the corresponding section.
  */
-import type { CSSProperties, ReactElement } from 'react'
+import { useMemo, useState } from 'react'
+import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { InlineMarkdown } from './ui.tsx'
+import { buildMasteryTree } from '../masteryTree.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -145,61 +146,118 @@ export function RouteMap({
   )
 }
 
-/** One seal per required section: ring + bar + target notch. */
-export function MasterySeals({ points }: { points: readonly PlanSectionView[] }): ReactElement {
-  if (points.length === 0) {
+/** Geometry of the tree canvas, in px: branch column, leaf column, label room. */
+const TREE_BRANCH_LEFT = 16
+const TREE_BRANCH_WIDTH = 168
+const TREE_BRANCH_RIGHT = TREE_BRANCH_LEFT + TREE_BRANCH_WIDTH
+const TREE_TRUNK_X = 6
+const TREE_LEAF_X = TREE_BRANCH_RIGHT + 48
+const TREE_WIDTH = 560
+
+/** Leaf size grows with the threshold: a deeper level asks for a bigger mark. */
+function leafSize(threshold: number): number {
+  const share = Math.max(0, Math.min(1, (threshold - 0.6) / 0.35))
+  return Math.round(8 + share * 6)
+}
+
+/**
+ * The goal's knowledge tree: one leaf per concept, one branch per section.
+ *
+ * The view is deliberately rough: it answers "how much is left" at a glance and
+ * shows a hub leaf when several sections need the same concept. Rows scroll and
+ * each branch folds, because a real goal can hold far more leaves than a card.
+ */
+export function MasteryTree({ sections }: { sections: readonly PlanSectionView[] }): ReactElement {
+  const [collapsed, setCollapsed] = useState<readonly string[]>([])
+  const tree = useMemo(() => buildMasteryTree(sections, new Set(collapsed)), [sections, collapsed])
+
+  if (sections.length === 0) {
     return <p className="study-muted">还没有知识点目标。切到文字视图逐节补，或重新生成一次路径。</p>
   }
+
+  const toggle = (target: string): void => {
+    setCollapsed(previous => (previous.includes(target) ? previous.filter(value => value !== target) : [...previous, target]))
+  }
+  const first = tree.branches[0]
+  const last = tree.branches[tree.branches.length - 1]
+
   return (
-    <div className="study-seal-grid">
-      {points.map(point => {
-        const pct = Math.floor(Math.max(0, Math.min(1, point.mastery)) * 100)
-        const targetPct = Math.round(Math.max(0, Math.min(1, point.threshold)) * 100)
-        const total = point.conceptStates.length
-        const atTarget = point.conceptStates.filter(state => state.atTarget).length
-        const peakPct = point.peak === undefined ? null : Math.floor(Math.max(0, Math.min(1, point.peak)) * 100)
-        return (
-          <div
-            key={point.target}
-            className={'study-seal-card' + (point.atTarget ? ' is-passed' : '') + (total === 0 ? ' is-unlinked' : '')}
-            style={{ '--seal': `${pct * 3.6}deg` } as CSSProperties}
-            aria-label={`${point.title}，${LEVEL_LABEL[point.level]}，掌握 ${pct}%，目标 ${targetPct}%`}
-          >
-            <span className="study-seal-head">
-              <span className="study-seal-title"><InlineMarkdown source={point.title} /></span>
-              <span className="study-seal-level">{LEVEL_LABEL[point.level]}</span>
-            </span>
-            <span className="study-seal-main">
-              <span className="study-seal-ring">
-                <span className="study-seal-hole">{pct}%</span>
+    <div className="study-tree">
+      <div className="study-tree-scroll">
+        <div className="study-tree-canvas" style={{ height: `${tree.height}px`, width: `${TREE_WIDTH}px` }}>
+          <svg className="study-tree-edges" width={TREE_WIDTH} height={tree.height} aria-hidden="true">
+            {first === undefined || last === undefined || first === last ? null : (
+              <path className="study-tree-trunk" d={`M${TREE_TRUNK_X} ${first.y} L ${TREE_TRUNK_X} ${last.y}`} />
+            )}
+            {tree.edges.map(edge => {
+              const branch = tree.branches[edge.branch]
+              const leaf = tree.leaves[edge.leaf]
+              if (branch === undefined || leaf === undefined) return null
+              const end = TREE_LEAF_X - leafSize(leaf.threshold) / 2
+              return (
+                <path
+                  key={`${String(edge.branch)}-${String(edge.leaf)}`}
+                  className={'study-tree-edge' + (leaf.sections.length > 1 ? ' is-hub' : '')}
+                  d={`M${TREE_BRANCH_RIGHT} ${branch.y} C ${TREE_BRANCH_RIGHT + 26} ${branch.y}, ${end - 26} ${leaf.y}, ${end} ${leaf.y}`}
+                />
+              )
+            })}
+          </svg>
+          {tree.branches.map(branch => (
+            <button
+              key={branch.target}
+              type="button"
+              className={
+                'study-tree-branch' + (branch.atTarget ? ' is-passed' : '') + (branch.collapsed ? ' is-collapsed' : '')
+              }
+              style={{ top: `${branch.y - 11}px`, left: `${TREE_BRANCH_LEFT}px`, width: `${TREE_BRANCH_WIDTH}px` }}
+              aria-expanded={!branch.collapsed}
+              aria-label={`${branch.title}，${LEVEL_LABEL[branch.level]}，${branch.conceptCount === 0 ? '未挂知识点' : `${String(branch.atTargetCount)}/${String(branch.conceptCount)} 个概念到档`}`}
+              onClick={() => toggle(branch.target)}
+            >
+              <span className="study-tree-chevron" aria-hidden="true">
+                ▸
               </span>
-              <span className="study-seal-info">
-                <span className="study-seal-bar">
-                  <span className="study-seal-fill" style={{ width: `${pct}%` }} />
-                  <span className="study-seal-target" style={{ left: `${targetPct}%` }} />
-                  {peakPct === null ? null : <span className="study-seal-peak" style={{ left: `${peakPct}%` }} />}
-                </span>
-                <span className="study-item-meta">
-                  {total === 0 ? '未挂知识点' : `目标 ${targetPct}% · ${atTarget}/${total} 概念达标`}
-                </span>
-                {total === 0 ? null : (
-                  <span className="study-seal-dots">
-                    {point.conceptStates.map(state => (
-                      <span
-                        key={state.id}
-                        className={'study-seal-dot' + (state.atTarget ? ' is-on' : '')}
-                        title={`${state.name} · ${Math.floor(state.mastery * 100)}%`}
-                      />
-                    ))}
-                  </span>
-                )}
+              <span className="study-tree-branch-title">{branch.title}</span>
+              <span className="study-tree-branch-meta">
+                {branch.conceptCount === 0 ? '未挂' : `${String(branch.atTargetCount)}/${String(branch.conceptCount)}`}
               </span>
-            </span>
-            {point.atTarget ? null : <span className="study-seal-standard">还差 {Math.max(0, targetPct - pct)}%</span>}
-            {point.atTarget ? <span className="study-seal-stamp">到</span> : null}
-          </div>
-        )
-      })}
+            </button>
+          ))}
+          {tree.leaves.map(leaf => {
+            const size = leafSize(leaf.threshold)
+            const pct = Math.round(Math.max(0, Math.min(1, leaf.mastery)) * 100)
+            const label = `${leaf.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(leaf.threshold * 100))}%${leaf.sections.length > 1 ? ` · ${String(leaf.sections.length)} 节共用` : ''}`
+            return (
+              <span key={leaf.id}>
+                <span
+                  className={'study-tree-leaf' + (leaf.atTarget ? ' is-on' : '')}
+                  style={{
+                    top: `${leaf.y - size / 2}px`,
+                    left: `${TREE_LEAF_X - size / 2}px`,
+                    width: `${size}px`,
+                    height: `${size}px`,
+                    background: `color-mix(in srgb, var(--s-primary) ${String(10 + pct * 0.85)}%, var(--s-surface-3))`,
+                  }}
+                  title={label}
+                  role="img"
+                  aria-label={label}
+                />
+                <span
+                  className="study-tree-leaf-label"
+                  style={{ top: `${leaf.y - 8}px`, left: `${TREE_LEAF_X + 14}px` }}
+                  title={label}
+                >
+                  {leaf.name}
+                </span>
+              </span>
+            )
+          })}
+        </div>
+      </div>
+      <p className="study-tree-legend">
+        叶越深，掌握越牢；叶越大，这节要的档位越高；一根线连到几节，说明这个概念几节都要用。点枝可折叠。
+      </p>
     </div>
   )
 }
