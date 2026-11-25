@@ -537,7 +537,7 @@ export function PlanDetailPage({
             )}
           </section>
 
-          <section className="study-mastery">
+          <section className="study-knowledge">
             <div className="study-panel-head is-split">
               <div className="study-panel-head-row">
                 <h3>知识点目标</h3>
@@ -556,15 +556,15 @@ export function PlanDetailPage({
                 还没有知识点目标。逐节点「补知识点」从原文抽，或重新生成一次路径。
               </p>
             ) : (
-              <ul className="study-mastery-list">
+              <ul className="study-knowledge-list">
                 {data.sections.map(point => {
                   const atTarget = point.conceptStates.filter(state => state.atTarget).length
                   return (
-                    <li key={point.target} className={'study-mastery-item' + (point.atTarget ? ' is-passed' : '')}>
+                    <li key={point.target} className={'study-knowledge-item' + (point.atTarget ? ' is-passed' : '')}>
                       <span className={'study-verdict' + (point.atTarget ? ' is-pass' : '')}>
                         {point.atTarget ? '到档' : '未到'}
                       </span>
-                      <div className="study-mastery-body">
+                      <div className="study-knowledge-body">
                         <div>
                           {point.title}
                           <span className="study-item-meta">

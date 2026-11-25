@@ -103,6 +103,12 @@ if (row.options.id !== 'study-desk' || page.options.key !== 'study-desk') {
   throw new Error('panel ids disagree')
 }
 
+// 计划页的知识点板块曾经借用洞察页掌握度条的 .study-mastery；reading.ts 里那条
+// display:flex 会把整块 section 排成左右两栏。板块必须有自己的 class。
+if (!/className:"study-knowledge"/u.test(source)) {
+  throw new Error('plan knowledge section has no class of its own (legacy .study-mastery collision)')
+}
+
 // 今天页「接着读」的理由是生成的文案，常带 $...$ 公式；它必须经 Markdown 渲染，
 // 当纯文本插值时页面只会显示原始 $ 和 \。这份 bundle 是唯一能便宜验证接线的地方。
 const nextWhy = /study-next-why",children:\(0,[\w$]+\.jsx\)\([\w$]+,\{source:[\w$]+\.next\.why\}\)/u
