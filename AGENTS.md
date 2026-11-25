@@ -1,6 +1,6 @@
-# dsh-study-less（书桌）
+# dsh-study-less（知止）
 
-DSH Web GUI 的书桌插件：把目标翻译成「读哪些节、每个知识点到哪一档」，只记知识点是否真到档位。
+DSH Web GUI 的知止插件：把目标翻译成「读哪些节、每个知识点到哪一档」，只记知识点是否真到档位。
 主文档是 [README.md](README.md)；产品规范与红线在 [DESIGN.md](DESIGN.md)。
 
 ## 目录地图

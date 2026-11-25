@@ -34,7 +34,7 @@ import type { StudyService } from '../service.ts'
 function assertSingleGoal(plans: readonly PlanRecord[]): void {
   const open = plans.find(plan => plan.status !== 'done')
   if (open === undefined) return
-  throw new StudyError('conflict', `目前已有目标「${open.goal}」，一个书桌同时只跑一个；先结案或删掉它再加新的`)
+  throw new StudyError('conflict', `目前已有目标「${open.goal}」，同一时间只跑一个；先结案或删掉它再加新的`)
 }
 
 export async function createGoal(svc: StudyService, input: {

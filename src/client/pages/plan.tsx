@@ -402,14 +402,19 @@ export function PlanDetailPage({
         <div className="study-row">
           <div className="study-field">
             <label className="study-field-label">交付物（边界由它推出）</label>
-            <input
-              type="text"
-              className="study-input"
-              placeholder="例如：能独立推导这篇论文第 3–5 节，并讲给同事 20 分钟"
-              value={metaDraft.deliverable}
-              disabled={locked || metaSaving}
-              onChange={event => setMetaDraft({ ...metaDraft, deliverable: event.target.value })}
-            />
+            {metaDraft.deliverable.trim().length > 0 ? (
+              <p className="study-field-value">{metaDraft.deliverable}</p>
+            ) : (
+              // 只在空着时给一次填写机会：结案门要求非空，全锁死会让老目标永久结不了案。
+              <input
+                type="text"
+                className="study-input"
+                placeholder="例如：能独立推导这篇论文第 3–5 节，并讲给同事 20 分钟"
+                value={metaDraft.deliverable}
+                disabled={locked || metaSaving}
+                onChange={event => setMetaDraft({ ...metaDraft, deliverable: event.target.value })}
+              />
+            )}
           </div>
           <div className="study-field">
             <label className="study-field-label">期限</label>
@@ -437,7 +442,7 @@ export function PlanDetailPage({
           <button type="button" className="study-primary study-primary-tight" disabled={locked || metaSaving} onClick={() => void saveMeta()}>
             {metaSaving ? '保存中…' : '保存目标信息'}
           </button>
-          <span className="study-muted">没有交付物的目标不能结案。</span>
+          <span className="study-muted">交付物在建目标时定下，之后不再改；没有它不能结案。</span>
         </div>
       </section>
 

@@ -35,7 +35,7 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: Error | 
       return (
         <div data-dsh-study="" className="study-page">
           <div className="study-empty">
-            <p>书桌这一页出错了。</p>
+            <p>知止这一页出错了。</p>
             <p className="study-hint">{this.state.error.message}</p>
             <button type="button" className="study-primary" onClick={() => this.setState({ error: null })}>
               重试
@@ -135,7 +135,7 @@ export function apply(ctx: ClientContext): void {
               name: 'sidebar.panellist',
               id: STUDY_PANEL_ID,
               order: PANEL_ORDER,
-              label: () => '书桌',
+              label: () => '知止',
             },
             StudyPanelIcon,
           ),

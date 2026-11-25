@@ -215,11 +215,11 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
   if (view === null) return <div className="study-empty">正在读取设置…</div>
 
   return (
-    <Modal title="书桌设置" subtitle="默认复用 DSH 已配置模型；也可以为文本/图片/动画/嵌入分别指定自定义 API。" onClose={onClose} wide>
+    <Modal title="知止设置" subtitle="默认复用 DSH 已配置模型；也可以为文本/图片/动画/嵌入分别指定自定义 API。" onClose={onClose} wide>
       <div className="study-settings">
         <section className="study-settings-section">
           <h3>外观</h3>
-          <p className="study-muted">只影响书桌这一面，不动外壳别的面板。这个选择存在当前浏览器里。</p>
+          <p className="study-muted">只影响知止这一面，不动外壳别的面板。这个选择存在当前浏览器里。</p>
           <div className="study-segmented">
             {THEME_STEPS.map(step => (
               <button
@@ -359,7 +359,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
         <section className="study-settings-section">
           <h3>用量与费用</h3>
           <p className="study-muted">
-            优先使用接口返回的本次金额；没有返回时按下面的单价估算。缓存输入单价填 0 表示按输入单价计算。只统计学习桌页面内生成的调用。
+            优先使用接口返回的本次金额；没有返回时按下面的单价估算。缓存输入单价填 0 表示按输入单价计算。只统计知止页面内生成的调用。
           </p>
           <div className="study-row">
             <div className="study-field">

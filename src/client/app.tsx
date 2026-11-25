@@ -105,7 +105,7 @@ export function StudyApp(): ReactElement {
       const plans = await api<PlanSummary[]>('/plans')
       const open = plans.find(plan => plan.status !== 'done')
       if (open !== undefined) {
-        setToast({ message: `目前已有目标「${open.goal}」，一个书桌同时只跑一个；先结案或删掉它再加新的`, tone: 'error' })
+        setToast({ message: `目前已有目标「${open.goal}」，同一时间只跑一个；先结案或删掉它再加新的`, tone: 'error' })
         return
       }
     } catch {
@@ -129,7 +129,7 @@ export function StudyApp(): ReactElement {
 
   const restartPlugin = async (): Promise<void> => {
     if (restarting) return
-    if (!window.confirm('重启书桌插件？正在进行的生成任务会中断。')) return
+    if (!window.confirm('重启知止插件？正在进行的生成任务会中断。')) return
     setRestarting(true)
     try {
       await post('/plugin/restart', {})
@@ -153,7 +153,7 @@ export function StudyApp(): ReactElement {
     <div data-dsh-study="" className="study-page">
       <div className={view.kind === 'material' || view.kind === 'practice' ? 'study-shell is-reader' : 'study-shell'}>
         <div className={view.kind === 'material' ? 'study-head is-reader-hidden' : focusMode ? 'study-head is-focus' : 'study-head'}>
-          <h1>书桌</h1>
+          <h1>知止</h1>
           {focusMode ? null : (
             <span
               className={staleHost ? 'study-version is-stale' : 'study-version'}

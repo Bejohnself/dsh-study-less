@@ -58,7 +58,7 @@ export function schedulePluginRestart(ctx: RestartContext, pluginId: string, ent
     (located === undefined ? undefined : entries.find(candidate => candidate.id === located)) ??
     entries.find(candidate => candidate.options?.id === entryId) ??
     entries.find(candidate => candidate.options?.name === pluginId)
-  if (entry === undefined) throw new Error('找不到书桌插件的加载项；请重载插件或重启 DSH')
+  if (entry === undefined) throw new Error('找不到知止插件的加载项；请重载插件或重启 DSH')
 
   restarting = true
   // Let the HTTP response reach the browser before the plugin is disposed.

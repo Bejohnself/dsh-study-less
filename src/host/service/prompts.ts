@@ -19,7 +19,7 @@ export function goalPrompt(plan: PlanRecord, manifests: readonly MaterialManifes
   const hours = plan.budget?.hoursPerWeek === undefined ? '未指定' : `每周约 ${plan.budget.hoursPerWeek} 小时`
   const mode = depth === 'deep' ? '精读（逐节重写）' : '速览（只做总览、论文关键节与对比）'
   return [
-    '用户在学习桌里新建了一个学习目标，请在本次会话中完成「编排 + 重写」。',
+    '用户在知止里新建了一个学习目标，请在本次会话中完成「编排 + 重写」。',
     '',
     `目标：${plan.goal}`,
     ...(plan.brief === undefined ? [] : [`补充说明：${plan.brief}`]),

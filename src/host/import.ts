@@ -102,6 +102,12 @@ export async function importMaterial(paths: LibraryPaths, request: ImportRequest
   if (extraction.outline.length < 2) {
     warnings.push('PDF 没有可用目录，已按正文标题/页块生成单元；可用 study_structure_set 修正。')
   }
+  // A scan yields empty page text: the reader still shows the PDF, but the three
+  // AI surfaces (答疑 / 抽知识点 / 出题) have nothing to read.
+  const textChars = extraction.pages.reduce((sum, page) => sum + page.text.replace(/\s+/g, '').length, 0)
+  if (textChars < extraction.pages.length * 20) {
+    warnings.push('PDF 没有文字层（大概是扫描件）：能翻原文，但抽不出知识点、出不了题；先做成可搜索 PDF 再导入。')
+  }
   if (structure.length === 0) throw new Error('无法生成任何学习单元')
 
   // Source copy.

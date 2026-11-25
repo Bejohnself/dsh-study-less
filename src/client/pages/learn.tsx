@@ -564,7 +564,7 @@ export function NewGoalDialog({
   return (
     <Modal
       title="新建目标"
-      subtitle="说清要交出什么、什么时候、给谁看，再选资料；边界会从交付物推出来。"
+      subtitle="知止而后有定：读哪些节、读到什么程度，现在定下来；不用读完整本。"
       onClose={onClose}
       wide
     >

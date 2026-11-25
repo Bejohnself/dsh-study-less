@@ -405,6 +405,18 @@ export const READING_CSS = `/* ---------- material + reader ---------- */
 [data-dsh-study] .study-modal-close:hover { color: var(--s-text); border-color: var(--s-border-strong); }
 [data-dsh-study] .study-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; flex: 1; min-width: 0; }
 [data-dsh-study] .study-field-label { font-size: 12px; font-weight: 600; color: var(--s-muted); }
+/* 定的值不是输入框：虚线边表示不可改，尺寸与 .study-input 对齐。 */
+[data-dsh-study] .study-field-value {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px dashed var(--s-border);
+  border-radius: 4px;
+  background: var(--s-surface-2);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--s-text);
+  overflow-wrap: anywhere;
+}
 [data-dsh-study] .study-input {
   width: 100%;
   padding: 9px 11px;
@@ -449,6 +461,10 @@ export const READING_CSS = `/* ---------- material + reader ---------- */
 [data-dsh-study] .study-row { display: flex; gap: 12px; flex-wrap: wrap; }
 [data-dsh-study] .study-form-error { margin: 4px 0 0; color: var(--s-danger); font-size: 12.5px; }
 [data-dsh-study] .study-modal-note { margin: 12px 0 0; font-size: 12px; color: var(--s-muted); line-height: 1.65; }
+[data-dsh-study] .study-modal-note a { color: inherit; text-decoration: underline; text-underline-offset: .18em; text-decoration-color: var(--s-border-strong); }
+[data-dsh-study] .study-import-warn { margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--s-warning) 45%, var(--s-border)); border-radius: 10px; font-size: 13px; line-height: 1.6; }
+[data-dsh-study] .study-import-warn p { margin: 0; }
+[data-dsh-study] .study-import-warn ul { margin: 6px 0 10px; padding-left: 18px; }
 [data-dsh-study] .study-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 /* 弹窗底部按钮等高：主按钮没有边框，补一条透明边框对齐 ghost */
 [data-dsh-study] .study-modal-actions > button { margin-top: 0; min-height: 34px; padding-block: 0; }

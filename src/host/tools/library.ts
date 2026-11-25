@@ -26,7 +26,7 @@ export function libraryTools({ service, extras }: ToolContext): StudyToolDefinit
   tools.push({
     name: 'study_import_book',
     description:
-      '导入一本 PDF（书籍或论文）到学习库：抽取目录、按页切片、生成学习单元。返回资料 id、类型、页数、单元列表预览。导入后可调用 study_structure_set 修正目录，再用 study_unit_material / study_unit_write 逐节生成精读稿。',
+      '导入一本 PDF（书籍或论文）到学习库：抽取目录、按页切片、生成学习单元。返回资料 id、类型、页数、单元列表预览与 warnings。导入前确认 PDF 有文字层与书签目录：扫描件先做成可搜索 PDF，缺目录可用 https://tocify.aeriszhu.com/ 补。导入后可调用 study_structure_set 修正目录，再用 study_unit_material / study_unit_write 逐节生成精读稿。',
     parameters: objectSchema({
       path: { type: 'string', description: '本地 PDF 的绝对路径' },
       type: { type: 'string', enum: ['book', 'paper', 'article'], description: '资料类型；省略则自动判断' },

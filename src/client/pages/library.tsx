@@ -98,7 +98,7 @@ export function LibraryPage({
     return (
       <EmptyState
         title="书架还是空的。"
-        hint="丢一本 PDF 或 arXiv 链接进来，我把它拆成能读的几节——目录会自己抽好。"
+        hint="丢一本 PDF 或 arXiv 链接进来，我按它的书签目录拆成能读的几节。"
         action={{ label: '放一本书进来', onClick: onImport }}
       />
     )
