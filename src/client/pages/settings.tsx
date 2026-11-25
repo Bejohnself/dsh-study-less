@@ -130,17 +130,92 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
     }
   }, [view?.updatedAt])
 
-  const test = async (): Promise<void> => {
-    setTestResult('测试中…')
+  /** The settings body both save and save-and-test send. */
+  const buildPayload = (): Record<string, unknown> => {
+    const actions = quickActions
+      .map(action => ({
+        label: action.label.trim().slice(0, QUICK_LABEL_MAX),
+        prompt: action.prompt.trim().slice(0, QUICK_PROMPT_MAX),
+      }))
+      .filter(action => action.label.length > 0 && action.prompt.length > 0)
+      .slice(0, MAX_QUICK_ACTIONS)
+    return {
+      text: {
+        kind,
+        baseURL,
+        model,
+        apiKeyEnv,
+        temperature: Number(temperature),
+        maxTokens: Number(maxTokens),
+        timeoutMs: Number(timeoutMs),
+        ...(apiKey.trim().length > 0 ? { apiKey } : clearKey ? { apiKey: '' } : {}),
+      },
+      image: { enabled: caps.image.enabled, baseURL: caps.image.baseURL, model: caps.image.model, apiKeyEnv: caps.image.apiKeyEnv },
+      animation: {
+        enabled: caps.animation.enabled,
+        baseURL: caps.animation.baseURL,
+        model: caps.animation.model,
+        apiKeyEnv: caps.animation.apiKeyEnv,
+        mode: animationMode,
+      },
+      embedding: {
+        enabled: caps.embedding.enabled,
+        baseURL: caps.embedding.baseURL,
+        model: caps.embedding.model,
+        apiKeyEnv: caps.embedding.apiKeyEnv,
+      },
+      study: {
+        targetRetention: Number(targetRetention),
+        maxIntervalDays: Number(maxIntervalDays),
+        dailyNewUnits: Number(dailyNewUnits),
+        autoQuiz,
+        verifyNotes,
+        quickActions: actions,
+        pricing: {
+          currency: priceCurrency,
+          inputPerMillion: Number(inputPrice) || 0,
+          cacheInputPerMillion: Number(cacheInputPrice) || 0,
+          outputPerMillion: Number(outputPrice) || 0,
+        },
+      },
+    }
+  }
+
+  /** Persist the form; the test below must run against what the user just typed. */
+  const persist = async (): Promise<void> => {
+    const value = await post<SettingsView>('/settings', buildPayload())
+    setView(value)
+    setApiKey('')
+    setClearKey(false)
+    setToast({ message: '设置已保存', tone: 'ok' })
+    onSaved()
+  }
+
+  /** Save first, then test: this button used to test whatever was already on disk. */
+  const saveAndTest = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    setTestResult(null)
     try {
-      const result = await post<{ ok: boolean; engine?: string; model?: string; latencyMs?: number; message?: string; reply?: string }>('/settings/test', { kind: 'text' })
-      setTestResult(
-        result.ok
-          ? `可用 · ${result.engine ?? result.model ?? 'text'} · ${result.latencyMs ?? '?'}ms${result.reply === undefined ? '' : ` · ${result.reply}`}`
-          : `不可用：${result.message ?? '未知原因'}`,
-      )
-    } catch (reason) {
-      setTestResult(`不可用：${errorText(reason)}`)
+      try {
+        await persist()
+      } catch (reason) {
+        setError(`保存失败：${errorText(reason)}`)
+        return
+      }
+      setTestResult('测试中…')
+      try {
+        const result = await post<{ ok: boolean; engine?: string; model?: string; latencyMs?: number; message?: string; reply?: string }>('/settings/test', { kind: 'text' })
+        setTestResult(
+          result.ok
+            ? `可用 · ${result.engine ?? result.model ?? 'text'} · ${result.latencyMs ?? '?'}ms${result.reply === undefined ? '' : ` · ${result.reply}`}`
+            : `不可用：${result.message ?? '未知原因'}`,
+        )
+      } catch (reason) {
+        setTestResult(`不可用：${errorText(reason)}`)
+      }
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -160,58 +235,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
     setBusy(true)
     setError(null)
     try {
-      const actions = quickActions
-        .map(action => ({
-          label: action.label.trim().slice(0, QUICK_LABEL_MAX),
-          prompt: action.prompt.trim().slice(0, QUICK_PROMPT_MAX),
-        }))
-        .filter(action => action.label.length > 0 && action.prompt.length > 0)
-        .slice(0, MAX_QUICK_ACTIONS)
-      const value = await post<SettingsView>('/settings', {
-        text: {
-          kind,
-          baseURL,
-          model,
-          apiKeyEnv,
-          temperature: Number(temperature),
-          maxTokens: Number(maxTokens),
-          timeoutMs: Number(timeoutMs),
-          ...(apiKey.trim().length > 0 ? { apiKey } : clearKey ? { apiKey: '' } : {}),
-        },
-        image: { enabled: caps.image.enabled, baseURL: caps.image.baseURL, model: caps.image.model, apiKeyEnv: caps.image.apiKeyEnv },
-        animation: {
-          enabled: caps.animation.enabled,
-          baseURL: caps.animation.baseURL,
-          model: caps.animation.model,
-          apiKeyEnv: caps.animation.apiKeyEnv,
-          mode: animationMode,
-        },
-        embedding: {
-          enabled: caps.embedding.enabled,
-          baseURL: caps.embedding.baseURL,
-          model: caps.embedding.model,
-          apiKeyEnv: caps.embedding.apiKeyEnv,
-        },
-        study: {
-          targetRetention: Number(targetRetention),
-          maxIntervalDays: Number(maxIntervalDays),
-          dailyNewUnits: Number(dailyNewUnits),
-          autoQuiz,
-          verifyNotes,
-          quickActions: actions,
-          pricing: {
-            currency: priceCurrency,
-            inputPerMillion: Number(inputPrice) || 0,
-            cacheInputPerMillion: Number(cacheInputPrice) || 0,
-            outputPerMillion: Number(outputPrice) || 0,
-          },
-        },
-      })
-      setView(value)
-      setApiKey('')
-      setClearKey(false)
-      setToast({ message: '设置已保存', tone: 'ok' })
-      onSaved()
+      await persist()
     } catch (reason) {
       setError(errorText(reason))
     } finally {
@@ -328,8 +352,8 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
             </>
           ) : null}
           <div className="study-inline">
-            <button type="button" className="study-ghost" onClick={() => void test()}>
-              测试已保存配置
+            <button type="button" className="study-ghost" disabled={busy} onClick={() => void saveAndTest()}>
+              保存并测试配置
             </button>
             {testResult === null ? null : <span className="study-muted">{testResult}</span>}
           </div>
