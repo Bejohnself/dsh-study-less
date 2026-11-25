@@ -373,7 +373,6 @@ export interface PlanStep {
   /** Material ids for compare steps. */
   materials?: string[]
   why: string
-  done: boolean
   /** Boundary decision; absent means 'read' (plans written before v0.4). */
   coverage?: Coverage
   /** Why this range can be left out; required when coverage is 'skip'. */
@@ -525,10 +524,11 @@ export interface BookProgress {
   chapters: Record<string, BookChapterProgress>
 }
 
-/** Which question bank a practice session draws from. */
-export type QuizSessionScope =
-  | { kind: 'unit'; material: string; unit: string }
-  | { kind: 'book'; book: string; chapter?: string }
+/** The scope practice runs on: one section of one material. */
+export type UnitQuizScope = { kind: 'unit'; material: string; unit: string }
+
+/** Scopes older session files may carry (book chapters were practiced once). */
+export type QuizSessionScope = UnitQuizScope | { kind: 'book'; book: string; chapter?: string }
 
 /** A user's self-grade for a subjective question. */
 export type QuizSelfGrade = 'correct' | 'partial' | 'wrong'
@@ -566,81 +566,81 @@ export interface QuizAppealRecord {
 /**
  * Why a session stopped.
  *
- * `completed` means every knowledge point of the section passed; `exhausted`
- * means the question cap was reached first.
+ * `completed` means every knowledge point of the section reached its threshold;
+ * `exhausted` means the next question could not be written; `finished` is the
+ * reader stopping; `replaced` is a newer run of the same section taking over.
  */
-export type QuizEndReason = 'completed' | 'exhausted' | 'finished' | 'replaced' | 'bank-changed'
+export type QuizEndReason = 'completed' | 'exhausted' | 'finished' | 'replaced'
 
 /**
- * One answered question in a session.
+ * The answer just submitted.
  *
- * The question/answer snapshots keep history readable after the bank is
- * regenerated: item ids are reused (`q1..qN`), so ids alone would point at a
- * different question. Older records lack the snapshots; readers fall back to
- * the bank and then to the id.
+ * A run keeps only this one, and only so an appeal can re-judge it; answered
+ * questions are not stored. The question snapshot is taken because the item id
+ * belongs to the question that was asked, not to the section.
  */
 export interface QuizSessionEntry {
   itemId: string
   answer?: unknown
-  /** null means subjective / not objectively graded. */
-  correct: boolean | null
-  selfGrade?: QuizSelfGrade
+  correct: boolean
   /** Model verdict, when a written answer was judged automatically. */
   judged?: QuizJudgeRecord
   /** Every re-judging round; the last one is authoritative. */
   appeals?: QuizAppealRecord[]
   at: string
   /** Snapshot of what was asked. */
-  question?: string
-  type?: QuizItemType
-  concepts?: string[]
+  question: string
+  type: QuizItemType
+  concepts: string[]
   /** Difficulty at answer time: the rating weights hard questions higher. */
-  difficulty?: 1 | 2 | 3
+  difficulty: 1 | 2 | 3
   /** Page anchor at answer time, so an appeal can re-read the source. */
   page?: number
   /** Human-readable answer: choice text for choices, text otherwise. */
-  answerText?: string
+  answerText: string
   /** Reference answer / page, when the item has one. */
   expected?: string
   /** Rubric bullets for subjective items. */
   rubric?: string[]
   explanation?: string
+  /** Concepts this answer repaired from below threshold; kept for an appeal. */
+  reviewConcepts?: string[]
 }
 
-/** One adaptive practice session (`quiz-sessions/<id>.json`). */
+/**
+ * One practice run (`quiz-sessions/<id>.json`).
+ *
+ * A run is a cursor, not a batch: it holds the one question on screen plus the
+ * answer just submitted (for an appeal). Nothing about past questions is kept —
+ * what an answer proved lives in `knowledge.json`, keyed by question
+ * fingerprint, so a repeated question can never add a second gain.
+ */
 export interface QuizSession {
-  version: 2
+  version: 3
   id: string
-  scope: QuizSessionScope
+  scope: UnitQuizScope
   status: 'active' | 'done'
-  limit: number
-  /** Item ids already answered and advanced past. */
-  asked: string[]
-  currentId?: string
-  history: QuizSessionEntry[]
+  /** The question waiting for an answer. */
+  current?: QuizItem
+  /** Cost of the call that wrote `current`, for the inline badge. */
+  currentUsage?: UsageAmount
+  /** How many questions this run has answered. */
+  count: number
+  /** The answer just submitted; replaced by the next one. */
+  last?: QuizSessionEntry
   startedAt: string
   updatedAt: string
   endedAt?: string
-  /** Bank timestamp when the session started; a change invalidates it. */
-  bankUpdatedAt?: string
   endedReason?: QuizEndReason
-  /**
-   * Knowledge points this section must pass, snapshotted at start. Empty on
-   * book chapters: those end on the question cap instead.
-   */
+  /** Why the next question could not be written, when that is why it stopped. */
+  endedNote?: string
+  /** Knowledge points this section must pass, snapshotted at start. */
   targets?: string[]
   /** Per-concept pass threshold, snapshotted from the goal level. */
   targetThresholds?: Record<string, number>
-  /** Days left until the goal's deadline, snapshotted at start. */
+  /** Legacy FSRS horizon snapshot; kept so old session files still parse. */
   horizonDays?: number
-  /**
-   * Legacy: sessions recorded while free practice still existed. Practice is
-   * goal-only now, so these are never written and never resumed; the flags stay
-   * so old history keeps rendering honestly.
-   */
-  free?: boolean
-  freeReason?: 'no-goal' | 'outside-goal' | 'goal-no-concepts'
-  /** A focused review of one due concept; closes on its first passing answer. */
+  /** A focused review of one due concept, not a section pass. */
   review?: true
 }
 

@@ -194,6 +194,23 @@ export function ProgressBar({ percent, label }: { percent: number; label?: strin
 }
 
 /** Job status banner with a cancel action while running. */
+/** How long the model has been working, ticking while the job runs. */
+export function JobElapsed({ job }: { job: JobView }): ReactElement | null {
+  const running = job.status === 'running' || job.status === 'queued'
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!running) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [running])
+  const started = Date.parse(job.startedAt ?? job.createdAt)
+  if (!Number.isFinite(started)) return null
+  const ended = job.endedAt === undefined ? now : Date.parse(job.endedAt)
+  const seconds = Math.max(0, Math.round((ended - started) / 1000))
+  if (seconds < 1) return null
+  return <span className="study-muted">{running ? `已 ${seconds} 秒` : `用了 ${seconds} 秒`}</span>
+}
+
 export function JobBanner({ job, onCancel }: { job: JobView; onCancel?: () => void }): ReactElement {
   const tone = job.status === 'failed' ? 'error' : job.status === 'done' ? 'ok' : 'busy'
   return (
@@ -201,6 +218,7 @@ export function JobBanner({ job, onCancel }: { job: JobView; onCancel?: () => vo
       <div className="study-job-head">
         <span className="study-job-status">{jobStatusLabel(job.status)}</span>
         {job.message === undefined ? null : <span className="study-muted">{job.message}</span>}
+        <JobElapsed job={job} />
         {job.status === 'running' || job.status === 'queued' ? (
           onCancel === undefined ? null : (
             <button type="button" className="study-link" onClick={onCancel}>

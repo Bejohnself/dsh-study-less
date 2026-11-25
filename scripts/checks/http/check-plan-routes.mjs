@@ -7,6 +7,7 @@ import { createServer } from 'node:http'
 import { rm } from 'node:fs/promises'
 import { ensureKnowledge, writeKnowledge } from '../../../src/core/knowledge.ts'
 import { LibraryPaths } from '../../../src/core/paths.ts'
+import { addDays, localDate } from '../../../src/core/time.ts'
 import { StudyService } from '../../../src/host/service.ts'
 import { makeStudyRoutes } from '../../../src/host/routes.ts'
 
@@ -104,6 +105,15 @@ try {
   for (const section of sections) {
     const unit = await service.unit(mid, section.uid)
     for (const conceptId of unit.unit.concepts ?? []) {
+      const evidence = {}
+      for (let index = 0; index < 8; index += 1) {
+        evidence[`route-review-${String(index)}`] = {
+          verdict: 'pass',
+          difficulty: 2,
+          at: `${addDays(localDate(), -(8 - index))}T10:00:00+08:00`,
+          review: true,
+        }
+      }
       knowledge.concepts[conceptId] = {
         mastery: 1,
         peak: 1,
@@ -111,9 +121,8 @@ try {
         attempts: 4,
         correct: 4,
         lastAt: new Date().toISOString(),
-        due: '2027-06-01',
         srs: { S: 200, D: 3, reps: 4, lapses: 0, lastRating: 4 },
-        evidence: {},
+        evidence,
       }
     }
   }
@@ -123,6 +132,14 @@ try {
   assert.equal(closed.body.value.plan.status, 'done')
   assert.equal(closed.body.value.plan.meta.closureNote, '白板推完了两问')
   console.log('closed:', closed.body.value.plan.meta.closedAt)
+
+  // The reading page's archive reads /plans and then each closed detail; the
+  // closed goal must stay in the list instead of vanishing with Today.
+  const listed = await call('/plans')
+  assert.ok(
+    listed.body.value.some(plan => plan.id === pid && plan.status === 'done'),
+    'a closed goal stays listed for the archive',
+  )
 
   const reopened = await call('/plan/update', { pid, setStatus: 'active' })
   assert.equal(reopened.body.value.plan.meta.closedAt, undefined)

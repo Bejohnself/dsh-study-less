@@ -26,7 +26,6 @@ const settings = new SettingsService(paths)
 const usage = new UsageService(paths, settings)
 const insights = new InsightService(paths)
 const books = new BookService(paths, service)
-const quizSessions = new QuizSessionService(paths, service, books)
 const jobs = new JobQueue(paths, { concurrency: () => 1 })
 await jobs.recover()
 
@@ -92,6 +91,7 @@ const fake = {
 
 await settings.patch({ text: { kind: 'dsh', model: 'fake' }, study: { autoQuiz: true, autoInsight: true } })
 const generation = new GenerationService(paths, { service, insights, settings, jobs, books, usage, textProvider: () => fake })
+const quizSessions = new QuizSessionService(paths, service, generation)
 const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 mid = imported.manifest.id
 const node = imported.manifest.structure.find(candidate => candidate.kind === 'section') ?? imported.manifest.structure[0]
@@ -166,6 +166,20 @@ try {
   console.log('plugin restart unsupported:', restartUnsupported.status)
   if (restartUnsupported.status !== 501) throw new Error('restart route should degrade to 501 without a loader')
 
+  // Test clock: one click moves "today", the today panel shows the new date.
+  const clockStart = await call('/clock')
+  const clockNext = await postJson('/clock', {})
+  const clockToday = await call('/today')
+  if (clockNext.body.value.offsetDays !== 1 || clockToday.body.value.clockOffsetDays !== 1) {
+    throw new Error('clock routes did not advance one day')
+  }
+  if (clockToday.body.value.date !== clockNext.body.value.today) throw new Error('today panel ignored the test clock')
+  const clockReset = await postJson('/clock', { reset: true })
+  if (clockReset.body.value.offsetDays !== 0 || clockStart.body.value.offsetDays !== 0) {
+    throw new Error('clock reset did not return to the real date')
+  }
+  console.log('clock:', clockStart.body.value.today, '->', clockNext.body.value.today, '->', clockReset.body.value.today)
+
   const frozen = [
     await call('/books'),
     await call(`/book?bid=${book.id}`),
@@ -201,78 +215,84 @@ try {
   const submit = await postJson('/quiz/submit', { mid, uid, answers: [{ itemId: 'q1', answer: 0 }] })
   console.log('quiz submit:', submit.status, submit.body.value.score, submit.body.value.ratingSuggestion)
 
-  const bankCount = unit.body.value.quiz?.items?.length ?? 0
   const sessionStart = await postJson('/quiz/session/start', { mid, uid })
+  if (sessionStart.body?.value === undefined) {
+    throw new Error('quiz session start failed: ' + JSON.stringify(sessionStart.body))
+  }
   const sid = sessionStart.body.value.session.id
   const firstId = sessionStart.body.value.item?.id
   if (sessionStart.status !== 200 || firstId === undefined) throw new Error('quiz session start failed')
-  // A session may ask more than the bank holds: the next round tops it up, so
-  // only the cap bounds one run.
-  if (sessionStart.body.value.session.limit < bankCount || sessionStart.body.value.session.limit > 20) {
-    throw new Error(`session limit ${sessionStart.body.value.session.limit} out of range for bank ${bankCount}`)
-  }
   if (!Array.isArray(sessionStart.body.value.points)) throw new Error('quiz session start has no points')
-  if (sessionStart.body.value.points.length > 0 && sessionStart.body.value.session.atTarget === undefined) {
-    throw new Error('quiz session start has points but no at-target count')
-  }
+  if (sessionStart.body.value.session.count !== 0) throw new Error('a new run must start at question one')
+  if ('limit' in sessionStart.body.value.session) throw new Error('a run has no question cap any more')
   if ('answerIndex' in (sessionStart.body.value.item ?? {})) throw new Error('quiz session leaked answerIndex')
-  console.log('quiz session start:', sessionStart.status, 'limit', sessionStart.body.value.session.limit, 'item', firstId)
+  if (sessionStart.body.value.usage === undefined) throw new Error('the question cost was not reported')
+  console.log('quiz session start:', sessionStart.status, 'item', firstId, 'points', sessionStart.body.value.points.length)
 
   const sessionAnswer = await postJson('/quiz/session/answer', { sid, itemId: firstId, answer: 0 })
-  if (sessionAnswer.status !== 200) throw new Error('quiz session answer failed')
-  if (sessionAnswer.body.value.history?.length !== 1) throw new Error('quiz session history missing')
-  if (sessionAnswer.body.value.summary !== undefined) throw new Error('quiz session ended too early')
-  const nextId = sessionAnswer.body.value.next?.id
-  if (nextId === undefined) throw new Error('quiz session has no next item')
-  console.log('quiz session answer:', sessionAnswer.status, 'history', sessionAnswer.body.value.history.length, 'next', nextId)
+  if (sessionAnswer.status !== 200) throw new Error('quiz session answer failed: ' + JSON.stringify(sessionAnswer.body))
+  if ('history' in sessionAnswer.body.value) throw new Error('answered questions are not stored')
+  if ('next' in sessionAnswer.body.value) throw new Error('answer must not write the next question')
+  const ended = sessionAnswer.body.value.summary !== undefined
+  console.log('quiz session answer:', sessionAnswer.status, 'ended', ended)
+
+  // Grading and writing the next question are separate calls, so the feedback
+  // lands without waiting on a second model call.
+  const nextCall = await postJson('/quiz/session/next', { sid })
+  const nextId = nextCall.body.value.item?.id
+  if (ended) {
+    if (nextCall.status === 200) throw new Error('a finished run wrote another question')
+  } else if (nextCall.status !== 200 || nextId === undefined) {
+    throw new Error('quiz session next failed: ' + JSON.stringify(nextCall.body))
+  }
+  if (!ended) {
+    const again = await postJson('/quiz/session/next', { sid })
+    if (again.body.value.item?.id !== nextId) throw new Error('next is not idempotent while a question waits')
+  }
+  console.log('quiz session next:', nextCall.status, 'item', nextId)
 
   const sessionView = await call(`/quiz/session?sid=${sid}`)
-  if (sessionView.body.value.item?.id !== nextId) throw new Error('session view current item mismatch')
-  if (sessionView.body.value.history?.length !== 1) throw new Error('session view history mismatch')
+  if (ended) {
+    if (sessionView.body.value.session.status !== 'done') throw new Error('session view is not closed')
+  } else if (sessionView.body.value.item?.id !== nextId) {
+    throw new Error('session view current item mismatch')
+  }
+  if ('history' in sessionView.body.value) throw new Error('session view still carries a history')
 
   const sessionIndex = await call(`/quiz/sessions?mid=${mid}&uid=${uid}`)
-  if (sessionIndex.body.value.active?.session?.id !== sid) throw new Error('session index active mismatch')
-  if (sessionIndex.body.value.active?.history?.length !== 1) throw new Error('session index history mismatch')
-  console.log('quiz index:', sessionIndex.status, 'active', sessionIndex.body.value.active?.session?.id === sid, 'recent', sessionIndex.body.value.recent?.length)
+  if (!ended && sessionIndex.body.value.active?.session?.id !== sid) throw new Error('session index active mismatch')
+  if ('recent' in sessionIndex.body.value) throw new Error('the recent list is gone')
+  console.log('quiz index:', sessionIndex.status, 'active', sessionIndex.body.value.active?.session?.id === sid)
 
-  const resumed = await postJson('/quiz/session/start', { mid, uid })
-  if (resumed.body.value.session.id !== sid) throw new Error('start did not resume the active session')
-  console.log('quiz session resume:', resumed.body.value.session.id === sid)
+  if (!ended) {
+    const resumed = await postJson('/quiz/session/start', { mid, uid })
+    if (resumed.body.value.session.id !== sid) throw new Error('start did not resume the active session')
+    console.log('quiz session resume:', resumed.body.value.session.id === sid)
 
-  const restarted = await postJson('/quiz/session/start', { mid, uid, restart: true })
-  const sid2 = restarted.body.value.session.id
-  if (sid2 === sid) throw new Error('restart reused the old session')
-  const oldView = await call(`/quiz/session?sid=${sid}`)
-  if (oldView.body.value.session.status !== 'done' || oldView.body.value.session.endedReason !== 'replaced') {
-    throw new Error('old session was not marked replaced')
+    const restarted = await postJson('/quiz/session/start', { mid, uid, restart: true })
+    const sid2 = restarted.body.value.session.id
+    if (sid2 === sid) throw new Error('restart reused the old session')
+    const oldView = await call(`/quiz/session?sid=${sid}`)
+    if (oldView.body.value.session.status !== 'done' || oldView.body.value.session.endedReason !== 'replaced') {
+      throw new Error('old session was not marked replaced')
+    }
+    console.log('quiz session restart:', sid2 !== sid)
+
+    const finishedSession = await postJson('/quiz/session/finish', { sid: sid2 })
+    if (finishedSession.body.value.session.status !== 'done' || finishedSession.body.value.session.endedReason !== 'finished') {
+      throw new Error('finish did not close the session')
+    }
+    console.log('quiz session finish:', finishedSession.body.value.session.endedReason)
+
+    // No bank means no "the bank changed" state: a fresh start just writes a
+    // new question for the same open points.
+    const again = await postJson('/quiz/session/start', { mid, uid })
+    if (again.body.value.session.status !== 'active' || again.body.value.item === undefined) {
+      throw new Error('a new run could not write its first question')
+    }
+    await postJson('/quiz/session/finish', { sid: again.body.value.session.id })
+    console.log('quiz session restart after finish:', again.body.value.session.id !== sid2)
   }
-  if (oldView.body.value.history?.length !== 1) throw new Error('old session lost its history')
-  // A spent question is never offered again: the restart moves on instead of
-  // replaying the one already answered.
-  if (restarted.body.value.item?.id === firstId) throw new Error('restart re-asked the question already used')
-  console.log('quiz session restart:', sid2 !== sid, 'newQuestion', restarted.body.value.item?.id !== firstId)
-
-  const finishedSession = await postJson('/quiz/session/finish', { sid: sid2 })
-  if (finishedSession.body.value.session.status !== 'done' || finishedSession.body.value.session.endedReason !== 'finished') {
-    throw new Error('finish did not close the session')
-  }
-  const sessionIndex2 = await call(`/quiz/sessions?mid=${mid}&uid=${uid}`)
-  if (!sessionIndex2.body.value.recent?.some(record => record.id === sid2 && record.endedReason === 'finished')) {
-    throw new Error('recent did not include the finished session')
-  }
-  console.log('quiz session finish:', finishedSession.body.value.session.endedReason, 'recent', sessionIndex2.body.value.recent?.length)
-
-  const activeSession = await postJson('/quiz/session/start', { mid, uid })
-  const sid3 = activeSession.body.value.session.id
-  const quizJob = await postJson('/generate/quiz', { mid, uid })
-  const quizDone = await wait(quizJob.body.value.jobId)
-  if (quizDone.status !== 'done') throw new Error('quiz regeneration failed')
-  const stale = await call(`/quiz/session?sid=${sid3}`)
-  if (stale.body.value.session.status !== 'done' || stale.body.value.session.endedReason !== 'bank-changed') {
-    throw new Error('stale session was not closed after the bank changed')
-  }
-  console.log('quiz session bank change:', stale.body.value.session.endedReason)
-
   const archived = await postJson('/material/archive', { mid, archived: true })
   console.log('archive:', archived.status, archived.body.value.archived)
   const shelf = await call('/library')

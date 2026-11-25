@@ -1,6 +1,7 @@
 /**
  * Constants shared by the generation modules: the chat system prompt and the judge deadline. They live apart from the class file to keep the runtime imports one-way.
  */
+import { parseJsonObject } from '../generate/prompts.ts'
 import { ProviderError, type TextProvider, type TextRequest, type TextResult } from '../providers/types.ts'
 
 export const ASK_SYSTEM = [
@@ -54,6 +55,33 @@ export async function completeStructured(provider: TextProvider, request: TextRe
     if (error.code !== 'max-tokens' && error.code !== 'empty') throw error
     const budget = Math.max(RETRY_MAX_TOKENS, (request.maxTokens ?? RETRY_MAX_TOKENS) * 2)
     return await provider.complete({ ...request, maxTokens: Math.min(16_384, budget) })
+  }
+}
+
+/**
+ * One JSON call whose answer must also parse.
+ *
+ * `completeStructured` covers a provider that reports a cap or an empty answer.
+ * A gateway that silently truncates is not covered there: the text looks fine
+ * but the JSON is unterminated, and the only cure is another call with more
+ * room. One retry, then the original failure stands.
+ */
+export async function completeStructuredJson<T>(
+  provider: TextProvider,
+  request: TextRequest,
+  accept: (parsed: unknown) => T,
+): Promise<{ value: T; text: string; usage?: TextResult['usage']; attempts: number }> {
+  const first = await completeStructured(provider, request)
+  try {
+    return { value: accept(parseJsonObject(first.text)), text: first.text, usage: first.usage, attempts: 1 }
+  } catch (error) {
+    const budget = Math.max(RETRY_MAX_TOKENS * 2, (request.maxTokens ?? RETRY_MAX_TOKENS) * 2)
+    const retry = await provider.complete({ ...request, maxTokens: Math.min(16_384, budget) })
+    try {
+      return { value: accept(parseJsonObject(retry.text)), text: retry.text, usage: retry.usage, attempts: 2 }
+    } catch {
+      throw error
+    }
   }
 }
 

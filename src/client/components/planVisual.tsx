@@ -103,7 +103,7 @@ export function RouteMap({
                 {rows.map(step => {
                   const span = step.target === undefined ? 1 : Math.max(1, step.target.pageEnd - step.target.pageStart + 1)
                   const width = Math.max(84, Math.min(170, 52 + Math.sqrt(span) * 10))
-                  const pct = step.progress === undefined ? 0 : Math.round(step.progress.mastery * 100)
+                  const pct = step.progress === undefined ? 0 : Math.floor(step.progress.mastery * 100)
                   const skip = step.coverage === 'skip'
                   const progress = step.progress === undefined ? '' : ` · ${step.progress.passed}/${step.progress.total} 个知识点达标`
                   return (
@@ -129,7 +129,7 @@ export function RouteMap({
                       <span className="study-spine-title">{step.target?.title ?? step.why}</span>
                       <span className="study-spine-meta">
                         {step.target === undefined ? '' : `p${step.target.pageStart}–${step.target.pageEnd}`}
-                        {step.done ? ' · 已完成' : ''}
+                        {step.done ? ' · 已到档' : ''}
                       </span>
                       {step.done ? <span className="study-spine-done">✓</span> : null}
                     </button>
@@ -153,11 +153,11 @@ export function MasterySeals({ points }: { points: readonly PlanSectionView[] })
   return (
     <div className="study-seal-grid">
       {points.map(point => {
-        const pct = Math.round(Math.max(0, Math.min(1, point.mastery)) * 100)
+        const pct = Math.floor(Math.max(0, Math.min(1, point.mastery)) * 100)
         const targetPct = Math.round(Math.max(0, Math.min(1, point.threshold)) * 100)
         const total = point.conceptStates.length
         const atTarget = point.conceptStates.filter(state => state.atTarget).length
-        const peakPct = point.peak === undefined ? null : Math.round(Math.max(0, Math.min(1, point.peak)) * 100)
+        const peakPct = point.peak === undefined ? null : Math.floor(Math.max(0, Math.min(1, point.peak)) * 100)
         return (
           <div
             key={point.target}
@@ -188,7 +188,7 @@ export function MasterySeals({ points }: { points: readonly PlanSectionView[] })
                       <span
                         key={state.id}
                         className={'study-seal-dot' + (state.atTarget ? ' is-on' : '')}
-                        title={`${state.name} · ${Math.round(state.mastery * 100)}%`}
+                        title={`${state.name} · ${Math.floor(state.mastery * 100)}%`}
                       />
                     ))}
                   </span>

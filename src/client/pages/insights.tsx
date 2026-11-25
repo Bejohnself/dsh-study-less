@@ -162,9 +162,9 @@ function ConceptList({ onOpen, refreshToken }: { onOpen: (cid: string) => void; 
           </span>
           <span className="study-mastery">
             <span className="study-mastery-bar">
-              <span style={{ width: `${Math.round(item.mastery * 100)}%` }} />
+              <span style={{ width: `${Math.floor(item.mastery * 100)}%` }} />
             </span>
-            <span className="study-muted">{Math.round(item.mastery * 100)}%</span>
+            <span className="study-muted">{Math.floor(item.mastery * 100)}%</span>
           </span>
           <span className="study-item-meta">
             {item.occurrences} 处 · {item.materials.join(' / ')}
@@ -501,7 +501,7 @@ export function ConceptDetailPage({
           <span className="study-reader-sub">
             {data.mastery === undefined
               ? '尚未练习'
-              : `掌握度 ${Math.round(data.mastery.mastery * 100)}% · 答对 ${data.mastery.correct}/${data.mastery.attempts}`}
+              : `掌握度 ${Math.floor(data.mastery.mastery * 100)}% · 答对 ${data.mastery.correct}/${data.mastery.attempts}`}
           </span>
         </div>
         <button type="button" className="study-primary study-primary-tight" disabled={busy} onClick={() => void synthesize()}>

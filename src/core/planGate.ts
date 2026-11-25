@@ -71,14 +71,20 @@ export function summarizeBoundary(plan: PlanRecord, pages: PageRangeOf): Boundar
   return summary
 }
 
-/** Progress that leaves skipped ranges out of the denominator. */
-export function planProgress(plan: PlanRecord): { done: number; total: number } {
+/**
+ * Progress that leaves skipped ranges out of the denominator.
+ *
+ * `isDone` is the ledger's verdict for one step: a section counts once its
+ * knowledge points reach their threshold. There is no manual tick any more, so
+ * the caller must supply the rule instead of a stored flag.
+ */
+export function planProgress(plan: PlanRecord, isDone: (step: PlanStep) => boolean): { done: number; total: number } {
   // Only section steps are part of the route. Legacy drill/compare steps may
   // still sit in old plan files but must not become invisible obligations.
   const counted = plan.steps.filter(
     step => (step.kind === 'unit' || step.kind === 'paper-pass') && coverageOf(step) !== 'skip',
   )
-  return { done: counted.filter(step => step.done).length, total: counted.length }
+  return { done: counted.filter(isDone).length, total: counted.length }
 }
 
 /** Normalize a stored threshold to [0, 1]. */

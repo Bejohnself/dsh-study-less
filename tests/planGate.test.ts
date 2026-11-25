@@ -10,7 +10,6 @@ function step(n: number, patch: Partial<PlanStep> = {}): PlanStep {
     kind: 'unit',
     target: 'm:' + String(n),
     why: 'because',
-    done: false,
     ...patch,
   }
 }
@@ -44,7 +43,7 @@ test('skipped ranges stay out of the denominator and the next step', () => {
       step(3),
     ],
   })
-  assert.deepEqual(planProgress(value), { done: 0, total: 2 })
+  assert.deepEqual(planProgress(value, () => false), { done: 0, total: 2 })
   const next = nextStep(value)
   assert.equal(next?.n, 3)
 })
@@ -57,13 +56,28 @@ test('legacy drill and compare steps are not route obligations', () => {
       step(3, { kind: 'compare', materials: ['a', 'b'] }),
     ],
   })
-  assert.deepEqual(planProgress(value), { done: 0, total: 1 })
+  assert.deepEqual(planProgress(value, () => false), { done: 0, total: 1 })
   assert.equal(nextStep(value)?.n, 1)
 })
 
 test('read ranges win over skim ranges when both are open', () => {
   const value = plan({ steps: [step(1, { coverage: 'skim' }), step(2)] })
   assert.equal(nextStep(value)?.n, 2)
+})
+
+test('completion comes from the ledger, not from a stored tick', () => {
+  const value = plan({ steps: [step(1, { target: 'a:1' }), step(2, { target: 'a:2' })] })
+  const learned = (candidate: PlanStep): boolean => candidate.target === 'a:1'
+  assert.deepEqual(planProgress(value, learned), { done: 1, total: 2 })
+  assert.deepEqual(planProgress(value, () => false), { done: 0, total: 2 }, '没有勾选这条老路，只有账本')
+})
+
+test('a learned section no longer holds the next pointer', () => {
+  const value = plan({ steps: [step(1, { target: 'a:1' }), step(2, { target: 'a:2' })] })
+  assert.equal(nextStep(value)?.n, 1)
+  const learned = (candidate: PlanStep): boolean => candidate.target === 'a:1'
+  assert.equal(nextStep(value, learned)?.n, 2, '到档的一节不再占着「下一步」')
+  assert.equal(nextStep(value, () => true), undefined, '全都到档时没有下一步，今日页留空')
 })
 
 test('boundary arithmetic sums pages per decision', () => {

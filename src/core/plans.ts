@@ -13,9 +13,25 @@ import { readJson, writeJsonAtomic } from './store.ts'
 import { coverageOf } from './planGate.ts'
 import type { MasteryLevel, PlanRecord, PlanStep } from './types.ts'
 
-/** Read one plan, or null when missing. */
+/**
+ * Read one plan, or null when missing.
+ *
+ * Older plan files carry a per-step `done` flag the reader ticked by hand. It
+ * is dropped here: a step is done when its section's knowledge points reach
+ * their threshold, not when it was marked.
+ */
 export async function readPlan(paths: LibraryPaths, planId: string): Promise<PlanRecord | null> {
-  return readJson<PlanRecord | null>(paths.planFile(planId), null)
+  const plan = await readJson<PlanRecord | null>(paths.planFile(planId), null)
+  if (plan === null) return null
+  return {
+    ...plan,
+    steps: plan.steps.map(step => {
+      const legacy = step as PlanStep & { done?: boolean }
+      const { done, ...rest } = legacy
+      void done
+      return rest
+    }),
+  }
 }
 
 /** Write one plan, refreshing `updatedAt` and renumbering steps. */
@@ -112,19 +128,29 @@ export function validatePlan(plan: PlanRecord, targets: PlanTargets): string[] {
 }
 
 /**
- * The next unfinished step of one plan.
+ * Whether a step is already learned.
+ *
+ * The rule lives in the knowledge space, not in the plan file, so callers pass
+ * it in: `done` is the reader's own marker, this is the ledger saying the
+ * section has nothing left to prove.
+ */
+export type StepLearned = (step: PlanStep) => boolean
+
+/**
+ * The step to suggest next.
  *
  * Steps the user cropped out ('skip') are never suggested, and 'read' ranges
- * win over 'skim' ones: the minimal set is what the goal actually needs.
+ * win over 'skim' ones. Learned sections are skipped even when their checkbox
+ * is unticked, so the pointer moves on once a section's knowledge points all
+ * reached their threshold; when every open step is learned there is no next
+ * step, and the caller shows an empty state instead of repeating the first one.
  */
-export function nextStep(plan: PlanRecord): PlanStep | undefined {
+export function nextStep(plan: PlanRecord, learned?: StepLearned): PlanStep | undefined {
   const open = plan.steps.filter(
-    step =>
-      (step.kind === 'unit' || step.kind === 'paper-pass') &&
-      !step.done &&
-      coverageOf(step) !== 'skip',
+    step => (step.kind === 'unit' || step.kind === 'paper-pass') && coverageOf(step) !== 'skip',
   )
-  return open.find(step => coverageOf(step) === 'read') ?? open[0]
+  const pending = learned === undefined ? open : open.filter(step => !learned(step))
+  return pending.find(step => coverageOf(step) === 'read') ?? pending[0]
 }
 
 /** Turn the next unfinished step into a jump target. */

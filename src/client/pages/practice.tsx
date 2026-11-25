@@ -15,13 +15,17 @@ export function PracticePage({
   unit,
   concept,
   onBack,
+  onExit,
   onChanged,
 }: {
   mid: string
   unit: TocRow
   /** Set when the today panel sent the reader to review one due concept. */
   concept?: string
+  /** Back arrow: the source text. */
   onBack: () => void
+  /** The finished run's button: the Today page, where the next step lives. */
+  onExit: () => void
   onChanged?: () => void
 }): ReactElement {
   return (
@@ -42,7 +46,7 @@ export function PracticePage({
         <QuizRunner
           scope={{ kind: 'unit', mid, uid: unit.uid, ...(concept === undefined ? {} : { concept }) }}
           onChanged={onChanged}
-          onExit={onBack}
+          onExit={onExit}
         />
       </div>
     </div>

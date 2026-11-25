@@ -62,11 +62,9 @@ export function plansTools({ service, extras }: ToolContext): StudyToolDefinitio
   tools.push({
     name: 'study_plan_update',
     description:
-      '修改一条学习路径：勾掉/取消某一步（setStepN + setStepDone）、暂停/恢复（status）、改目标（goal）、整体替换步骤（steps）、或改某一节的档位（setLevelN + setLevel）。替换后会重新校验目标是否存在。',
+      '修改一条学习路径：暂停/恢复（status）、改目标（goal）、整体替换步骤（steps）、或改某一节的档位（setLevelN + setLevel）。节是否完成由知识点是否都到档决定，没有手动勾选。替换后会重新校验目标是否存在。',
     parameters: objectSchema({
       plan: { type: 'string', description: '计划 id' },
-      setStepN: { type: 'number', description: '要改的步骤序号，从 1 开始' },
-      setStepDone: { type: 'boolean' },
       status: { type: 'string', enum: ['active', 'paused', 'done'] },
       goal: { type: 'string' },
       steps: {
@@ -86,8 +84,6 @@ export function plansTools({ service, extras }: ToolContext): StudyToolDefinitio
     async execute(args) {
       const input = args as {
         plan: string
-        setStepN?: number
-        setStepDone?: boolean
         status?: 'active' | 'paused' | 'done'
         goal?: string
         steps?: Array<{ kind: 'unit' | 'paper-pass'; target?: string; why: string; level?: 1 | 2 | 3 | 4 }>
@@ -98,9 +94,6 @@ export function plansTools({ service, extras }: ToolContext): StudyToolDefinitio
         return {
           ok: true,
           ...(await service.updatePlan(input.plan, {
-            ...(input.setStepN !== undefined && input.setStepDone !== undefined
-              ? { setStep: { n: input.setStepN, done: input.setStepDone } }
-              : {}),
             ...(input.status === undefined ? {} : { setStatus: input.status }),
             ...(input.goal === undefined ? {} : { setGoal: input.goal }),
             ...(input.steps === undefined ? {} : { replaceSteps: input.steps }),

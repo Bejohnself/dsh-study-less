@@ -100,7 +100,6 @@ export async function postPlans(ctx: RouteContext, body: Record<string, unknown>
   }
   if (path === '/plan/update') {
     const pid = requiredString(body, 'pid')
-    const setStep = body.setStep as { n?: unknown; done?: unknown } | undefined
     const setStatus = body.setStatus
     const replaceSteps = body.replaceSteps
     const setMeta = body.setMeta as Record<string, unknown> | undefined
@@ -129,9 +128,6 @@ export async function postPlans(ctx: RouteContext, body: Record<string, unknown>
     send(res, 200, {
       ok: true,
       value: await service.updatePlan(pid, {
-        ...(setStep !== undefined && typeof setStep.n === 'number' && typeof setStep.done === 'boolean'
-          ? { setStep: { n: setStep.n, done: setStep.done } }
-          : {}),
         ...(setStatus === 'active' || setStatus === 'paused' || setStatus === 'done' ? { setStatus } : {}),
         ...(typeof body.goal === 'string' && body.goal.trim().length > 0 ? { setGoal: body.goal.trim() } : {}),
         ...(Array.isArray(replaceSteps)

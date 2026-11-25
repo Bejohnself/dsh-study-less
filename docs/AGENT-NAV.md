@@ -33,8 +33,8 @@
 
 ### 端点速查：路径 → 文件（改接口先查这里，不必 grep 路径字符串）
 
-- **GET**：`/health` `/settings` `/jobs` `/jobs/:id` `/usage` → `routes/admin.ts`；`/library` `/material` `/unit` `/layout` → `routes/library.ts`；`/due` `/today` → `routes/reading.ts`；`/plans` `/plan` → `routes/plans.ts`；`/quiz` `/quiz/sessions` `/quiz/session` → `routes/practice.ts`；`/concepts` `/concept` `/insights` `/insight` `/books` `/book` `/book/chapter` `/book/export` → `routes/notes.ts`
-- **POST**：`/import/upload` → `routes/import.ts`；`/import` `/import/url` `/material/archive` `/material/delete` `/unit/complete` `/unit/uncomplete` → `routes/library.ts`；`/review` → `routes/reading.ts`；`/goal/create` `/plan/create` `/plan/update` `/plan/close` `/plan/delete` `/plan/retry-chat` `/plan/concepts` → `routes/plans.ts`；`/quiz/session/*` `/quiz/submit` → `routes/practice.ts`；`/insight/*` `/book/progress` `/book/delete` → `routes/notes.ts`；`/generate/*` `/ask` `/blocks/merge` `/jobs/:id/cancel` → `routes/generate.ts`；`/settings` `/settings/test` `/plugin/restart` → `routes/admin.ts`
+- **GET**：`/health` `/settings` `/jobs` `/jobs/:id` `/usage` → `routes/admin.ts`；`/library` `/material` `/unit` `/layout` → `routes/library.ts`；`/clock` `/due` `/today` → `routes/reading.ts`；`/plans` `/plan` → `routes/plans.ts`；`/quiz` `/quiz/sessions` `/quiz/session` → `routes/practice.ts`；`/concepts` `/concept` `/insights` `/insight` `/books` `/book` `/book/chapter` `/book/export` → `routes/notes.ts`
+- **POST**：`/import/upload` → `routes/import.ts`；`/import` `/import/url` `/material/archive` `/material/delete` `/unit/complete` `/unit/uncomplete` → `routes/library.ts`；`/clock` `/review` → `routes/reading.ts`；`/goal/create` `/plan/create` `/plan/update` `/plan/close` `/plan/delete` `/plan/retry-chat` `/plan/concepts` → `routes/plans.ts`；`/quiz/session/*` `/quiz/submit` → `routes/practice.ts`；`/insight/*` `/book/progress` `/book/delete` → `routes/notes.ts`；`/generate/*` `/ask` `/blocks/merge` `/jobs/:id/cancel` → `routes/generate.ts`；`/settings` `/settings/test` `/plugin/restart` → `routes/admin.ts`
 - **兜底**：PDF / 单元资产 / pdf.js 资源由 `http/assets.ts` 处理，在 `routes.ts` 分发器的 GET 末尾调用；未命中一律 404。
 
 ### 工具速查：工具名 → 文件

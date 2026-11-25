@@ -18,6 +18,7 @@ import type {
   InsightRecord,
   JobStatus,
   MaterialType,
+  UsageAmount,
   Coverage,
   QuizBank,
   QuizEndReason,
@@ -225,16 +226,17 @@ export interface KnowledgeToday {
     overdueDays: number
     mastery: number
     target: number
-    /** First place this concept appears, for a focused review. */
+    /** Goal section that asks the deepest level of this concept. */
     materialId?: string
     unitId?: string
+    unitTitle?: string
+    materialTitle?: string
   }>
   below: Array<{
     conceptId: string
     name: string
     mastery: number
     target: number
-    settled: boolean
   }>
 }
 
@@ -249,11 +251,15 @@ export interface GoalToday {
   total: number
   /** Required sections that still carry no knowledge points. */
   missingSections: number
+  /** Days past the deadline; 0 while it is still in the future. */
+  overdueDays: number
   readyToClose: boolean
 }
 
 export interface TodayView {
   date: string
+  /** Manual test-clock offset in days; 0 when the real date is in use. */
+  clockOffsetDays: number
   /** Knowledge-point state: what is due and what is below target. */
   knowledge?: KnowledgeToday
   /** The goal driving today; absent means free practice only. */
@@ -536,41 +542,18 @@ export interface QuizReferenceView {
 /** Feedback revealed after one answer. */
 export interface QuizFeedbackView {
   itemId: string
-  correct: boolean | null
-  /** Present when the reader graded a subjective answer themselves. */
-  selfGrade?: QuizSelfGrade
+  correct: boolean
   expected?: string
   rubric?: string[]
   explanation?: string
-  /** True when a subjective answer needs a self-grade before advancing. */
-  needsSelfGrade?: boolean
-  /** Why the automatic judge was not used; the reader self-grades instead. */
-  judgeUnavailable?: string
   /** Model verdict on a written answer. */
   judged?: QuizJudgeRecord
   /** Re-judging rounds; the last verdict is the current one. */
   appeals?: QuizAppealRecord[]
-  /** Cost of the model call that produced this feedback, when there was one. */
+  /** Cost of the model call that judged this answer, when there was one. */
   usage?: UsageCallView
 }
 
-/** One answered item, rendered from the session's own snapshot. */
-export interface QuizHistoryEntryView {
-  itemId: string
-  question: string
-  type: QuizItemType
-  answerText: string
-  correct: boolean | null
-  selfGrade?: QuizSelfGrade
-  judged?: QuizJudgeRecord
-  appeals?: QuizAppealRecord[]
-  expected?: string
-  rubric?: string[]
-  explanation?: string
-  at: string
-}
-
-/** Why a unit run writes no progress. */
 /** Why a section cannot be practiced: practice only ever runs inside a goal. */
 export type QuizBlockReason = 'no-goal' | 'outside-goal' | 'no-concepts'
 
@@ -583,8 +566,6 @@ export interface QuizPointView {
   /** Goal threshold for this point, 0–1. */
   threshold: number
   atTarget: boolean
-  /** Latest verdict of this session's answers on the point, when any. */
-  answered?: 'pass' | 'partial' | 'fail'
 }
 
 /** Progress and current item of one session. */
@@ -592,67 +573,46 @@ export interface QuizSessionView {
   session: {
     id: string
     status: 'active' | 'done'
-    asked: number
-    limit: number
-    correct: number
-    objective: number
+    /** Questions this run has answered so far. */
+    count: number
     /** Points of this run's target set that reached their threshold. */
     atTarget?: { passed: number; total: number }
     /** A focused review of one due concept, not a section pass. */
     review?: true
-    /** Legacy: a run recorded before practice became goal-only. Never written now. */
-    free?: boolean
     startedAt: string
     updatedAt: string
     endedReason?: QuizEndReason
   }
-  /** One row per knowledge point this run measures; empty for book chapters. */
+  /** One row per knowledge point this run measures. */
   points: QuizPointView[]
   item?: QuizItemView
-  history: QuizHistoryEntryView[]
+  /** Cost of the call that wrote `item`, so the page can show it. */
+  usage?: UsageAmount
+  /** The answer just submitted, so an appeal can update what is on screen. */
+  last?: QuizFeedbackView
   summary?: QuizSessionSummary
 }
 
-/** The result of one answer, including the next item when available. */
+/** The result of one answer. Writing the next question is a separate call. */
 export interface QuizAnswerView {
   session: QuizSessionView['session']
   /** Knowledge points after this answer wrote its evidence. */
   points: QuizPointView[]
   feedback: QuizFeedbackView
-  history: QuizHistoryEntryView[]
-  next?: QuizItemView
+  /** Present when this answer reached the last open point. */
   summary?: QuizSessionSummary
 }
 
-/** One past or active session in a unit's practice index. */
-export interface QuizSessionRecordView {
-  id: string
-  status: 'active' | 'done'
-  asked: number
-  limit: number
-  correct: number
-  objective: number
-  score: number
-  startedAt: string
-  updatedAt: string
-  endedAt?: string
-  endedReason?: QuizEndReason
-}
-
-/** What the practice page needs before it starts: bank state and sessions. */
+/** What the practice page needs before it starts. */
 export interface QuizSessionIndexView {
-  bank: {
-    items: number
-    defaultLimit: number
-    notes: boolean
-    updatedAt?: string
-  }
-  /** Every knowledge point of this section, whether open or already at target. */
+  /** Every point this view measures: the section's, or the one due concept in review. */
   points: QuizPointView[]
   /** How many of those points are still short of their threshold. */
   open: number
   /** Every point is at its threshold: a new run has nothing left to prove. */
   ready: boolean
+  /** This index measures one due concept for review, so a run may start at target. */
+  review?: boolean
   /** The goal covers this section but it carries no knowledge points yet. */
   needsConcepts: boolean
   /** A text engine is available, so concepts and questions can be written. */
@@ -662,30 +622,26 @@ export interface QuizSessionIndexView {
   /** Set when practice is not available: the page says why instead of offering a run. */
   blocked?: QuizBlockReason
   active: QuizSessionView | null
-  recent: QuizSessionRecordView[]
 }
 
 /** Final summary of one practice session. */
 export interface QuizSessionSummary {
-  asked: number
-  correct: number
-  /** Answers that count as evidence: objective or model-judged. */
-  objective: number
-  score: number
   /**
-   * passed: every target point reached its threshold. failed: the run ended
-   * with points short. incomplete: stopped early, replaced or free practice.
+   * passed: every target point reached its threshold. incomplete: the run
+   * stopped with points still short (reader stopped, or no next question).
    */
-  verdict: 'passed' | 'failed' | 'incomplete'
+  verdict: 'passed' | 'incomplete'
   /** Ledger state of this run's target set when it closed. */
   points: QuizPointView[]
   atTarget?: { passed: number; total: number }
   /** Points still short of threshold, weakest gap first. */
   gap: QuizPointView[]
+  /** How many questions this run answered; informative only. */
+  count: number
   /** A focused review of one due concept. */
   review?: true
-  /** Legacy: a run recorded before practice became goal-only. */
-  free?: boolean
+  /** Why the next question could not be written, when that is why it stopped. */
+  note?: string
 }
 
 /** Settings update body. */

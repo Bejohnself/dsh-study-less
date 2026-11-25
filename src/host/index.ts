@@ -131,7 +131,7 @@ export function apply(ctx: HostContext, config: Config = {}): void {
     ...(face<DshLlmFace>(ctx, 'llm') === undefined ? {} : { llm: face<DshLlmFace>(ctx, 'llm')! }),
     selection: () => face<{ currentSelection(): DshModelSelection }>(ctx, 'agentDefaultModel')?.currentSelection(),
   })
-  const quizSessions = new QuizSessionService(paths, service, bookService, generationService)
+  const quizSessions = new QuizSessionService(paths, service, generationService)
   void quizSessions.recover()
 
   ctx.effect(() => {

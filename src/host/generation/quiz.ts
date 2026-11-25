@@ -5,14 +5,15 @@
  * here. Bodies are the original methods, with this. turned into svc.
  */
 import type { QuizBank, QuizItem } from '../../core/types.ts'
+import type { UsageCallView } from '../../core/views.ts'
 import { type JobContext } from '../jobs.ts'
-import { parseJsonObject, quizPrompt } from '../generate/prompts.ts'
+import { quizPrompt } from '../generate/prompts.ts'
 import { textProviderFrom } from '../providers/index.ts'
 import { StudyError } from '../service.ts'
 import type { GenerationService } from '../generation.ts'
 import type { GenerateQuizInput } from './shared.ts'
 import { normalizeQuizItems } from './normalize.ts'
-import { QUIZ_WRITE_TIMEOUT_MS, completeStructured } from './shared.ts'
+import { QUIZ_WRITE_TIMEOUT_MS, completeStructuredJson } from './shared.ts'
 
 export async function generateQuiz(svc: GenerationService, input: GenerateQuizInput): Promise<{ jobId: string }> {
   if (!(await svc.textReady())) throw new StudyError('unsupported', '还没有配置文本引擎')
@@ -65,20 +66,27 @@ export interface MoreQuizItemsInput {
   focus?: readonly string[]
   /** Questions already asked, so the top-up does not write them again. */
   avoid?: readonly string[]
+  /** Difficulty this question should be written at (practice picks it). */
+  difficulty?: 1 | 2 | 3
 }
 
 /**
- * Write 1–3 extra questions for the points still pending in an active session.
+ * Write a few questions for the knowledge points a run is working on.
  *
- * Not queued: the runner is waiting for the next item, and the round is short.
- * The caller appends these to the unit bank, so a later run can reuse them.
+ * Not queued: the reader is waiting for the next question. The usage is returned
+ * so the page can show what the call cost.
  */
-export async function moreQuizItems(svc: GenerationService, input: MoreQuizItemsInput): Promise<QuizItem[]> {
-  if (!(await svc.textReady())) return []
+export async function moreQuizItems(
+  svc: GenerationService,
+  input: MoreQuizItemsInput,
+): Promise<{ items: QuizItem[]; usage?: UsageCallView }> {
+  if (!(await svc.textReady())) throw new StudyError('unsupported', '还没有配置文本引擎')
   const unit = await svc.deps.service.unit(input.material, input.unit)
   const node = unit.unit
   const material = await svc.deps.service.unitMaterial(input.material, input.unit, 24_000)
-  if ((unit.notes ?? '').trim().length === 0 && material.text.trim().length === 0) return []
+  if ((unit.notes ?? '').trim().length === 0 && material.text.trim().length === 0) {
+    throw new StudyError('invalid', '这一节抽取不到文字，暂时出不了题')
+  }
   const prompt = quizPrompt({
     materialTitle: unit.material.title,
     unitTitle: node.title,
@@ -90,23 +98,30 @@ export async function moreQuizItems(svc: GenerationService, input: MoreQuizItems
     count: input.count,
     ...(input.focus === undefined || input.focus.length === 0 ? {} : { focus: input.focus }),
     ...(input.avoid === undefined || input.avoid.length === 0 ? {} : { avoid: input.avoid }),
+    ...(input.difficulty === undefined ? {} : { difficulty: input.difficulty }),
   })
   const settings = await svc.requireSettings()
   const provider = textProviderFrom(settings, svc.deps)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), QUIZ_WRITE_TIMEOUT_MS)
   try {
-    const result = await completeStructured(provider, {
-      system: prompt.system,
-      user: prompt.user,
-      temperature: 0.4,
-      maxTokens: 4_096,
-      signal: controller.signal,
-    })
-    await svc.deps.usage.record(result.usage)
-    return normalizeQuizItems(parseJsonObject(result.text)).slice(0, input.count)
+    // 8k, not 4k: a reasoning model spends the same budget on its thinking, and
+    // a truncated answer used to surface as "出题失败：Unterminated string".
+    const result = await completeStructuredJson(
+      provider,
+      {
+        system: prompt.system,
+        user: prompt.user,
+        temperature: 0.4,
+        maxTokens: 8_192,
+        signal: controller.signal,
+      },
+      parsed => normalizeQuizItems(parsed).slice(0, input.count),
+    )
+    const usage = await svc.deps.usage.record(result.usage)
+    return { items: result.value, usage }
   } catch (error) {
-    if (controller.signal.aborted) throw new StudyError('unsupported', '补题超时：稍后再试')
+    if (controller.signal.aborted) throw new StudyError('unsupported', '出题超时：稍后再试')
     throw error
   } finally {
     clearTimeout(timer)

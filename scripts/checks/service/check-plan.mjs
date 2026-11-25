@@ -7,7 +7,7 @@ import { rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { ensureKnowledge, writeKnowledge } from '../../../src/core/knowledge.ts'
 import { LibraryPaths } from '../../../src/core/paths.ts'
-import { addDays } from '../../../src/core/time.ts'
+import { addDays, localDate } from '../../../src/core/time.ts'
 import { StudyService } from '../../../src/host/service.ts'
 import { QuizSessionService } from '../../../src/host/quizSessions.ts'
 
@@ -85,21 +85,62 @@ const conceptOf = (step) => `demo/section-${step.n}`
 for (const step of required) {
   await service.writeConcepts(mid, step.target.unitId, [{ id: conceptOf(step), name: `第 ${step.n} 节` }])
 }
-const knowledge = await ensureKnowledge(service.paths)
-for (const step of required) {
-  knowledge.concepts[conceptOf(step)] = {
+const learnedState = () => {
+  // At target and safely past the deadline: the spacing count, not an FSRS
+  // stability, is what the close gate reads now.
+  const evidence = {}
+  for (let index = 0; index < 8; index += 1) {
+    evidence[`demo-review-${String(index)}`] = {
+      verdict: 'pass',
+      difficulty: 2,
+      at: `${addDays(localDate(), -(8 - index))}T10:00:00+08:00`,
+      review: true,
+    }
+  }
+  return {
     mastery: 1,
     peak: 1,
     streak: 0,
     attempts: 4,
     correct: 4,
     lastAt: new Date().toISOString(),
-    due: '2027-06-01',
     srs: { S: 200, D: 3, reps: 4, lapses: 0, lastRating: 4 },
-    evidence: {},
+    evidence,
   }
 }
+// One section learned: the "next" pointer must stop pointing at it, even
+// though its checkbox is still the reader's to tick.
+const firstKnowledge = await ensureKnowledge(service.paths)
+firstKnowledge.concepts[conceptOf(required[0])] = learnedState()
+await writeKnowledge(service.paths, firstKnowledge)
+const afterFirst = await service.planView(pid)
+assert.equal(
+  afterFirst.steps.find(step => step.current)?.n,
+  required[1].n,
+  'a section at target no longer holds the next pointer',
+)
+assert.equal(afterFirst.steps[0]?.done, true, 'a section at target counts as done without a tick')
+assert.equal(afterFirst.done, 1, 'the counter reads the ledger too')
+assert.equal(
+  afterFirst.steps.find(step => step.n === required[1].n)?.done,
+  false,
+  'the section that is not learned yet is still open',
+)
+const todayAfterFirst = await service.todayView()
+assert.equal(
+  todayAfterFirst.next?.unitId,
+  required[1].target.unitId,
+  'the today suggestion moves to the next section too',
+)
+console.log('next pointer moves past the learned section:', required[1].target.unitId)
+
+const knowledge = await ensureKnowledge(service.paths)
+for (const step of required) knowledge.concepts[conceptOf(step)] = learnedState()
 await writeKnowledge(service.paths, knowledge)
+
+const todayAllLearned = await service.todayView()
+assert.equal(todayAllLearned.next, null, 'every required section at target leaves 接着读 empty')
+console.log('all sections at target: 接着读 is empty')
 
 const closed = await service.closePlan(pid, '白板推完了 5 道判定题')
 assert.equal(closed.plan.status, 'done')

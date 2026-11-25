@@ -40,6 +40,30 @@ export function mergeOccurrences(
   return merged
 }
 
+/**
+ * The occurrence a goal should open for a due concept.
+ *
+ * The first occurrence in the file is not necessarily the section that
+ * requires the point: a concept can be defined in an early low-level section
+ * and used later at a higher level. Pick the goal section that asks for the
+ * deepest level; equal levels keep the occurrence order, and a concept no goal
+ * section carries falls back to its first occurrence.
+ */
+export function bestOccurrence(
+  occurrences: readonly ConceptOccurrence[],
+  levelOf: (occurrence: ConceptOccurrence) => number | undefined,
+): ConceptOccurrence | undefined {
+  let best: ConceptOccurrence | undefined
+  let bestLevel = -1
+  for (const occurrence of occurrences) {
+    const level = levelOf(occurrence)
+    if (level === undefined || level <= bestLevel) continue
+    best = occurrence
+    bestLevel = level
+  }
+  return best ?? occurrences[0]
+}
+
 /** Create or extend a concept. */
 export async function upsertConcept(
   paths: LibraryPaths,

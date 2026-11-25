@@ -9,14 +9,20 @@ import { join } from 'node:path'
 import { slugify, splitUnitKey, uniqueSlug } from '../../core/ids.ts'
 import { listManifests } from '../../core/library.ts'
 import { listConcepts } from '../../core/concepts.ts'
-import { SETTLE_MIN_DAYS, decayedMastery, ensureKnowledge, forgettingIntervalDays, thresholdForLevel } from '../../core/knowledge.ts'
+import {
+  decayedMastery,
+  ensureKnowledge,
+  retentionSafe,
+  thresholdForLevel,
+  type KnowledgeFile,
+} from '../../core/knowledge.ts'
 import { deletePlan as removePlanFile, goalSections, listPlans, nextStep as nextPlanStep, readPlan, validatePlan, writePlan } from '../../core/plans.ts'
 import { planProgress, summarizeBoundary, thresholdOf } from '../../core/planGate.ts'
 import { hash32 } from '../../core/srs.ts'
-import { daysBetween } from '../../core/time.ts'
+
 import { readJson } from '../../core/store.ts'
 import type { LibraryPaths } from '../../core/paths.ts'
-import type { AttemptMove, AttemptRecord, Coverage, MasteryLevel, MaterialManifest, PlanGeneration, PlanRecord, PlanStepKind, Provenance, QuizSession, UnitMetaFile } from '../../core/types.ts'
+import type { AttemptMove, AttemptRecord, Coverage, MasteryLevel, MaterialManifest, PlanGeneration, PlanRecord, PlanStep, PlanStepKind, Provenance, QuizSession, UnitMetaFile } from '../../core/types.ts'
 import type { PlanDetailView, PlanSectionView, PlanSummary } from '../../core/views.ts'
 import { goalPrompt } from '../service/prompts.ts'
 import { planTargets, stepView } from '../service/views.ts'
@@ -111,11 +117,18 @@ export async function promptPlanInChat(svc: StudyService,
 }
 
 export async function planList(svc: StudyService): Promise<PlanSummary[]> {
-  const [plans, manifests] = await Promise.all([listPlans(svc.paths), listManifests(svc.paths)])
+  const [plans, manifests, knowledge] = await Promise.all([
+    listPlans(svc.paths),
+    listManifests(svc.paths),
+    ensureKnowledge(svc.paths),
+  ])
   const byId = new Map(manifests.map(manifest => [manifest.id, manifest]))
-  return plans.map(plan => {
-    const { done } = planProgress(plan)
-    const step = nextPlanStep(plan)
+  const today = svc.today()
+  const summaries: PlanSummary[] = []
+  for (const plan of plans) {
+    const learnedForPlan = learnedTargets((await goalConceptLevels(svc, plan)).sections, knowledge, today)
+    const { done } = planProgress(plan, learnedSteps(learnedForPlan))
+    const step = nextPlanStep(plan, learnedSteps(learnedForPlan))
     let next: string | undefined
     if (step?.target !== undefined) {
       try {
@@ -125,15 +138,16 @@ export async function planList(svc: StudyService): Promise<PlanSummary[]> {
         next = undefined
       }
     }
-    return {
+    summaries.push({
       id: plan.id,
       goal: plan.goal,
       status: plan.status,
       done,
       total: plan.steps.length,
       ...(next === undefined ? {} : { next }),
-    }
-  })
+    })
+  }
+  return summaries
 }
 
 /**
@@ -182,6 +196,35 @@ export async function goalConceptLevels(
 }
 
 /**
+ * Targets whose knowledge points all reached that section's threshold.
+ *
+ * A section is done exactly when this set contains it: there is no manual tick
+ * any more, so the ledger alone decides both completion and the next pointer.
+ */
+export function learnedTargets(
+  sections: ReadonlyArray<{ target: string; level: MasteryLevel; concepts: string[] }>,
+  knowledge: KnowledgeFile,
+  today: string,
+): Set<string> {
+  const out = new Set<string>()
+  for (const section of sections) {
+    if (section.concepts.length === 0) continue
+    const threshold = thresholdForLevel(section.level)
+    const learned = section.concepts.every(conceptId => {
+      const state = knowledge.concepts[conceptId]
+      return state !== undefined && decayedMastery(state, today) >= threshold
+    })
+    if (learned) out.add(section.target)
+  }
+  return out
+}
+
+/** `nextStep` predicate over the targets `learnedTargets` returned. */
+export function learnedSteps(learned: ReadonlySet<string>): (step: PlanStep) => boolean {
+  return step => step.target !== undefined && learned.has(step.target)
+}
+
+/**
  * What still blocks closing this goal, from the knowledge space.
  *
  * A goal closes when every concept of every required section is at that
@@ -212,23 +255,27 @@ export async function goalProgressOf(
   }
   const knowledge = await ensureKnowledge(svc.paths)
   const today = svc.today()
-  const horizon = plan.deadline === undefined ? 0 : Math.max(0, daysBetween(today, plan.deadline))
+  const deadline = plan.deadline
   let passed = 0
   let behind = 0
   let toReview = 0
   for (const [conceptId, level] of levels) {
     const state = knowledge.concepts[conceptId]
+    const threshold = thresholdForLevel(level)
     const now = state === undefined ? 0 : decayedMastery(state, today)
-    if (now >= thresholdForLevel(level)) passed += 1
-    else behind += 1
-    // Ask how long the reader would remember, not whether the calendar's next
-    // review date is far enough out: the 180-day schedule cap used to make any
-    // deadline more than ~120 days away impossible to close.
-    const retains = state === undefined ? 0 : forgettingIntervalDays(state, conceptId)
-    if (retains <= Math.max(SETTLE_MIN_DAYS, horizon * 1.5)) toReview += 1
+    if (now < threshold) {
+      behind += 1
+      continue
+    }
+    passed += 1
+    // At target today but not yet safe: the decay would drop it before the
+    // deadline. This is the only reason a fully-passed goal waits.
+    if (deadline !== undefined && !retentionSafe(state, threshold, deadline, today)) toReview += 1
   }
   if (behind > 0) reasons.push(`知识点 ${passed}/${levels.size}：还有 ${behind} 个没到档位`)
-  if (toReview > 0) reasons.push(`还有 ${toReview} 个知识点需要复习到期限之后`)
+  if (deadline !== undefined && today < deadline && toReview > 0) {
+    reasons.push(`还有 ${toReview} 个知识点会在期限前掉档：复习一次，把下一次到期排到期限之后`)
+  }
   return { passed, total: levels.size, missingSections: missing.length, ready: reasons.length === 0, reasons }
 }
 
@@ -280,9 +327,16 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
       conceptStates,
     }
   })
-  const currentN = nextPlanStep(plan)?.n
+  // Completion and the next pointer both read the ledger: a section is done
+  // when its knowledge points reach their threshold, with no manual tick.
+  const learned = learnedTargets(
+    sectionViews.map(section => ({ target: section.target, level: section.level, concepts: section.concepts })),
+    knowledge,
+    today,
+  )
+  const currentN = nextPlanStep(plan, learnedSteps(learned))?.n
   const steps = plan.steps.map(step => {
-    const view = stepView(step, manifests, conceptById, masteryOf)
+    const view = stepView(step, manifests, conceptById, masteryOf, learned)
     if (step.n === currentN) view.current = true
     if (view.target !== undefined) {
       const target = `${view.target.materialId}:${view.target.unitId}`
@@ -302,7 +356,7 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
     }
     return view
   })
-  const bounds = planProgress(plan)
+  const bounds = planProgress(plan, learnedSteps(learned))
   const pageOf = (target: string): { pageStart: number; pageEnd: number } | null => {
     try {
       const { materialId, unitId } = splitUnitKey(target)
@@ -385,7 +439,6 @@ export async function createPlan(svc: StudyService, input: {
       ...(step.coverage === 'skip' ? { skipReason: step.why } : {}),
       ...(step.level === undefined ? {} : { level: step.level }),
       why: step.why,
-      done: false,
       ...(step.skipReason === undefined ? {} : { skipReason: step.skipReason }),
     })),
     createdAt: new Date().toISOString(),
@@ -400,7 +453,6 @@ export async function createPlan(svc: StudyService, input: {
 export async function updatePlan(svc: StudyService, 
   planId: string,
   input: {
-    setStep?: { n: number; done: boolean }
     setStatus?: 'active' | 'paused' | 'done'
     setGoal?: string
     replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; coverage?: Coverage; why: string; level?: MasteryLevel }>
@@ -432,11 +484,6 @@ export async function updatePlan(svc: StudyService,
       delete plan.closureNote
     }
   }
-  if (input.setStep !== undefined) {
-    const step = plan.steps.find(candidate => candidate.n === input.setStep!.n)
-    if (step === undefined) throw new StudyError('invalid', `计划没有第 ${input.setStep.n} 步`)
-    step.done = input.setStep.done
-  }
   if (input.replaceSteps !== undefined) {
     if (plan.steps.length === 0 && plan.status === 'draft') plan.status = 'active'
     plan.steps = input.replaceSteps.map((step, index) => ({
@@ -449,7 +496,6 @@ export async function updatePlan(svc: StudyService,
       ...(step.coverage === 'skip' ? { skipReason: step.why } : {}),
       ...(step.level === undefined ? {} : { level: step.level }),
       why: step.why,
-      done: false,
     }))
     plan.generation = { status: 'done', updatedAt: new Date().toISOString() }
   }

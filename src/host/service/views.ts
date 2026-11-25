@@ -54,12 +54,13 @@ export function stepView(
   manifests: readonly MaterialManifest[],
   conceptById: ReadonlyMap<string, { id: string; name: string }>,
   masteryOf: (conceptId: string) => number,
+  learned: ReadonlySet<string>,
 ): PlanStepView {
   const view: PlanStepView = {
     n: step.n,
     kind: step.kind,
     why: step.why,
-    done: step.done,
+    done: step.target !== undefined && learned.has(step.target),
     coverage: coverageOf(step),
     ...(step.skipReason === undefined ? {} : { skipReason: step.skipReason }),
   }

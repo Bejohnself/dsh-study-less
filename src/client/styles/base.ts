@@ -479,7 +479,16 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
 
 /* ---------- today ---------- */
 [data-dsh-study] .study-today { display: flex; flex-direction: column; gap: 18px; }
-[data-dsh-study] .study-today-line { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--s-muted); }
+/* A quiet footnote: the record is reachable, not a second dashboard. */
+[data-dsh-study] .study-closed-archive {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--s-border);
+  padding-top: 12px;
+}
+[data-dsh-study] .study-archive-note { margin: 0; }
+[data-dsh-study] .study-today-line { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--s-muted); flex-wrap: wrap; }
 [data-dsh-study] .study-today-fish {
   width: 30px;
   height: 30px;
@@ -550,6 +559,19 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] .study-cover-standin { filter
   background: var(--s-primary-soft);
 }
 [data-dsh-study] .study-next-card:hover { background: color-mix(in srgb, var(--s-primary-soft) 60%, var(--s-hover)); }
+/* Deadline actions sit apart from the card and keep one button size. */
+[data-dsh-study] .study-inline.study-goal-actions { margin-top: 12px; align-items: center; }
+[data-dsh-study] .study-goal-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  line-height: 1;
+}
+[data-dsh-study] .study-goal-error { margin-top: 8px; }
 [data-dsh-study] .study-next-title { font-size: 14.5px; font-weight: 650; }
 [data-dsh-study] .study-next-why { font-size: 12px; color: var(--s-muted); }
 [data-dsh-study] .study-plans {

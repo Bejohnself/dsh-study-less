@@ -103,6 +103,11 @@ if (row.options.id !== 'study-desk' || page.options.key !== 'study-desk') {
   throw new Error('panel ids disagree')
 }
 
+// 今天页「接着读」的理由是生成的文案，常带 $...$ 公式；它必须经 Markdown 渲染，
+// 当纯文本插值时页面只会显示原始 $ 和 \。这份 bundle 是唯一能便宜验证接线的地方。
+const nextWhy = /study-next-why",children:\(0,[\w$]+\.jsx\)\([\w$]+,\{source:[\w$]+\.next\.why\}\)/u
+if (!nextWhy.test(source)) throw new Error('today next-step why is not rendered as markdown')
+
 for (const { dispose } of effects) dispose()
 
 console.log('client bundle OK')

@@ -199,19 +199,6 @@ export function PlanDetailPage({
     }
   }
 
-  const toggle = async (n: number, done: boolean): Promise<void> => {
-    setBusy(n)
-    try {
-      await post('/plan/update', { pid, setStep: { n, done } })
-      await reload()
-      onChanged()
-    } catch (reason) {
-      setToast({ message: errorText(reason), tone: 'error' })
-    } finally {
-      setBusy(null)
-    }
-  }
-
   /** Reload after a panel action, surfacing failures as a toast. */
   const act = async (message: string, run: () => Promise<unknown>): Promise<void> => {
     try {
@@ -477,15 +464,12 @@ export function PlanDetailPage({
                           <div key={step.n} className={'study-boundary-row is-' + group.id}>
                             {step.coverage === 'skip' ? (
                               <span className="study-skip-mark">跳过</span>
+                            ) : step.done ? (
+                              <span className="study-skip-mark" title="过关测试的这节知识点都已到档">
+                                ✓ 到档
+                              </span>
                             ) : (
-                              <input
-                                type="checkbox"
-                                className="study-check"
-                                checked={step.done}
-                                disabled={busy === step.n || locked}
-                                aria-label={'标记第 ' + step.n + ' 步完成'}
-                                onChange={event => void toggle(step.n, event.target.checked)}
-                              />
+                              <span className="study-skip-mark" aria-hidden="true" />
                             )}
                             <div className="study-step-body">
                               <div className="study-step-title">
@@ -508,7 +492,7 @@ export function PlanDetailPage({
                               </div>
                               {step.progress === undefined ? null : (
                                 <div className="study-item-meta">
-                                  掌握 {Math.round(step.progress.mastery * 100)}% · {step.progress.passed}/{step.progress.total} 知识点达标
+                                  掌握 {Math.floor(step.progress.mastery * 100)}% · {step.progress.passed}/{step.progress.total} 知识点达标
                                 </div>
                               )}
                               {step.skipReason === undefined ? null : (
@@ -589,7 +573,7 @@ export function PlanDetailPage({
                           </span>
                         </div>
                         <div className="study-item-meta">
-                          掌握 {Math.round(point.mastery * 100)}% / 目标 {Math.round(point.threshold * 100)}%
+                          掌握 {Math.floor(point.mastery * 100)}% / 目标 {Math.round(point.threshold * 100)}%
                           {point.conceptStates.length === 0
                             ? ' · 未挂知识点'
                             : ` · ${atTarget}/${point.conceptStates.length} 概念达标`}
@@ -612,7 +596,7 @@ export function PlanDetailPage({
                               <li key={state.id} className={'study-point-row' + (state.atTarget ? ' is-on' : '')}>
                                 <span className="study-point-name">{state.name}</span>
                                 <span className="study-point-value">
-                                  {Math.round(state.mastery * 100)}% / {Math.round(state.threshold * 100)}%
+                                  {Math.floor(state.mastery * 100)}% / {Math.round(state.threshold * 100)}%
                                 </span>
                               </li>
                             ))}

@@ -127,31 +127,29 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
     tools.push({
       name: 'study_quiz',
       description:
-        '自适应练习：start 开始或接着上次的一组题（同一节默认续答；restart=true 重开），answer 提交当前题并拿下一题（主观题有文本引擎时由 AI 按 rubric 判分，无引擎才要 selfGrade），appeal 提交 rebuttal 由 AI 综合原答案重判（可多次，最后一次为准），finish 提前结束，get 查看会话与回答历史。题目提交前不会暴露答案。',
+        '过关测试：每次出一道题，覆盖本节最多三个最接近到档的未到档知识点（答对就一起记证据），直到该节知识点都到档。start 开始或接着上次（restart=true 重开），answer 只判分并返回反馈，next 再写下一道（两步分开，判分不被出题拖住；没有模型时直接拒绝），appeal 对刚答完那题提交 rebuttal 由模型重判（可多次，最后一次为准），finish 提前结束，get 查看当前题与进度。题目提交前不会暴露答案；答过的题不保存。',
       parameters: objectSchema({
-        action: { type: 'string', enum: ['start', 'answer', 'appeal', 'finish', 'get'] },
+        action: { type: 'string', enum: ['start', 'answer', 'next', 'appeal', 'finish', 'get'] },
         mid: { type: 'string' },
         uid: { type: 'string' },
         sid: { type: 'string' },
         itemId: { type: 'string' },
         answer: {},
-        selfGrade: { type: 'string', description: 'answer 无引擎时的自评；appeal 时仅作为读者主张，不直接改判', enum: ['correct', 'partial', 'wrong'] },
+        claim: { type: 'string', description: 'appeal 时读者的主张，仅作参考，由模型重判', enum: ['correct', 'partial', 'wrong'] },
         reason: { type: 'string', description: 'appeal 的 rebuttal：补上漏掉的要点或指出判分错误' },
-        limit: { type: 'number' },
-        restart: { type: 'boolean', description: 'true 时结束这一节旧的活跃组并开新组' },
+        restart: { type: 'boolean', description: 'true 时结束这一节旧的活跃会话，重新开始' },
       }, ['action']),
       output: { schema: {}, render: renderJson },
       async execute(args) {
         const input = args as {
-          action: 'start' | 'answer' | 'appeal' | 'finish' | 'get'
+          action: 'start' | 'answer' | 'next' | 'appeal' | 'finish' | 'get'
           mid?: string
           uid?: string
           sid?: string
           itemId?: string
           answer?: unknown
-          selfGrade?: 'correct' | 'partial' | 'wrong'
+          claim?: 'correct' | 'partial' | 'wrong'
           reason?: string
-          limit?: number
           restart?: boolean
         }
         try {
@@ -164,7 +162,6 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
               ...(await sessions.start({
                 ...(input.mid === undefined ? {} : { material: input.mid }),
                 ...(input.uid === undefined ? {} : { unit: input.uid }),
-                ...(input.limit === undefined ? {} : { limit: input.limit }),
                 ...(input.restart === true ? { restart: true } : {}),
               })),
             }
@@ -172,17 +169,18 @@ export function generateTools({ service, extras }: ToolContext): StudyToolDefini
           if (input.sid === undefined) throw new StudyError('invalid', '需要 sid')
           if (input.action === 'get') return { ok: true, ...(await sessions.get(input.sid)) }
           if (input.action === 'finish') return { ok: true, ...(await sessions.finish(input.sid)) }
+          if (input.action === 'next') return { ok: true, ...(await sessions.next(input.sid)) }
           if (input.itemId === undefined) throw new StudyError('invalid', 'answer 需要 itemId')
           if (input.action === 'appeal') {
             if (input.reason === undefined) throw new StudyError('invalid', 'appeal 需要 reason')
             return {
               ok: true,
-              ...(await sessions.appeal(input.sid, input.itemId, input.reason, input.selfGrade)),
+              ...(await sessions.appeal(input.sid, input.itemId, input.reason, input.claim)),
             }
           }
           return {
             ok: true,
-            ...(await sessions.answer(input.sid, input.itemId, input.answer, input.selfGrade)),
+            ...(await sessions.answer(input.sid, input.itemId, input.answer)),
           }
         } catch (error) {
           return refusal(error)

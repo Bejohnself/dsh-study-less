@@ -233,6 +233,8 @@ export function quizPrompt(input: {
   focus?: readonly string[]
   /** Questions already asked, so a top-up does not write them again. */
   avoid?: readonly string[]
+  /** Difficulty this question should be written at; absent lets the writer choose. */
+  difficulty?: 1 | 2 | 3
 }): { system: string; user: string } {
   const body =
     input.notes !== undefined && input.notes.trim().length > 0
@@ -248,7 +250,11 @@ export function quizPrompt(input: {
       `可挂的概念：${input.concepts.join(', ') || '（由你从笔记中提炼）'}`,
       ...(input.focus === undefined || input.focus.length === 0
         ? []
-        : ['', '这次只考这些还没过的知识点：', input.focus.join(', ')]),
+        : [
+            '',
+            `这一道题要同时考这些还没过的知识点：${input.focus.join(', ')}`,
+            '题干必须真的同时用到它们（例如同一条件下推出两个结论、比较两者的分工、或一次推导连着两者）；rubric 的每条都落在这几个知识点上；concepts 就写这几个 id，没考到的不要写。如果三个点凑在一题里会牵强，就只考两个，不要硬凑。',
+          ]),
       ...(input.avoid === undefined || input.avoid.length === 0
         ? []
         : ['', '这些题已经出过，不要重复：', ...input.avoid.slice(0, 8).map(question => `- ${question}`)]),
@@ -258,14 +264,23 @@ export function quizPrompt(input: {
       '## 输出契约',
       '输出一个 JSON 对象：',
       '{"items":[{"type":"recall|choice|cloze|apply|evidence","question":"题干","choices":["A","B"],"answerIndex":0,"answer":"填空答案","rubric":["评分要点"],"concepts":["concept id"],"page":3,"difficulty":1,"explanation":"解析"}]}',
-      'difficulty 取 1（易）到 3（难）；explanation 在答完后给一句解析。',
+      'difficulty 按这道题实际要几步定：1 = 直接复述结论或单步套用；2 = 一两步推导、比较或说明条件；3 = 多步推导、构造反例或迁移到新情形。如实标（练习里还会按题干结构复核，标低了也会被改）。',
+      ...(input.difficulty === undefined
+        ? []
+        : ['', `这一题按难度 ${String(input.difficulty)} 写（${difficultyLabel(input.difficulty)}）。`]),
+      'explanation 在答完后给一句解析。',
       'choice 至少 2 个选项并给出 answerIndex；cloze 给 answer；recall/apply 给 rubric；evidence 必须给 page 与 rubric。',
       '题型含义：recall 复述本节结论；apply 把方法用到新情形；evidence 只在原文里定位页码与原句；解释、推导、迁移一律用 recall/apply。',
       'evidence 的答案必须能靠定位原文得到，不要拿它考理解；题干不要先写出目标页码。',
-      '题目要考理解与迁移，但题干要能让人在 2–5 句话内答完；不要要求整段复述，也不要把答案写进题干。每题挂 1–2 个概念；page 必须是真实页码。',
+      '题目要考理解与迁移，但题干要能让人在 2–5 句话内答完；不要要求整段复述，也不要把答案写进题干。concepts 写这道题真的考到的 1–3 个概念；page 必须是真实页码。',
       'rubric 写「答案必须交代的结论与依据」，不要写成必须逐字出现的措辞：同一道题往往有别的解法。',
     ].join('\n'),
   }
+}
+
+/** What each difficulty level asks for, shared by the prompt and the session. */
+export function difficultyLabel(level: 1 | 2 | 3): string {
+  return level === 1 ? '易：直接复述或单步套用' : level === 2 ? '中：一两步推导或比较' : '难：多步推导、反例或迁移'
 }
 
 /** Everything the quiz judge needs to score one written answer. */

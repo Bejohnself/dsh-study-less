@@ -1,134 +1,84 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  conceptStatus,
+  assessDifficulty,
+  difficultyOf,
+  nextDifficulty,
   gradeQuizItem,
   isObjectiveItem,
   looksCopiedFromRubric,
   needsWrittenJudge,
-  orderQuizItems,
-  pickAdaptiveNext,
   sameQuizScope,
-  scoreQuizSession,
 } from '../src/core/quiz.ts'
-import type { QuizBank, QuizItem, QuizSessionEntry, QuizSessionScope } from '../src/core/types.ts'
+import type { QuizItem, QuizSessionScope } from '../src/core/types.ts'
 
-const item = (
-  id: string,
-  concepts: string[],
-  difficulty: 1 | 2 | 3,
-  type: QuizItem['type'] = 'choice',
-): QuizItem => ({
-  id,
-  type,
-  question: id,
-  concepts,
-  difficulty,
+const item = (overrides: Partial<QuizItem> = {}): QuizItem => ({
+  id: 'q',
+  type: 'choice',
+  question: 'q',
+  concepts: ['a'],
   origin: 'generated',
-  ...(type === 'choice' ? { choices: ['A', 'B'], answerIndex: 0 } : {}),
+  choices: ['A', 'B'],
+  answerIndex: 0,
+  ...overrides,
 })
 
-const bank = (items: QuizItem[]): QuizBank => ({
-  version: 1,
-  unit: 'u',
-  items,
-  updatedAt: '2026-01-01T00:00:00.000Z',
-})
-
-const current = item('current', ['a'], 2)
-const easySame = item('easy-same', ['a'], 1)
-const hardSame = item('hard-same', ['a'], 3)
-const other = item('other', ['b'], 2)
-
-test('a wrong answer retreats to the same concept at an easier level', () => {
-  const next = pickAdaptiveNext([current, easySame, hardSame, other], {
-    asked: new Set(['current']),
-    current,
-    correct: false,
-  })
-  assert.equal(next?.id, 'easy-same')
-})
-
-test('a right answer moves to the same concept at a harder level', () => {
-  const next = pickAdaptiveNext([current, easySame, hardSame, other], {
-    asked: new Set(['current']),
-    current,
-    correct: true,
-  })
-  assert.equal(next?.id, 'hard-same')
-})
-
-test('answered items are never repeated and exhaustion returns undefined', () => {
-  const next = pickAdaptiveNext([current, easySame], {
-    asked: new Set(['current', 'easy-same']),
-    current,
-    correct: true,
-  })
-  assert.equal(next, undefined)
-})
-
-test('equal scores follow the bank order, not a random hash', () => {
-  const first = item('first', ['a'], 2)
-  const second = item('second', ['a'], 2)
-  const next = pickAdaptiveNext([current, first, second], {
-    asked: new Set(['current']),
-    current,
-    correct: true,
-  })
-  assert.equal(next?.id, 'first')
-})
-
-test('the first item is objective when the bank has one', () => {
-  const ordered = orderQuizItems(bank([
-    item('recall-1', ['a'], 1, 'recall'),
-    item('choice-1', ['a'], 3),
-  ]))
-  assert.equal(ordered[0]?.id, 'choice-1')
-  assert.equal(ordered.find(isObjectiveItem)?.id, 'choice-1')
-})
-
-test('order puts weak concepts first, then easier items, then bank order', () => {
-  const ordered = orderQuizItems(
-    bank([
-      item('recall', ['a'], 2, 'recall'),
-      item('choice-hard', ['a'], 3),
-      item('weak', ['weak'], 2),
-      item('choice-easy', ['a'], 1),
-    ]),
-    { weakConcepts: new Set(['weak']) },
-  )
-  assert.deepEqual(ordered.map(entry => entry.id), ['weak', 'choice-easy', 'choice-hard', 'recall'])
-})
-
-test('a spent question is never offered again', () => {
-  const spent = new Set(['easy-same'])
-  const next = pickAdaptiveNext([current, easySame, hardSame, other], {
-    asked: new Set(['current']),
-    current,
-    correct: false,
-    skip: candidate => spent.has(candidate.id),
-  })
-  assert.equal(next?.id, 'hard-same', 'the easier same-concept item is spent')
-  assert.equal(
-    orderQuizItems(bank([current, easySame, hardSame]), { skip: candidate => spent.has(candidate.id) })
-      .map(entry => entry.id)
-      .includes('easy-same'),
-    false,
-  )
+test('a choice is graded locally; everything else needs a judge', () => {
+  assert.equal(isObjectiveItem(item()), true)
+  assert.deepEqual(gradeQuizItem(item(), 0), { correct: true })
+  assert.deepEqual(gradeQuizItem(item(), 1), { correct: false })
+  assert.deepEqual(gradeQuizItem(item(), 'A'), { correct: true })
 })
 
 test('evidence items are written answers, not page-number checks', () => {
-  const evidence: QuizItem = {
-    id: 'evidence-1',
+  const evidence = item({
     type: 'evidence',
     question: '原文在哪一页提醒极限并非无条件成立？',
-    concepts: ['dp/unbounded'],
-    origin: 'generated',
     page: 420,
     rubric: ['指出 p420'],
-  }
+  })
   assert.equal(isObjectiveItem(evidence), false)
   assert.deepEqual(gradeQuizItem(evidence, '420'), { correct: null, reason: 'manual' })
+})
+
+test('a cloze answer is a written answer, but an equal spelling is settled locally', () => {
+  const cloze = item({
+    type: 'cloze',
+    question: '补全求和项',
+    answer: '$\\frac{1}{2}\\sum_{k=0}^{N-1} g_k$',
+  })
+  assert.equal(isObjectiveItem(cloze), false)
+  assert.equal(needsWrittenJudge(cloze), true)
+  assert.deepEqual(gradeQuizItem(cloze, '$\\dfrac{1}{2} \\sum_{k=0}^{N-1} g_k$'), { correct: true })
+  assert.deepEqual(gradeQuizItem(cloze, '$\\sum g_k$'), { correct: false })
+})
+
+test('difficulty is judged from the question shape, not the author tag', () => {
+  const hard = '设 {c_n} 是首项为 1 的「M-数列」，且 c_2+c_3=6。(1) 判断 a_1…a_10 是否为 (2,9)-可分数列；若是，写出一种分组。(2) 证明：对任意 n，sum 1/(a_k+1)^2 < 2。'
+  assert.equal(assessDifficulty({ question: hard, concepts: ['dp/seq'] }), 3, '两问加证明，多难都该是难档')
+  assert.equal(assessDifficulty({ question: '(1) 求 a 的值 (2) 画出图像', concepts: ['dp/a'] }), 2)
+  assert.equal(assessDifficulty({ question: '为什么要先缩放？', concepts: ['dp/a'] }), 2)
+  assert.equal(assessDifficulty({ question: '缩放因子是什么？', concepts: ['dp/a'] }), 1)
+  assert.equal(
+    assessDifficulty({ question: '把三个点放在一起看', rubric: ['一', '二', '三', '四'], concepts: ['a', 'b', 'c'] }),
+    2,
+    '要点多算一项信号',
+  )
+})
+
+test('difficulty follows how far a point is from its threshold', () => {
+  const near = [{ mastery: 0.72, threshold: 0.75 }]
+  assert.equal(nextDifficulty([{ mastery: 0.5, threshold: 0.75 }], 0.9), 1, '刚起步先出容易题')
+  assert.equal(nextDifficulty([{ mastery: 0.63, threshold: 0.75 }], 0.9), 2)
+  assert.equal(nextDifficulty(near, 0.1), 3, '快到时偶尔上难档')
+  assert.equal(nextDifficulty(near, 0.9), 2, '大部分时候仍是普通题，不靠难题结案')
+  assert.equal(nextDifficulty([{ mastery: 0.9, threshold: 0.75 }], 0.1), 3)
+  assert.equal(nextDifficulty([]), 2, '没有知识点时保持中性档')
+})
+
+test('difficulty defaults to normal', () => {
+  assert.equal(difficultyOf(item()), 2)
+  assert.equal(difficultyOf(item({ difficulty: 3 })), 3)
 })
 
 test('a rebuttal that pastes the rubric is detected', () => {
@@ -143,81 +93,8 @@ test('a rebuttal that pastes the rubric is detected', () => {
   )
 })
 
-test('sameQuizScope matches one bank only', () => {
+test('sessions only match the same section', () => {
   const unit: QuizSessionScope = { kind: 'unit', material: 'm', unit: 'u' }
   assert.equal(sameQuizScope(unit, { kind: 'unit', material: 'm', unit: 'u' }), true)
   assert.equal(sameQuizScope(unit, { kind: 'unit', material: 'm', unit: 'other' }), false)
-  const chapter: QuizSessionScope = { kind: 'book', book: 'b', chapter: 'c1' }
-  assert.equal(sameQuizScope(chapter, { kind: 'book', book: 'b', chapter: 'c1' }), true)
-  assert.equal(sameQuizScope(chapter, { kind: 'book', book: 'b', chapter: 'c2' }), false)
-  assert.equal(sameQuizScope(chapter, unit), false)
-})
-/* ------------------------------------------------ section grading ------- */
-
-const entry = (overrides: Partial<QuizSessionEntry>): QuizSessionEntry => ({
-  itemId: 'e',
-  correct: null,
-  at: '2026-01-01T00:00:00.000Z',
-  concepts: [],
-  ...overrides,
-})
-
-test('a cloze answer is a written answer, but an equal spelling is settled locally', () => {
-  const cloze: QuizItem = {
-    id: 'cloze-1',
-    type: 'cloze',
-    question: '补全求和项',
-    answer: '$\\frac{1}{2}\\sum_{k=0}^{N-1} g_k$',
-    concepts: ['dp/sum'],
-    origin: 'generated',
-    difficulty: 2,
-  }
-  assert.equal(isObjectiveItem(cloze), false)
-  assert.equal(needsWrittenJudge(cloze), true)
-  assert.deepEqual(gradeQuizItem(cloze, '$\\dfrac{1}{2} \\sum_{k=0}^{N-1} g_k$'), { correct: true })
-  assert.deepEqual(gradeQuizItem(cloze, '$\\sum g_k$'), { correct: false })
-})
-
-test('two easy answers never rate a run, however correct they are', () => {
-  const score = scoreQuizSession([
-    entry({ correct: true, difficulty: 1 }),
-    entry({ correct: true, difficulty: 1 }),
-  ])
-  assert.equal(score.graded, 2)
-  assert.equal(score.score, 1)
-})
-
-test('hard answers weigh more and partial credit counts half', () => {
-  const score = scoreQuizSession([
-    entry({ correct: true, difficulty: 3 }),
-    entry({ judged: { verdict: 'partial', missing: [], confidence: 0.8, engine: 'fake', at: '2026-01-01T00:00:00.000Z' }, difficulty: 2 }),
-    entry({ correct: false, difficulty: 1 }),
-  ])
-  assert.equal(score.graded, 3)
-  assert.equal(score.correct, 1)
-  assert.equal(score.partial, 1)
-  // (1*2 + 0.5*1.5 + 0*1) / (2 + 1.5 + 1) = 2.75 / 4.5
-  assert.ok(Math.abs(score.score - 2.75 / 4.5) < 1e-9)
-})
-
-test('self-graded answers are history, not evidence', () => {
-  const score = scoreQuizSession([
-    entry({ correct: true, selfGrade: 'correct' }),
-    entry({ correct: true }),
-  ])
-  assert.equal(score.graded, 1)
-  assert.equal(score.score, 1)
-})
-
-test('a knowledge point needs its latest answer to pass', () => {
-  const entries = [
-    entry({ itemId: 'a1', correct: true, concepts: ['a'] }),
-    entry({ itemId: 'a2', correct: true, concepts: ['b'] }),
-    entry({ itemId: 'a3', correct: false, concepts: ['a'] }),
-  ]
-  const status = conceptStatus(entries, ['a', 'b'])
-  assert.deepEqual(status.passed, ['b'])
-  assert.deepEqual(status.pending, ['a'])
-  assert.equal(status.all, false)
-  assert.equal(conceptStatus(entries.slice(0, 2), ['a', 'b']).all, true)
 })

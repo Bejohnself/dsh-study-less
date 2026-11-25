@@ -6,18 +6,25 @@
  */
 import { unitKey } from '../../core/ids.ts'
 import { listManifests, structureNodeOf } from '../../core/library.ts'
-import { DEFAULT_TARGET, decayedMastery, dueConcepts, ensureKnowledge, thresholdForLevel } from '../../core/knowledge.ts'
+import {
+  DEFAULT_TARGET,
+  decayedMastery,
+  dueConcepts,
+  ensureKnowledge,
+  retentionSafe,
+  thresholdForLevel,
+} from '../../core/knowledge.ts'
 import { dueUnits, readProgress, recordReview } from '../../core/progress.ts'
-import { listConcepts, readConcept } from '../../core/concepts.ts'
+import { bestOccurrence, listConcepts, readConcept } from '../../core/concepts.ts'
 import { activePlan, listPlans, nextStep } from '../../core/plans.ts'
 import { planProgress } from '../../core/planGate.ts'
-import { addDays, localDate } from '../../core/time.ts'
+import { addDays, daysBetween, localDate } from '../../core/time.ts'
 import type { Rating } from '../../core/types.ts'
 import type { ConceptCard, ConceptDetailView, NextStepView, PlanBrief, TodayView } from '../../core/views.ts'
 import { type CompleteResult, type DueItem } from '../../core/views.ts'
 import { rowOf } from '../service/views.ts'
 import { StudyError } from './error.ts'
-import { goalConceptLevels } from './plans.ts'
+import { goalConceptLevels, learnedSteps, learnedTargets } from './plans.ts'
 import type { StudyService } from '../service.ts'
 
 export async function due(svc: StudyService, today = svc.today()): Promise<DueItem[]> {
@@ -53,49 +60,60 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     ensureKnowledge(svc.paths),
     listConcepts(svc.paths),
   ])
-  const places = new Map(
-    records.map(record => [
-      record.id,
-      record.occurrences[0] === undefined
-        ? undefined
-        : { materialId: record.occurrences[0].material, unitId: record.occurrences[0].unit },
-    ]),
-  )
   const active = activePlan(plans)
   // A goal owns no concept list: its sections carry them.
   const goalLevels = active === undefined ? undefined : await goalConceptLevels(svc, active)
   const goalMap = goalLevels?.levels ?? new Map<string, 1 | 2 | 3 | 4>()
   const thresholdOf = (conceptId: string): number =>
     goalMap.size === 0 ? DEFAULT_TARGET : thresholdForLevel(goalMap.get(conceptId))
+  // A due concept opens the section that asks for the deepest level, not the
+  // first page that happens to mention it.
+  const sectionLevel = new Map(
+    (goalLevels?.sections ?? []).map(section => [section.target, section.level] as const),
+  )
+  const places = new Map(
+    records.map(record => {
+      const occurrence = bestOccurrence(record.occurrences, candidate =>
+        sectionLevel.get(`${candidate.material}:${candidate.unit}`),
+      )
+      return [
+        record.id,
+        occurrence === undefined
+          ? undefined
+          : { materialId: occurrence.material, unitId: occurrence.unit },
+      ]
+    }),
+  )
 
   const names = new Map(concepts.map(concept => [concept.id, concept.name]))
   // Without an active goal there is no scope: today stays empty instead of
   // falling back to the whole library.
   const inScope = (conceptId: string): boolean => goalMap.size > 0 && goalMap.has(conceptId)
-  const knowledgeDue = dueConcepts(knowledge, date)
+  const knowledgeDue = dueConcepts(knowledge, thresholdOf, date)
     .filter(entry => inScope(entry.conceptId))
     .map(entry => {
       const place = places.get(entry.conceptId)
+      const manifest = place === undefined ? undefined : manifests.find(candidate => candidate.id === place.materialId)
+      const unit = place === undefined ? undefined : manifest?.structure.find(node => node.uid === place.unitId)
       return {
         ...entry,
         name: names.get(entry.conceptId) ?? entry.conceptId,
-        target: thresholdOf(entry.conceptId),
         ...(place === undefined ? {} : place),
+        ...(unit === undefined ? {} : { unitTitle: unit.title }),
+        ...(manifest === undefined ? {} : { materialTitle: manifest.title }),
       }
     })
   const knowledgeBelow = concepts
     .filter(concept => inScope(concept.id))
     .map(concept => {
-      const entry = knowledge.concepts[concept.id]
       return {
         conceptId: concept.id,
         name: concept.name,
         mastery: concept.mastery,
         target: thresholdOf(concept.id),
-        settled: entry?.settledAt !== undefined,
       }
     })
-    .filter(entry => !entry.settled && entry.mastery < entry.target)
+    .filter(entry => entry.mastery < entry.target)
     .sort((a, b) => a.mastery - b.mastery)
     .slice(0, 6)
 
@@ -104,6 +122,16 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     if (entry === undefined) return false
     return decayedMastery(entry, date) >= thresholdForLevel(goalMap.get(conceptId))
   }).length
+  // The gate and Today read one rule: a point is safe when it stays at target
+  // through the deadline (or is at target already once the deadline passed).
+  const goalSafe =
+    active?.deadline === undefined
+      ? 0
+      : [...goalMap.keys()].filter(conceptId =>
+          retentionSafe(knowledge.concepts[conceptId], thresholdOf(conceptId), active.deadline!, date),
+        ).length
+  const overdueDays =
+    active?.deadline === undefined || active.deadline >= date ? 0 : daysBetween(active.deadline, date)
   const goalBlock =
     active === undefined
       ? undefined
@@ -115,13 +143,20 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
           passed: goalPassed,
           total: goalMap.size,
           missingSections: goalLevels?.missing.length ?? 0,
-          readyToClose: goalMap.size > 0 && goalPassed === goalMap.size && (goalLevels?.missing.length ?? 0) === 0,
+          overdueDays,
+          readyToClose:
+            goalMap.size > 0 && goalSafe === goalMap.size && (goalLevels?.missing.length ?? 0) === 0,
         }
 
-  // The next reading suggestion follows the goal's section route. Without a
-  // goal there is nothing to suggest: the panel keeps its empty state.
+  // The next reading suggestion follows the goal's section route, skipping the
+  // sections whose knowledge points are already at target. Without a goal there
+  // is nothing to suggest: the panel keeps its empty state.
+  const learned =
+    active === undefined
+      ? new Set<string>()
+      : learnedTargets(goalLevels?.sections ?? [], knowledge, date)
   let next: NextStepView | null = null
-  const step = active === undefined ? undefined : nextStep(active)
+  const step = active === undefined ? undefined : nextStep(active, learnedSteps(learned))
   if (step?.target !== undefined && step.coverage !== 'skip') {
     const [materialId, unitId] = step.target.split(':') as [string, string]
     const manifest = manifests.find(candidate => candidate.id === materialId)
@@ -144,18 +179,27 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     return first === date || last === date
   }).length
 
-  const planBriefs = plans
-    .filter(plan => plan.status === 'active')
-    .map(plan => ({
-      id: plan.id,
-      goal: plan.goal,
-      ...planProgress(plan),
-      gateReady: goalBlock?.readyToClose === true,
-      ...(plan.deliverable === undefined ? {} : { deliverable: plan.deliverable }),
-    }))
+  const planBriefs = await Promise.all(
+    plans
+      .filter(plan => plan.status === 'active')
+      .map(async plan => {
+        const learnedForPlan =
+          plan === active && goalLevels !== undefined
+            ? learned
+            : learnedTargets((await goalConceptLevels(svc, plan)).sections, knowledge, date)
+        return {
+          id: plan.id,
+          goal: plan.goal,
+          ...planProgress(plan, learnedSteps(learnedForPlan)),
+          gateReady: goalBlock?.readyToClose === true,
+          ...(plan.deliverable === undefined ? {} : { deliverable: plan.deliverable }),
+        }
+      }),
+  )
 
   return {
     date,
+    clockOffsetDays: svc.clockState().offsetDays,
     weak: knowledgeBelow.slice(0, 5).map(entry => {
       const concept = concepts.find(candidate => candidate.id === entry.conceptId)
       return {
@@ -173,7 +217,7 @@ export async function todayView(svc: StudyService): Promise<TodayView> {
     ...(goalBlock === undefined ? {} : { goal: goalBlock }),
     knowledge: {
       total: Object.keys(knowledge.concepts).length,
-      settled: Object.values(knowledge.concepts).filter(state => state.settledAt !== undefined).length,
+      settled: goalSafe,
       due: knowledgeDue,
       below: knowledgeBelow,
     },

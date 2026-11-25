@@ -9,7 +9,7 @@ import type { LibraryPaths } from '../core/paths.ts'
 import { readProgress } from '../core/progress.ts'
 import { normalizeSettings } from '../core/settings.ts'
 import { readJson } from '../core/store.ts'
-import { localDate } from '../core/time.ts'
+import { addDays, localDate } from '../core/time.ts'
 import type { AttemptMove, BlockFile, BlockInput, ParagraphRecord, Coverage, MaterialManifest, PlanGeneration, PlanStepKind, Provenance, QuizBank, QuizItem, Rating, StructureNode, UnitMetaFile } from '../core/types.ts'
 import type { ConceptCard, ConceptDetailView, PlanDetailView, PlanSummary, QuizSubmitView, TodayView } from '../core/views.ts'
 import { ORIGINAL_PAGE_CAP, type CompleteOptions, type CompleteResult, type DueItem, type MaterialCard, type MaterialStateView, type PageSlice, type UnitView } from '../core/views.ts'
@@ -59,6 +59,8 @@ export class StudyService {
   readonly paths: LibraryPaths
   /** Internal collaborators; visible so the operation modules can read the test clock. */
   readonly deps: StudyDeps
+  /** Manual test clock: shifts reads of "today", never the stored dates. */
+  private clockOffsetDays = 0
 
   constructor(paths: LibraryPaths, deps: StudyDeps = {}) {
     this.paths = paths
@@ -66,7 +68,24 @@ export class StudyService {
   }
 
   today(): string {
-    return this.deps.today?.() ?? localDate()
+    if (this.deps.today !== undefined) return this.deps.today()
+    return this.clockOffsetDays === 0 ? localDate() : addDays(localDate(), this.clockOffsetDays)
+  }
+
+  /** Current test-clock offset, for the today panel and the HTTP check. */
+  clockState(): { offsetDays: number; today: string } {
+    return { offsetDays: this.clockOffsetDays, today: this.today() }
+  }
+
+  /** Move "today" one day forward. In memory only: a restart resets it. */
+  advanceDay(): { offsetDays: number; today: string } {
+    this.clockOffsetDays += 1
+    return this.clockState()
+  }
+
+  resetClock(): { offsetDays: number; today: string } {
+    this.clockOffsetDays = 0
+    return this.clockState()
   }
 
   async preferences(): Promise<{ targetRetention: number; maxIntervalDays: number }> {
@@ -215,7 +234,6 @@ export class StudyService {
   async updatePlan(
     planId: string,
     input: {
-      setStep?: { n: number; done: boolean }
       setStatus?: 'active' | 'paused' | 'done'
       setGoal?: string
       replaceSteps?: Array<{ kind: PlanStepKind; target?: string; concepts?: string[]; materials?: string[]; why: string; level?: 1 | 2 | 3 | 4 }>

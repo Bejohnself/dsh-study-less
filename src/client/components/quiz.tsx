@@ -1,59 +1,48 @@
 /**
- * One-question-at-a-time adaptive practice.
+ * One-question-at-a-time practice.
  *
- * The Host owns the session: it picks the next item, grades one answer and
- * keeps the history on disk. This component only mirrors that state, so closing
- * the page (or refreshing) resumes the same run instead of starting over.
+ * The Host owns the session: it writes the next question for the section's
+ * weakest open knowledge point, grades one answer and keeps the one answer just
+ * submitted. This component only mirrors that state, so closing the page (or
+ * refreshing) resumes the same run instead of starting over.
  *
- * The practice order is deterministic. Wrong answers retreat to the same
- * concept at an easier level, right answers move up or across; ties follow the
- * bank's order. History is rendered from the session's own snapshots, so it
- * survives a regenerated bank.
+ * There is no group, no cap and no history: a run continues until every
+ * knowledge point of the section reaches its goal threshold.
  */
 import {useCallback, useEffect, useState} from 'react'
 import type {ReactElement} from 'react'
-import type {QuizAnswerView, QuizFeedbackView, QuizItemView, QuizReferenceView, QuizSessionIndexView, QuizSessionView} from '../../core/views.ts'
+import type {QuizAnswerView, QuizFeedbackView, QuizReferenceView, QuizSessionIndexView, QuizSessionView} from '../../core/views.ts'
 import type {QuizSelfGrade} from '../../core/types.ts'
 import {api, ApiError, errorText, post} from '../api.ts'
 
-import {ActiveRun, HistorySection, QuizStart, RecentRow, SummaryBlock, whenText} from './quizRun.tsx'
+import {ActiveRun, BetweenQuestions, QuizStart, SummaryBlock} from './quizRun.tsx'
 
-/** The adaptive practice runner for one unit bank or one book chapter. */
-export type QuizRunnerScope =
-  | { kind: 'unit'; mid: string; uid: string; concept?: string }
-  | { kind: 'book'; bid: string; cid: string }
+/** The practice runner for one unit. */
+export type QuizRunnerScope = { kind: 'unit'; mid: string; uid: string; concept?: string }
 
-/** The adaptive practice runner for one unit or one book chapter. */
+/** The practice runner for one unit. */
 export function QuizRunner({
   scope,
-  showRecent = true,
   onChanged,
   onExit,
 }: {
   scope: QuizRunnerScope
-  /** Hide the cross-session list when the runner is embedded in a chapter. */
-  showRecent?: boolean
   onChanged?: () => void
-  /** Where "回到目标" leads; absent hides that button. */
+  /** Where "回到首页" leads; absent hides that button. */
   onExit?: () => void
 }): ReactElement {
   const [index, setIndex] = useState<QuizSessionIndexView | null>(null)
   const [view, setView] = useState<QuizSessionView | null>(null)
   const [feedback, setFeedback] = useState<QuizFeedbackView | null>(null)
-  const [nextItem, setNextItem] = useState<QuizItemView | null>(null)
   const [answer, setAnswer] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [resumed, setResumed] = useState(false)
-  const [past, setPast] = useState<QuizSessionView | null>(null)
-  const [pastBusy, setPastBusy] = useState(false)
   const [waited, setWaited] = useState(0)
 
-  const scopeKey = scope.kind === 'unit' ? `u:${scope.mid}:${scope.uid}` : `b:${scope.bid}:${scope.cid}`
-  const query =
-    scope.kind === 'unit'
-      ? `mid=${encodeURIComponent(scope.mid)}&uid=${encodeURIComponent(scope.uid)}`
-      : `bid=${encodeURIComponent(scope.bid)}&cid=${encodeURIComponent(scope.cid)}`
+  const scopeKey = `u:${scope.mid}:${scope.uid}:${scope.concept ?? ''}`
+  const query = `mid=${encodeURIComponent(scope.mid)}&uid=${encodeURIComponent(scope.uid)}${
+    scope.concept === undefined ? '' : `&concept=${encodeURIComponent(scope.concept)}`
+  }`
 
   // A model call can take a while; say how long instead of a static "判分中…".
   useEffect(() => {
@@ -66,13 +55,11 @@ export function QuizRunner({
     return () => window.clearInterval(timer)
   }, [busy])
 
-  const apply = useCallback((value: QuizSessionView, resume: boolean): void => {
+  const apply = useCallback((value: QuizSessionView): void => {
     setView(value)
     setFeedback(null)
-    setNextItem(null)
     setAnswer('')
     setError(null)
-    setResumed(resume && value.session.status === 'active' && value.session.asked > 0)
   }, [])
 
   const fetchIndex = useCallback(async (): Promise<QuizSessionIndexView | null> => {
@@ -91,16 +78,13 @@ export function QuizRunner({
     setIndex(null)
     setView(null)
     setFeedback(null)
-    setNextItem(null)
     setAnswer('')
-    setResumed(false)
-    setPast(null)
     setError(null)
     void api<QuizSessionIndexView>(`/quiz/sessions?${query}`)
       .then(value => {
         if (cancelled) return
         setIndex(value)
-        if (value.active !== null) apply(value.active, true)
+        if (value.active !== null) apply(value.active)
       })
       .catch(reason => {
         if (!cancelled) setError(errorText(reason))
@@ -114,13 +98,12 @@ export function QuizRunner({
     setBusy(true)
     setError(null)
     try {
-      const body =
-        scope.kind === 'unit'
-          ? { mid: scope.mid, uid: scope.uid, ...(scope.concept === undefined ? {} : { concept: scope.concept }) }
-          : { bid: scope.bid, cid: scope.cid }
-      const value = await post<QuizSessionView>('/quiz/session/start', body)
-      apply(value, true)
-      setPast(null)
+      const value = await post<QuizSessionView>('/quiz/session/start', {
+        mid: scope.mid,
+        uid: scope.uid,
+        ...(scope.concept === undefined ? {} : { concept: scope.concept }),
+      })
+      apply(value)
       onChanged?.()
       await fetchIndex()
     } catch (reason) {
@@ -130,9 +113,32 @@ export function QuizRunner({
     }
   }
 
+  /**
+   * Write the next question. Its own request, with its own elapsed counter:
+   * grading no longer waits on generation, and neither does the reader.
+   */
+  const nextQuestion = async (): Promise<void> => {
+    if (view === null) return
+    setBusy(true)
+    setError(null)
+    try {
+      const value = await post<QuizSessionView>('/quiz/session/next', { sid: view.session.id })
+      setView(value)
+      setFeedback(null)
+      setAnswer('')
+      if (value.summary !== undefined) await fetchIndex()
+      onChanged?.()
+    } catch (reason) {
+      // The run stays open with no question, so this button is the retry.
+      setError(errorText(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // Fill in a section the goal covers but that carries no knowledge points.
   const extractConcepts = async (): Promise<void> => {
-    if (scope.kind !== 'unit' || index?.goal === undefined) return
+    if (index?.goal === undefined) return
     setBusy(true)
     setError(null)
     try {
@@ -146,7 +152,7 @@ export function QuizRunner({
     }
   }
 
-  // Stop a group without waiting for its question cap.
+  // Stop the run without waiting for the section to reach its threshold.
   const finishRun = async (): Promise<void> => {
     if (view === null) return
     setBusy(true)
@@ -155,7 +161,6 @@ export function QuizRunner({
       const value = await post<QuizSessionView>('/quiz/session/finish', { sid: view.session.id })
       setView(value)
       setFeedback(null)
-      setNextItem(null)
       await fetchIndex()
       onChanged?.()
     } catch (reason) {
@@ -165,15 +170,15 @@ export function QuizRunner({
     }
   }
 
-  const submit = async (selfGrade?: 'correct' | 'partial' | 'wrong', override?: string): Promise<void> => {
+  const submit = async (override?: string): Promise<void> => {
     if (view === null || view.item === undefined) return
     const item = view.item
     const draft = override ?? answer
-    if (selfGrade === undefined && item.type !== 'choice' && draft.trim().length === 0) {
+    if (item.type !== 'choice' && draft.trim().length === 0) {
       setError('先写下你的答案')
       return
     }
-    if (selfGrade === undefined && item.type === 'choice' && draft.length === 0) {
+    if (item.type === 'choice' && draft.length === 0) {
       setError('先选择一个选项')
       return
     }
@@ -184,7 +189,6 @@ export function QuizRunner({
         sid: view.session.id,
         itemId: item.id,
         answer: item.type === 'choice' ? Number(draft) : draft,
-        ...(selfGrade === undefined ? {} : { selfGrade }),
       })
       setView(previous =>
         previous === null
@@ -192,30 +196,21 @@ export function QuizRunner({
           : {
               ...previous,
               session: value.session,
-              points: value.points ?? [],
-              history: value.history,
+              points: value.points,
               ...(value.summary === undefined ? {} : { summary: value.summary }),
             },
       )
-      setFeedback(value.feedback ?? null)
-      setResumed(false)
-      if (value.summary === undefined) {
-        setNextItem(value.next ?? null)
-      } else {
-        setNextItem(null)
-        // The recent list only appears once the run is over; fetch then.
-        await fetchIndex()
-      }
+      setFeedback(value.feedback)
+      if (value.summary !== undefined) await fetchIndex()
       onChanged?.()
     } catch (reason) {
       setError(errorText(reason))
       if (reason instanceof ApiError && reason.code === 'conflict') {
-        // The session may have been closed (bank changed) or replaced elsewhere;
-        // reload this exact session so its history/summary stays on screen.
+        // The session may have been closed or replaced elsewhere; reload this
+        // exact session so its summary stays on screen.
         try {
           setView(await api<QuizSessionView>(`/quiz/session?sid=${encodeURIComponent(view.session.id)}`))
           setFeedback(null)
-          setNextItem(null)
         } catch {
           // The session is gone; the index below decides what to show next.
         }
@@ -246,21 +241,12 @@ export function QuizRunner({
         draft = want === 'pass' ? reference.answer : '这一题先跳过，还没想明白。'
       }
       setAnswer(draft)
-      await submit(undefined, draft)
+      await submit(draft)
     } catch (reason) {
       setError(errorText(reason))
     } finally {
       setBusy(false)
     }
-  }
-
-  const next = (): void => {
-    if (view === null || nextItem === null) return
-    setView({ ...view, item: nextItem })
-    setNextItem(null)
-    setFeedback(null)
-    setAnswer('')
-    setResumed(false)
   }
 
   const appeal = async (
@@ -272,40 +258,16 @@ export function QuizRunner({
     setBusy(true)
     setError(null)
     try {
-      const value = await post<QuizSessionView>('/quiz/session/appeal', {
-        sid,
-        itemId,
-        reason,
-        claim,
-      })
+      const value = await post<QuizSessionView>('/quiz/session/appeal', { sid, itemId, reason, claim })
       if (view !== null && view.session.id === sid) {
         // Keep the answered item on screen: a review must not swap the panel to
         // the next question while its feedback is still open.
         setView(previous =>
           previous === null
             ? previous
-            : {
-                ...previous,
-                session: value.session,
-                points: value.points ?? [],
-                history: value.history,
-                ...(value.summary === undefined ? {} : { summary: value.summary }),
-              },
+            : { ...previous, session: value.session, points: value.points, ...(value.last === undefined ? {} : { last: value.last }) },
         )
-      }
-      if (past !== null && past.session.id === sid) setPast(value)
-      const entry = value.history.find(candidate => candidate.itemId === itemId)
-      if (entry !== undefined && view !== null && view.session.id === sid) {
-        setFeedback(current =>
-          current === null || current.itemId !== itemId
-            ? current
-            : {
-                ...current,
-                correct: entry.correct,
-                ...(entry.judged === undefined ? {} : { judged: entry.judged }),
-                ...(entry.appeals === undefined ? {} : { appeals: entry.appeals }),
-              },
-        )
+        if (value.last !== undefined && value.last.itemId === itemId) setFeedback(value.last)
       }
       await fetchIndex()
       onChanged?.()
@@ -319,18 +281,6 @@ export function QuizRunner({
     }
   }
 
-  const openPast = async (sessionId: string): Promise<void> => {
-    setPastBusy(true)
-    setError(null)
-    try {
-      setPast(await api<QuizSessionView>(`/quiz/session?sid=${encodeURIComponent(sessionId)}`))
-    } catch (reason) {
-      setError(errorText(reason))
-    } finally {
-      setPastBusy(false)
-    }
-  }
-
   return (
     <div className="study-quiz">
       {error === null ? null : <p className="study-form-error">{error}</p>}
@@ -339,9 +289,9 @@ export function QuizRunner({
 
       {view === null && index !== null ? (
         <QuizStart
-          scope={scope}
           index={index}
           busy={busy}
+          waited={waited}
           onStart={() => void start()}
           onExtract={() => void extractConcepts()}
         />
@@ -350,71 +300,40 @@ export function QuizRunner({
       {view !== null && view.session.status === 'done' ? (
         <SummaryBlock
           session={view.session}
-          points={view.points}
           {...(view.summary === undefined ? {} : { summary: view.summary })}
+          busy={busy}
+          waited={waited}
           onContinue={view.summary?.verdict === 'passed' ? undefined : () => void start()}
           {...(onExit === undefined ? {} : { onExit })}
         />
       ) : null}
 
-      {view !== null && view.session.status === 'active' ? (
-        <ActiveRun
-          view={view}
-          feedback={feedback}
-          nextItem={nextItem}
-          resumed={resumed}
-          answer={answer}
+      {view !== null && view.session.status === 'active' && view.item === undefined ? (
+        <BetweenQuestions
+          session={view.session}
           busy={busy}
           waited={waited}
-          onAnswer={setAnswer}
-          onSubmit={selfGrade => void submit(selfGrade)}
-          onFill={want => void fillAndSubmit(want)}
-          onAppeal={(itemId, selfGrade, reason) => appeal(view.session.id, itemId, selfGrade, reason)}
-          onNext={next}
+          error={error === null ? undefined : error}
+          onNext={() => void nextQuestion()}
           onFinish={() => void finishRun()}
         />
       ) : null}
 
-      {view !== null && view.history.length > 0 ? (
-        <HistorySection
-          entries={view.history}
-          collapsed={view.session.status === 'active'}
-          onAppeal={(itemId, selfGrade, reason) => appeal(view.session.id, itemId, selfGrade, reason)}
+      {view !== null && view.session.status === 'active' && view.item !== undefined ? (
+        <ActiveRun
+          view={view}
+          feedback={feedback}
+          answer={answer}
+          busy={busy}
+          waited={waited}
+          onAnswer={setAnswer}
+          onSubmit={() => void submit()}
+          onFill={want => void fillAndSubmit(want)}
+          onAppeal={(itemId, claim, reason) => appeal(view.session.id, itemId, claim, reason)}
+          onNext={() => void nextQuestion()}
+          onFinish={() => void finishRun()}
         />
-      ) : null}
-
-      {past === null ? null : (
-        <section className="study-quiz-past">
-          <div className="study-quiz-past-head">
-            <h3>{whenText(past.session.startedAt)} 那一组</h3>
-            <button type="button" className="study-ghost" onClick={() => setPast(null)}>
-              收起
-            </button>
-          </div>
-          <SummaryBlock
-            session={past.session}
-            points={past.points ?? []}
-            {...(past.summary === undefined ? {} : { summary: past.summary })}
-          />
-          <HistorySection
-            entries={past.history}
-            onAppeal={(itemId, selfGrade, reason) => appeal(past.session.id, itemId, selfGrade, reason)}
-          />
-        </section>
-      )}
-
-      {showRecent && index !== null && index.recent.length > 0 && (view === null || view.session.status === 'done') ? (
-        <section className="study-quiz-recent">
-          <h3>最近几组</h3>
-          <div className="study-quiz-recent-list">
-            {index.recent.map(record => (
-              <RecentRow key={record.id} record={record} busy={pastBusy} onOpen={() => void openPast(record.id)} />
-            ))}
-          </div>
-        </section>
       ) : null}
     </div>
   )
 }
-
-/* ------------------------------------------------------------ one run ----- */

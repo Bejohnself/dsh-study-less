@@ -46,6 +46,7 @@ export const PANELS_CSS = `/* ---------- 0.2: sub navigation, dashboards, insigh
 [data-dsh-study] .study-select { width: auto; min-width: 120px; }
 [data-dsh-study] .study-inline-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--s-muted); cursor: pointer; }
 [data-dsh-study] .study-today-spacer { flex: 1; }
+[data-dsh-study] .study-clock { display: inline-flex; align-items: center; gap: 6px; }
 [data-dsh-study] .study-pinned-insight {
   display: flex;
   flex-direction: column;
@@ -245,6 +246,8 @@ export const PANELS_CSS = `/* ---------- 0.2: sub navigation, dashboards, insigh
 [data-dsh-study] .study-quiz-item.is-correct { border-color: color-mix(in srgb, var(--s-success) 45%, var(--s-border)); }
 [data-dsh-study] .study-quiz-item.is-wrong { border-color: color-mix(in srgb, var(--s-danger) 45%, var(--s-border)); }
 [data-dsh-study] .study-quiz-head { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--s-muted); }
+/* 出题花费是头行里最次的信息：贴右端，跟题号那一排同一行，不另起一块。 */
+[data-dsh-study] .study-quiz-head .study-usage-note { margin: 0 0 0 auto; line-height: 1.4; text-align: right; }
 [data-dsh-study] .study-quiz-index { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 999px; background: var(--s-primary-soft); color: var(--s-primary-ink); font-weight: 650; }
 [data-dsh-study] .study-quiz-type { text-transform: uppercase; letter-spacing: .05em; font-size: 10.5px; }
 [data-dsh-study] .study-quiz-choices { display: flex; flex-direction: column; gap: 6px; }

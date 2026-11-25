@@ -9,7 +9,6 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { BookChapterView, BookView, JobView } from '../../core/views.ts'
 import { api, errorText, post, waitForJob } from '../api.ts'
-import { QuizRunner } from '../components/quiz.tsx'
 import { EmptyState, JobBanner, Markdown, Toast } from '../components/ui.tsx'
 
 /** The book cover and chapter reader. */
@@ -234,17 +233,6 @@ export function BookPage({
             </button>
           )}
         </div>
-
-        {chapter.quiz === null ? null : (
-          <>
-            <h3 className="study-section-title">本章练习</h3>
-            <QuizRunner
-              scope={{ kind: 'book', bid, cid: chapter.chapter.id }}
-              showRecent={false}
-              onChanged={onChanged}
-            />
-          </>
-        )}
 
         <h3 className="study-section-title">本章来源</h3>
         <ul className="study-list">

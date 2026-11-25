@@ -1,24 +1,26 @@
 /**
- * Adaptive practice sessions: storage, scope and bank resolution.
+ * Adaptive practice sessions: storage, scope and views.
  *
  * Split from quizSessions.ts so the run logic (start, answer, appeal, finish)
  * stays readable. Nothing here knows about answering; it loads and saves the
  * session files, works out what a scope measures and projects the view.
+ *
+ * A run holds one question at a time. There is no bank and no per-question
+ * history: what an answer proved lives in `knowledge.json`.
  */
 import {readdir, unlink} from 'node:fs/promises'
 import {join} from 'node:path'
 import type {LibraryPaths} from '../core/paths.ts'
-import {DEFAULT_SESSION_LIMIT, sameQuizScope} from '../core/quiz.ts'
+import {sameQuizScope} from '../core/quiz.ts'
+import {splitUnitKey} from '../core/ids.ts'
 import {activePlan, goalLevelOf, listPlans} from '../core/plans.ts'
 import {DEFAULT_TARGET, ensureKnowledge, sectionPointStates, thresholdForLevel} from '../core/knowledge.ts'
 import {listConcepts} from '../core/concepts.ts'
 import {readJson, writeJsonAtomic} from '../core/store.ts'
-import {localDate} from '../core/time.ts'
-import type {MasteryLevel, PlanRecord, QuizBank, QuizEndReason, QuizItem, QuizSession, QuizSessionScope} from '../core/types.ts'
+import type {MasteryLevel, PlanRecord, QuizEndReason, QuizSession, QuizSessionScope} from '../core/types.ts'
 import type {QuizBlockReason, QuizPointView, QuizSessionView} from '../core/views.ts'
-import type {BookService} from './books.ts'
 
-import {answeredOf, historyOf, itemView, sessionMetaOf, summaryOf as summaryOfSession} from './quizSessionViews.ts'
+import {feedbackOfEntry, itemView, sessionMetaOf, summaryOf as summaryOfSession} from './quizSessionViews.ts'
 import {StudyError, type StudyService} from './service.ts'
 
 import type {QuizEngine} from './quizSessionEngine.ts'
@@ -26,10 +28,8 @@ export type { QuizEngine }
 
 /** Abandoned active sessions are cleaned up after this long. */
 const ACTIVE_TTL_MS = 30 * 24 * 60 * 60 * 1000
-/** Completed sessions stay readable for this long. */
+/** Finished sessions stay readable for this long. */
 const HISTORY_TTL_MS = 90 * 24 * 60 * 60 * 1000
-/** How many past sessions one index returns. */
-export const RECENT_LIMIT = 10
 
 /** Why a section cannot be practiced, said the way the page needs it. */
 export function blockMessage(reason: QuizBlockReason): string {
@@ -53,18 +53,15 @@ export interface SessionPlan {
 }
 
 /** The adaptive session service. */
-
 export class QuizSessionBase {
   protected readonly paths: LibraryPaths
   protected readonly service: StudyService
-  protected readonly books?: BookService
   protected readonly engine?: QuizEngine
   protected recovered = false
 
-  constructor(paths: LibraryPaths, service: StudyService, books?: BookService, engine?: QuizEngine) {
+  constructor(paths: LibraryPaths, service: StudyService, engine?: QuizEngine) {
     this.paths = paths
     this.service = service
-    this.books = books
     this.engine = engine
   }
 
@@ -92,6 +89,31 @@ export class QuizSessionBase {
   }
 
   /**
+   * Deepest level this goal asks of one concept across the sections carrying it.
+   *
+   * A focused review must use this, not the section it was opened from: the
+   * same point often sits in a level-1 and a level-3 section, and the goal asks
+   * for the harder one. Section runs keep their own section's level.
+   */
+  protected async conceptLevelInGoal(goal: PlanRecord, concept: string): Promise<MasteryLevel | undefined> {
+    let level: MasteryLevel | undefined
+    for (const step of goal.steps) {
+      if (step.target === undefined || step.coverage === 'skip') continue
+      const { materialId, unitId } = splitUnitKey(step.target)
+      let concepts: string[]
+      try {
+        concepts = (await this.service.unit(materialId, unitId)).unit.concepts ?? []
+      } catch {
+        continue
+      }
+      if (!concepts.includes(concept)) continue
+      const stepLevel = step.level ?? 2
+      if (level === undefined || stepLevel > level) level = stepLevel
+    }
+    return level
+  }
+
+  /**
    * What one run of this scope measures.
    *
    * The single read of goal coverage: the index, start and the resume path all
@@ -100,10 +122,7 @@ export class QuizSessionBase {
    * blocked, not downgraded to a run that writes nothing; a section the goal
    * covers but without points is blocked until the points are written.
    */
-  protected async sessionPlanOf(scope: QuizSessionScope, concept: string | undefined): Promise<SessionPlan> {
-    if (scope.kind !== 'unit') {
-      return { targets: [], thresholds: {}, needsConcepts: false, review: false }
-    }
+  protected async sessionPlanOf(scope: {material: string; unit: string}, concept: string | undefined): Promise<SessionPlan> {
     const key = `${scope.material}:${scope.unit}`
     const goal = activePlan(await listPlans(this.paths))
     const covered =
@@ -113,7 +132,9 @@ export class QuizSessionBase {
       return { targets: [], thresholds: {}, blocked: 'no-goal', needsConcepts: false, review: false }
     }
     if (concept !== undefined) {
-      const level = covered ? goalLevelOf(goal, key) : undefined
+      const level = covered
+        ? (await this.conceptLevelInGoal(goal, concept)) ?? goalLevelOf(goal, key)
+        : undefined
       return {
         targets: [concept],
         thresholds: { [concept]: level === undefined ? DEFAULT_TARGET : thresholdForLevel(level) },
@@ -141,22 +162,19 @@ export class QuizSessionBase {
     }
   }
 
-  /** Ledger state of one explicit point set, weakest name fallback included. */
+  /** Ledger state of one explicit point set, with names. */
   protected async pointsFor(targets: readonly string[], thresholds: Readonly<Record<string, number>>): Promise<QuizPointView[]> {
     if (targets.length === 0) return []
     const [knowledge, records] = await Promise.all([ensureKnowledge(this.paths), listConcepts(this.paths)])
     const names = new Map(records.map(record => [record.id, record.name]))
-    return sectionPointStates(targets, thresholds, knowledge, names, localDate())
+    // Read the same clock today does, so the test clock's offset decays these
+    // points too instead of showing undecayed mastery on a later day.
+    return sectionPointStates(targets, thresholds, knowledge, names, this.service.today())
   }
 
-  /** Ledger state of one run, plus the latest verdict it produced per point. */
+  /** Ledger state of one run. */
   protected async pointsOf(session: QuizSession): Promise<QuizPointView[]> {
-    const points = await this.pointsFor(session.targets ?? [], session.targetThresholds ?? {})
-    if (points.length === 0) return points
-    return points.map(point => {
-      const answered = answeredOf(session, point.id)
-      return answered === undefined ? point : { ...point, answered }
-    })
+    return this.pointsFor(session.targets ?? [], session.targetThresholds ?? {})
   }
 
   /** Build a scope from the loose route input. */
@@ -165,87 +183,29 @@ export class QuizSessionBase {
     unit?: string
     book?: string
     chapter?: string
-  }): QuizSessionScope {
-    if (input.book !== undefined && input.book.length > 0 && input.chapter !== undefined && input.chapter.length > 0) {
-      return { kind: 'book', book: input.book, chapter: input.chapter }
-    }
+  }): { kind: 'unit'; material: string; unit: string } {
     if (input.material !== undefined && input.material.length > 0 && input.unit !== undefined && input.unit.length > 0) {
       return { kind: 'unit', material: input.material, unit: input.unit }
     }
-    throw new StudyError('invalid', '需要 mid+uid、bid+cid 或 pid+mid+uid')
+    throw new StudyError('invalid', '需要 mid+uid：练习只在一节的原文上跑')
   }
 
-  /** Question cap: two per knowledge point, never below the full-session default. */
-  protected limitFor(bank: QuizBank, targets: readonly string[]): number {
-    return Math.max(DEFAULT_SESSION_LIMIT, targets.length * 2, bank.items.length)
-  }
-
-  protected async bankOf(scope: QuizSessionScope): Promise<QuizBank> {
-    if (scope.kind === 'unit') {
-      const bank = await this.service.quiz(scope.material, scope.unit)
-      if (bank === null) throw new StudyError('not-found', '这一节还没有练习题')
-      return bank
-    }
-    if (this.books === undefined) throw new StudyError('unsupported', '自编书练习未启用')
-    const bank = await this.books.chapterQuiz(scope.book, scope.chapter ?? '')
-    if (bank === null) throw new StudyError('not-found', '这一章还没有练习题')
-    return bank
-  }
-
-  /** The bank when it still exists; null is a normal state for history views. */
-  protected async tryBankOf(scope: QuizSessionScope): Promise<QuizBank | null> {
-    try {
-      return await this.bankOf(scope)
-    } catch (error) {
-      if (error instanceof StudyError && (error.code === 'not-found' || error.code === 'unsupported')) {
-        return null
-      }
-      throw error
-    }
-  }
-
-  protected async notesOf(scope: QuizSessionScope): Promise<boolean> {
-    if (scope.kind !== 'unit') return true
-    try {
-      return await this.service.hasNotes(scope.material, scope.unit)
-    } catch {
-      return false
-    }
-  }
-
-  /**
-   * Close an active session when its bank changed or the current item is gone.
-   * The history is kept; only the run is over.
-   */
-  protected async reconcile(session: QuizSession, bank: QuizBank | null): Promise<QuizSession> {
-    if (session.status !== 'active') return session
-    const changed =
-      bank === null || (session.bankUpdatedAt !== undefined && session.bankUpdatedAt !== bank.updatedAt)
-    const missing = bank !== null && !bank.items.some(item => item.id === session.currentId)
-    if (changed || missing) await this.close(session, 'bank-changed')
-    return session
-  }
-
-  protected async close(session: QuizSession, reason: QuizEndReason): Promise<void> {
+  protected async close(session: QuizSession, reason: QuizEndReason, note?: string): Promise<void> {
     if (session.status !== 'active') return
     const at = new Date().toISOString()
     session.status = 'done'
-    session.currentId = undefined
+    session.current = undefined
     session.endedAt = at
     session.endedReason = reason
+    if (note !== undefined) session.endedNote = note
     session.updatedAt = at
     await this.save(session)
   }
 
   protected async load(sessionId: string): Promise<QuizSession> {
-    const raw = await readJson<QuizSession | null>(this.paths.quizSessionFile(sessionId), null)
-    if (raw === null) throw new StudyError('not-found', `练习会话不存在：${sessionId}`)
-    return {
-      ...raw,
-      version: 2,
-      asked: raw.asked ?? [],
-      history: raw.history ?? [],
-    }
+    const session = await this.readFile(this.paths.quizSessionFile(sessionId))
+    if (session === null) throw new StudyError('not-found', `练习会话不存在：${sessionId}`)
+    return session
   }
 
   protected async save(session: QuizSession): Promise<void> {
@@ -269,7 +229,12 @@ export class QuizSessionBase {
   /** Read one session file, ignoring unreadable or corrupt files. */
   protected async readFile(file: string): Promise<QuizSession | null> {
     try {
-      return await readJson<QuizSession | null>(file, null)
+      const raw = await readJson<QuizSession | null>(file, null)
+      if (raw === null) return null
+      const {session, migrated} = normalizeSession(raw)
+      // A batch-era run is closed on disk too, so two readers agree on it.
+      if (migrated) await writeJsonAtomic(file, session)
+      return session
     } catch {
       return null
     }
@@ -284,7 +249,7 @@ export class QuizSessionBase {
       if (raw === null || raw.scope === undefined) continue
       if (!sameQuizScope(raw.scope, scope)) continue
       if (this.expired(raw, now)) continue
-      out.push({ ...raw, version: 2, asked: raw.asked ?? [], history: raw.history ?? [] })
+      out.push(raw)
     }
     return out
   }
@@ -295,25 +260,59 @@ export class QuizSessionBase {
     return now - updated > (session.status === 'active' ? ACTIVE_TTL_MS : HISTORY_TTL_MS)
   }
 
-  /** Items of one session, always read from the section's bank. */
-  protected itemsOf(session: QuizSession, bank: QuizBank | null): QuizItem[] {
-    return bank?.items ?? []
-  }
-
-  protected async view(session: QuizSession, bank: QuizBank | null): Promise<QuizSessionView> {
-    const items = this.itemsOf(session, bank)
-    if (session.status === 'active' && !items.some(item => item.id === session.currentId)) {
-      await this.close(session, 'bank-changed')
-    }
-    const current =
-      session.status === 'active' ? items.find(item => item.id === session.currentId) : undefined
+  protected async view(session: QuizSession): Promise<QuizSessionView> {
     const points = await this.pointsOf(session)
+    const current = session.status === 'active' ? session.current : undefined
     return {
       session: sessionMetaOf(session, points),
       points,
-      ...(current === undefined ? {} : { item: itemView(current) }),
-      history: historyOf(session, items),
+      ...(current === undefined
+        ? {}
+        : { item: itemView(current), ...(session.currentUsage === undefined ? {} : { usage: session.currentUsage }) }),
+      ...(session.last === undefined ? {} : { last: feedbackOfEntry(session.last) }),
       ...(session.status === 'done' ? { summary: summaryOfSession(session, points) } : {}),
     }
   }
+}
+
+/**
+ * Bring an older session file up to the cursor shape.
+ *
+ * Runs written before practice became one question at a time kept a bank, a
+ * question cap and a per-question history. Those fields are dropped: answered
+ * questions are not stored any more. Such a run cannot be resumed either (its
+ * current question went with the bank), so it is closed as `replaced`. A v3
+ * run with no current question is *not* legacy: its answer was graded and the
+ * next question has not been written yet.
+ */
+function normalizeSession(raw: QuizSession): { session: QuizSession; migrated: boolean } {
+  const legacy = raw as QuizSession & {
+    asked?: string[]
+    limit?: number
+    history?: unknown[]
+    currentId?: string
+    bankUpdatedAt?: string
+    free?: boolean
+    freeReason?: string
+  }
+  const {
+    asked,
+    limit,
+    history,
+    currentId,
+    bankUpdatedAt,
+    free,
+    freeReason,
+    ...rest
+  } = legacy
+  void [asked, limit, history, currentId, bankUpdatedAt, free, freeReason]
+  const count = raw.count ?? asked?.length ?? 0
+  if (raw.version !== 3 && raw.status === 'active' && raw.current === undefined) {
+    const at = new Date().toISOString()
+    return {
+      session: {...rest, version: 3, status: 'done', count, current: undefined, endedAt: raw.endedAt ?? at, endedReason: 'replaced', updatedAt: at},
+      migrated: true,
+    }
+  }
+  return {session: {...rest, version: 3, count}, migrated: raw.version !== 3 || raw.count === undefined}
 }

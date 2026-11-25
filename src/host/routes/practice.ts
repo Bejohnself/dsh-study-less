@@ -28,6 +28,7 @@ export async function getPractice(ctx: RouteContext): Promise<void> {
         unit: query.get('uid') ?? undefined,
         book: query.get('bid') ?? undefined,
         chapter: query.get('cid') ?? undefined,
+        concept: query.get('concept') ?? undefined,
       }),
     })
     return
@@ -59,7 +60,6 @@ export async function postPractice(ctx: RouteContext, body: Record<string, unkno
         ...(typeof body.uid === 'string' ? { unit: body.uid } : {}),
         ...(typeof body.bid === 'string' ? { book: body.bid } : {}),
         ...(typeof body.cid === 'string' ? { chapter: body.cid } : {}),
-        ...(typeof body.pid === 'string' ? { plan: body.pid } : {}),
         ...(typeof body.limit === 'number' ? { limit: body.limit } : {}),
         ...(body.restart === true ? { restart: true } : {}),
         ...(typeof body.concept === 'string' && body.concept.trim().length > 0 ? { concept: body.concept.trim() } : {}),
@@ -69,16 +69,15 @@ export async function postPractice(ctx: RouteContext, body: Record<string, unkno
   }
   if (path === '/quiz/session/answer') {
     const sessions = requireService(quizSessions, '练习会话')
-    const selfGrade = body.selfGrade
     send(res, 200, {
       ok: true,
-      value: await sessions.answer(
-        requiredString(body, 'sid'),
-        requiredString(body, 'itemId'),
-        body.answer,
-        selfGrade === 'correct' || selfGrade === 'partial' || selfGrade === 'wrong' ? selfGrade : undefined,
-      ),
+      value: await sessions.answer(requiredString(body, 'sid'), requiredString(body, 'itemId'), body.answer),
     })
+    return
+  }
+  if (path === '/quiz/session/next') {
+    const sessions = requireService(quizSessions, '练习会话')
+    send(res, 200, { ok: true, value: await sessions.next(requiredString(body, 'sid')) })
     return
   }
   if (path === '/quiz/session/appeal') {

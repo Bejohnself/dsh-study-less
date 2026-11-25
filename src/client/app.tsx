@@ -117,10 +117,10 @@ export function StudyApp(): ReactElement {
     setView({ kind: 'material', mid, uid, ...(planId === undefined ? {} : { planId }) })
   }
   const openConcept = (cid: string): void => setView({ kind: 'concept', cid })
-  const openReview = async (mid: string, uid: string, conceptId: string): Promise<void> => {
+  const openPractice = async (mid: string, uid: string, planId?: string): Promise<void> => {
     try {
       const value = await api<{ unit: TocRow }>(`/unit?mid=${encodeURIComponent(mid)}&uid=${encodeURIComponent(uid)}`)
-      setView({ kind: 'practice', mid, unit: value.unit, concept: conceptId })
+      setView({ kind: 'practice', mid, unit: value.unit, ...(planId === undefined ? {} : { planId }) })
     } catch (reason) {
       setToast({ message: reason instanceof Error ? reason.message : '这一节读不出来', tone: 'error' })
     }
@@ -232,6 +232,7 @@ export function StudyApp(): ReactElement {
           <PracticePage
             mid={view.mid}
             unit={view.unit}
+            {...(view.concept === undefined ? {} : { concept: view.concept })}
             onBack={() =>
               setView({
                 kind: 'material',
@@ -240,6 +241,7 @@ export function StudyApp(): ReactElement {
                 ...(view.planId === undefined ? {} : { planId: view.planId }),
               })
             }
+            onExit={() => setView({ kind: 'learn' })}
             onChanged={bump}
           />
         ) : null}
@@ -248,8 +250,9 @@ export function StudyApp(): ReactElement {
           <LearnPage
             onOpenUnit={openUnit}
             onOpenPlan={pid => setView({ kind: 'plan', pid })}
-            onReviewConcept={(mid, uid, conceptId) => void openReview(mid, uid, conceptId)}
+            onOpenReview={(mid, uid, planId) => void openPractice(mid, uid, planId)}
             onCreateGoal={() => setDialog('goal')}
+            onRefresh={bump}
             refreshToken={refreshToken}
           />
         ) : null}

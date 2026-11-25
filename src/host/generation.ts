@@ -185,8 +185,8 @@ export class GenerationService {
     return judgeQuizAnswer(this, input, signal)
   }
 
-  /** Write extra questions for the points still pending in a session. */
-  async moreQuizItems(input: MoreQuizItemsInput): Promise<QuizItem[]> {
+  /** Write questions for the knowledge points a practice run is working on. */
+  async moreQuizItems(input: MoreQuizItemsInput): Promise<{ items: QuizItem[]; usage?: UsageCallView }> {
     return moreQuizItems(this, input)
   }
 

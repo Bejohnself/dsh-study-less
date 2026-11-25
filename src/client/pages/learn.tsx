@@ -2,7 +2,7 @@
  * 阅读: today, goals (paths) and review.
  *
  * This is the main surface: one goal becomes concrete steps, each step opens the
- * shared reader, and completing a unit puts it into the FSRS due queue.
+ * shared reader, and finishing a section puts its points into the decay review queue.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
@@ -11,21 +11,24 @@ import { api, errorText, post } from '../api.ts'
 import { MASCOT } from '../mascot.ts'
 import { currentSessionId, openConversation } from '../actions.ts'
 import { typeLabel } from '../labels.ts'
-import { EmptyState, Modal, ProgressBar, SubNav, Toast } from '../components/ui.tsx'
+import { EmptyState, InlineMarkdown, Modal, ProgressBar, SubNav, Toast } from '../components/ui.tsx'
+import { ClosedGoals } from '../components/closedGoals.tsx'
 
 /** The learning-path dashboard. */
 /** The reading entry: one today panel over the knowledge space. */
 export function LearnPage({
   onOpenUnit,
   onOpenPlan,
-  onReviewConcept,
+  onOpenReview,
   onCreateGoal,
+  onRefresh,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenPlan: (pid: string) => void
-  onReviewConcept: (mid: string, uid: string, conceptId: string) => void
+  onOpenReview: (mid: string, uid: string, planId?: string) => void
   onCreateGoal: () => void
+  onRefresh: () => void
   refreshToken: number
 }): ReactElement {
   return (
@@ -33,8 +36,9 @@ export function LearnPage({
       <TodayPanel
         onOpenUnit={onOpenUnit}
         onOpenPlan={onOpenPlan}
-        onReviewConcept={onReviewConcept}
+        onOpenReview={onOpenReview}
         onCreateGoal={onCreateGoal}
+        onRefresh={onRefresh}
         refreshToken={refreshToken}
       />
     </div>
@@ -44,18 +48,26 @@ export function LearnPage({
 function TodayPanel({
   onOpenUnit,
   onOpenPlan,
-  onReviewConcept,
+  onOpenReview,
   onCreateGoal,
+  onRefresh,
   refreshToken,
 }: {
   onOpenUnit: (mid: string, uid: string, planId?: string) => void
   onOpenPlan: (pid: string) => void
-  onReviewConcept: (mid: string, uid: string, conceptId: string) => void
+  onOpenReview: (mid: string, uid: string, planId?: string) => void
   onCreateGoal: () => void
+  onRefresh: () => void
   refreshToken: number
 }): ReactElement {
   const [data, setData] = useState<TodayView | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [clockBusy, setClockBusy] = useState(false)
+  const [clockError, setClockError] = useState<string | null>(null)
+  const [goalBusy, setGoalBusy] = useState(false)
+  const [goalError, setGoalError] = useState<string | null>(null)
+  const [extending, setExtending] = useState(false)
+  const [deadlineDraft, setDeadlineDraft] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -72,18 +84,136 @@ function TodayPanel({
     }
   }, [refreshToken])
 
+  // Test aid: move the desk's "today" forward without touching stored dates.
+  const shiftClock = async (reset: boolean): Promise<void> => {
+    if (clockBusy) return
+    setClockBusy(true)
+    setClockError(null)
+    try {
+      await post('/clock', reset ? { reset: true } : {})
+      onRefresh()
+    } catch (reason) {
+      setClockError(errorText(reason))
+    } finally {
+      setClockBusy(false)
+    }
+  }
+
+  // The deadline has passed: push it out or close the goal, right here.
+  const extendGoal = async (): Promise<void> => {
+    if (data?.goal === undefined || goalBusy) return
+    const value = deadlineDraft.trim()
+    if (value === '') {
+      setGoalError('先选一个期限')
+      return
+    }
+    setGoalBusy(true)
+    setGoalError(null)
+    try {
+      await post('/plan/update', { pid: data.goal.id, setMeta: { deadline: value } })
+      setExtending(false)
+      onRefresh()
+    } catch (reason) {
+      setGoalError(errorText(reason))
+    } finally {
+      setGoalBusy(false)
+    }
+  }
+
+  const closeGoal = async (): Promise<void> => {
+    if (data?.goal === undefined || goalBusy) return
+    setGoalBusy(true)
+    setGoalError(null)
+    try {
+      await post('/plan/close', { pid: data.goal.id })
+      onRefresh()
+    } catch (reason) {
+      setGoalError(errorText(reason))
+    } finally {
+      setGoalBusy(false)
+    }
+  }
+
   if (error !== null) return <div className="study-empty">无法读取今日面板：{error}</div>
   if (data === null) return <div className="study-empty">正在整理今天的任务…</div>
 
   const dueKnowledge = data.knowledge?.due ?? []
   const dueCount = dueKnowledge.length
   const nothing = dueCount === 0 && data.next === null && data.plans.length === 0 && data.goal === undefined
+  // Group by section: the review column points at a section, not at one point.
+  const reviewGroups = new Map<
+    string,
+    {
+      key: string
+      materialId: string
+      unitId: string
+      unitTitle?: string
+      materialTitle?: string
+      count: number
+      weakest: number
+      target: number
+      overdue: number
+    }
+  >()
+  for (const entry of dueKnowledge) {
+    if (entry.materialId === undefined || entry.unitId === undefined) continue
+    const key = `${entry.materialId}:${entry.unitId}`
+    const existing = reviewGroups.get(key)
+    if (existing === undefined) {
+      reviewGroups.set(key, {
+        key,
+        materialId: entry.materialId,
+        unitId: entry.unitId,
+        ...(entry.unitTitle === undefined ? {} : { unitTitle: entry.unitTitle }),
+        ...(entry.materialTitle === undefined ? {} : { materialTitle: entry.materialTitle }),
+        count: 1,
+        weakest: entry.mastery,
+        target: entry.target,
+        overdue: entry.overdueDays,
+      })
+      continue
+    }
+    existing.count += 1
+    existing.overdue = Math.max(existing.overdue, entry.overdueDays)
+    if (entry.mastery < existing.weakest) {
+      existing.weakest = entry.mastery
+      existing.target = entry.target
+    }
+  }
+  const reviewSections = [...reviewGroups.values()].sort(
+    (left, right) => right.overdue - left.overdue || left.weakest - right.weakest,
+  )
+  const looseDue = dueKnowledge.filter(entry => entry.materialId === undefined || entry.unitId === undefined)
 
   return (
     <div className="study-today">
       <div className="study-today-line">
         <img className="study-today-fish" src={MASCOT.cute} alt="" />
         <span className="study-today-date">{data.date}</span>
+        <span className="study-clock">
+          {data.clockOffsetDays > 0 ? (
+            <span className="study-warn-text">测试时钟 +{data.clockOffsetDays} 天</span>
+          ) : null}
+          <button
+            type="button"
+            className="study-ghost study-ghost-tight"
+            disabled={clockBusy}
+            onClick={() => void shiftClock(false)}
+          >
+            {clockBusy ? '…' : '推进一天'}
+          </button>
+          {data.clockOffsetDays > 0 ? (
+            <button
+              type="button"
+              className="study-ghost study-ghost-tight"
+              disabled={clockBusy}
+              onClick={() => void shiftClock(true)}
+            >
+              回到今天
+            </button>
+          ) : null}
+          {clockError !== null ? <span className="study-warn-text">{clockError}</span> : null}
+        </span>
         <span className="study-today-hi">
           {data.next !== null
             ? '先从接着读开始？'
@@ -95,7 +225,7 @@ function TodayPanel({
         <span className="study-muted">
           {data.knowledge === undefined
             ? `已完成 ${data.learnedToday} 节`
-            : `知识点 ${data.knowledge.total} 个 · 已结案 ${data.knowledge.settled}`}
+            : `知识点 ${data.knowledge.total} 个 · 已稳 ${data.knowledge.settled}`}
         </span>
         <span className={dueCount > 0 ? 'study-warn-text' : 'study-muted'}>
           {dueCount > 0 ? `${dueKnowledge.length} 个知识点到期` : '没有到期复习'}
@@ -116,18 +246,67 @@ function TodayPanel({
           {data.goal === undefined ? (
             <p className="study-muted">还没有目标。练习只在目标里跑并写进度。先点右上角「＋ 新建目标」。</p>
           ) : (
-            <button type="button" className="study-next-card" onClick={() => onOpenPlan(data.goal!.id)}>
-              <span className="study-next-title">{data.goal.goal}</span>
-              <span className="study-item-meta">
-                {data.goal.deliverable === undefined ? '' : `要交出：${data.goal.deliverable}`}
-                {data.goal.deadline === undefined ? '' : ` · 期限 ${data.goal.deadline}`}
-              </span>
-              <span className="study-next-why">
-                知识点 {data.goal.passed}/{data.goal.total}
-                {data.goal.missingSections > 0 ? ` · 还有 ${data.goal.missingSections} 节没有知识点` : ''}
-                {data.goal.readyToClose ? ' · 可以结案了' : ' · 未达成'}
-              </span>
-            </button>
+            <>
+              <button type="button" className="study-next-card" onClick={() => onOpenPlan(data.goal!.id)}>
+                <span className="study-next-title">{data.goal.goal}</span>
+                <span className="study-item-meta">
+                  {data.goal.deliverable === undefined ? '' : `要交出：${data.goal.deliverable}`}
+                  {data.goal.deadline === undefined ? '' : ` · 期限 ${data.goal.deadline}`}
+                  {data.goal.deadline === undefined || data.date < data.goal.deadline ? '' : data.goal.overdueDays > 0 ? ` · 已过 ${data.goal.overdueDays} 天` : ' · 今天到期'}
+                </span>
+                <span className="study-next-why">
+                  知识点 {data.goal.passed}/{data.goal.total}
+                  {data.goal.missingSections > 0 ? ` · 还有 ${data.goal.missingSections} 节没有知识点` : ''}
+                  {data.goal.readyToClose ? ' · 可以结案了' : ' · 未达成'}
+                </span>
+              </button>
+              {data.goal.deadline !== undefined && data.date >= data.goal.deadline ? (
+                <div className="study-inline study-goal-actions">
+                  {extending ? (
+                    <>
+                      <input
+                        type="date"
+                        className="study-input"
+                        value={deadlineDraft}
+                        disabled={goalBusy}
+                        onChange={event => setDeadlineDraft(event.target.value)}
+                      />
+                      <button type="button" className="study-ghost study-ghost-tight" disabled={goalBusy} onClick={() => void extendGoal()}>
+                        {goalBusy ? '保存中…' : '保存期限'}
+                      </button>
+                      <button type="button" className="study-ghost study-ghost-tight" disabled={goalBusy} onClick={() => setExtending(false)}>
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="study-ghost study-ghost-tight"
+                        disabled={goalBusy}
+                        onClick={() => {
+                          setGoalError(null)
+                          setDeadlineDraft(data.goal!.deadline ?? '')
+                          setExtending(true)
+                        }}
+                      >
+                        延期
+                      </button>
+                      <button
+                        type="button"
+                        className="study-primary study-primary-tight"
+                        disabled={goalBusy || !data.goal.readyToClose}
+                        title={data.goal.readyToClose ? '结案后不再出现在「今天」' : '还有知识点没到档，或到期没排到期限之外'}
+                        onClick={() => void closeGoal()}
+                      >
+                        {goalBusy ? '处理中…' : '结案'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : null}
+              {goalError === null ? null : <p className="study-warn-text study-goal-error">{goalError}</p>}
+            </>
           )}
         </section>
 
@@ -137,19 +316,23 @@ function TodayPanel({
             <p className="study-muted">
               {data.goal === undefined
                 ? '还没有目标。先定一个目标，才知道接下来读哪一节。'
-                : '这个目标的节都读完了。剩下的事只有复习和结案。'}
+                : data.goal.readyToClose
+                  ? '目前的目标都已完成啦，静候复习吧~'
+                  : '这个目标的节都读完了。剩下的事只有复习和结案。'}
             </p>
           ) : (
             <button
-            type="button"
-            className="study-next-card"
-            onClick={() => onOpenUnit(data.next!.materialId, data.next!.unitId, data.next!.planId)}
-          >
+              type="button"
+              className="study-next-card"
+              onClick={() => onOpenUnit(data.next!.materialId, data.next!.unitId, data.next!.planId)}
+            >
               <span className="study-next-title">{data.next.title}</span>
               <span className="study-item-meta">
                 {data.next.materialTitle} · {data.next.source === 'plan' ? '来自学习路径' : '书序下一节'}
               </span>
-              <span className="study-next-why">{data.next.why}</span>
+              <span className="study-next-why">
+                <InlineMarkdown source={data.next.why} />
+              </span>
             </button>
           )}
         </section>
@@ -159,34 +342,37 @@ function TodayPanel({
           {dueCount === 0 ? (
             <p className="study-muted">
               {data.goal === undefined
-                ? '还没有目标。目标内的知识点到期后才会出现在这里。'
-                : '今天没有到期的知识点。练习过的概念会按 FSRS 排下一次；到目标且下次复习落在目标期之后，就自动结案。'}
+                ? '还没有目标。目标内的知识点跌破档位后才会出现在这里。'
+                : '今天没有掉档的知识点。跌破档位的点会按节出现在这里。'}
             </p>
           ) : (
             <ul className="study-list">
-              {dueKnowledge.slice(0, 6).map(entry => (
+              {reviewSections.map(group => (
+                <li key={group.key}>
+                  <button
+                    type="button"
+                    className="study-item"
+                    onClick={() => onOpenReview(group.materialId, group.unitId, data.goal?.id)}
+                  >
+                    <span className="study-item-title">{group.unitTitle ?? group.key}</span>
+                    <span className="study-item-meta">
+                      {group.materialTitle === undefined ? '' : `${group.materialTitle} · `}
+                      {group.count} 个知识点掉档 · 最低 {Math.floor(group.weakest * 100)}% /{' '}
+                      {Math.round(group.target * 100)}%
+                      {group.overdue > 0 ? ` · 逾期 ${group.overdue} 天` : ' · 今天到期'}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {looseDue.slice(0, 2).map(entry => (
                 <li key={entry.conceptId}>
-                  {entry.materialId === undefined || entry.unitId === undefined ? (
-                    <div className="study-item">
-                      <span className="study-item-title">{entry.name}</span>
-                      <span className="study-item-meta">
-                        掌握 {Math.round(entry.mastery * 100)}% / 目标 {Math.round(entry.target * 100)}%
-                        {entry.overdueDays > 0 ? ` · 逾期 ${entry.overdueDays} 天` : ' · 今天到期'}
-                      </span>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="study-item"
-                      onClick={() => onReviewConcept(entry.materialId!, entry.unitId!, entry.conceptId)}
-                    >
-                      <span className="study-item-title">{entry.name}</span>
-                      <span className="study-item-meta">
-                        掌握 {Math.round(entry.mastery * 100)}% / 目标 {Math.round(entry.target * 100)}%
-                        {entry.overdueDays > 0 ? ` · 逾期 ${entry.overdueDays} 天` : ' · 今天到期'}
-                      </span>
-                    </button>
-                  )}
+                  <div className="study-item">
+                    <span className="study-item-title">{entry.name}</span>
+                    <span className="study-item-meta">
+                      掌握 {Math.floor(entry.mastery * 100)}% / 目标 {Math.round(entry.target * 100)}%
+                      {entry.overdueDays > 0 ? ` · 逾期 ${entry.overdueDays} 天` : ' · 今天到期'}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -194,6 +380,7 @@ function TodayPanel({
         </section>
       </div>
 
+      <ClosedGoals onOpenPlan={onOpenPlan} refreshToken={refreshToken} />
     </div>
   )
 }

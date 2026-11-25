@@ -1,7 +1,21 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { completeStructured } from '../src/host/generation/shared.ts'
+import { completeStructured, completeStructuredJson } from '../src/host/generation/shared.ts'
 import { ProviderError, type TextProvider, type TextRequest, type TextResult } from '../src/host/providers/types.ts'
+
+/** A provider that answers each call with the next text. */
+function providerWithTexts(texts: string[], seen: TextRequest[]): TextProvider {
+  let calls = 0
+  return {
+    name: 'stub',
+    async complete(request: TextRequest): Promise<TextResult> {
+      seen.push(request)
+      const text = texts[Math.min(calls, texts.length - 1)] ?? '{}'
+      calls += 1
+      return { text }
+    },
+  }
+}
 
 /** A provider that fails the first call, so the retry path is observable. */
 function providerWith(first: Error | null, seen: TextRequest[]): TextProvider {
@@ -48,4 +62,25 @@ test('an empty answer is retried the same way; other failures are thrown as-is',
     /没有可用模型/,
   )
   assert.equal(fatal.length, 1, 'a real failure is not retried')
+})
+test('a silently truncated JSON answer is retried with a bigger budget', async () => {
+  const seen: TextRequest[] = []
+  // The gateway cut the answer without reporting a cap, so the text is prose
+  // that simply stops mid-string: only a second call with more room can fix it.
+  const provider = providerWithTexts(['{"items":[{"question":"半截', '{"items":[]}'], seen)
+  const result = await completeStructuredJson(provider, { user: 'q', maxTokens: 8_192 }, parsed => parsed)
+  assert.equal(seen.length, 2, 'the parse failure was retried once')
+  assert.ok((seen[1]!.maxTokens ?? 0) > (seen[0]!.maxTokens ?? 0), 'the retry gets a bigger budget')
+  assert.deepEqual(result.value, { items: [] })
+  assert.equal(result.attempts, 2)
+})
+
+test('a truncated answer that stays truncated is reported, not retried forever', async () => {
+  const seen: TextRequest[] = []
+  const provider = providerWithTexts(['{"items":[{"q":', '{"items":[{"q":'], seen)
+  await assert.rejects(
+    () => completeStructuredJson(provider, { user: 'q' }, parsed => parsed),
+    /JSON|模型没有返回/,
+  )
+  assert.equal(seen.length, 2, 'one retry only')
 })

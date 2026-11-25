@@ -182,7 +182,7 @@ const fake = {
 await settings.patch({ text: { kind: 'dsh', model: 'fake' }, study: { autoQuiz: true, autoInsight: true } })
 const books = new BookService(paths, service)
 const generation = new GenerationService(paths, { service, insights, settings, jobs, books, usage, textProvider: () => fake })
-const quizSessions = new QuizSessionService(paths, service, books, generation)
+const quizSessions = new QuizSessionService(paths, service, generation)
 
 const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
 materialId = imported.manifest.id
@@ -234,7 +234,7 @@ console.log('plan visual data:', `${Math.round(firstPoint.mastery * 100)}%`, fir
 const planQuiz = await quizSessions.start({ material: materialId, unit: unitId })
 if (planQuiz.session.atTarget?.total !== 1) throw new Error('goal section run has no target point')
 if (planQuiz.points[0]?.threshold !== 0.85) throw new Error('the section threshold was not carried into the run')
-console.log('goal section quiz start:', JSON.stringify(planQuiz.session.atTarget), planQuiz.session.limit, 'item', planQuiz.item?.id)
+console.log('goal section quiz start:', JSON.stringify(planQuiz.session.atTarget), 'item', planQuiz.item?.id, 'cost', planQuiz.usage?.inputTokens)
 const planAnswer = await quizSessions.answer(
   planQuiz.session.id,
   planQuiz.item.id,
@@ -264,15 +264,6 @@ console.log('book chapter:', chapterDone.status, chapterDone.error ?? 'ok')
 const chapterView = await books.chapter(bookId, 'ch-1')
 console.log('chapter content:', chapterView.content.length, 'quiz', chapterView.quiz?.items.length ?? 0)
 console.log('book export:', (await books.exportMarkdown(bookId)).length)
-const bookQuiz = await quizSessions.start({ book: bookId, chapter: 'ch-1' })
-console.log('book quiz start:', Boolean(bookQuiz.item), bookQuiz.session.limit)
-if (bookQuiz.item !== undefined) {
-  const answered = await quizSessions.answer(bookQuiz.session.id, bookQuiz.item.id, 0)
-  console.log('book quiz answer:', Boolean(answered.feedback), Boolean(answered.summary))
-}
-const bookIndex = await quizSessions.index({ book: bookId, chapter: 'ch-1' })
-console.log('book quiz index:', bookIndex.bank.items, bookIndex.active === null ? 'no active' : 'active', 'recent', bookIndex.recent.length)
-
 const unitJob = await generation.generateUnit({ material: materialId, unit: unitId })
 const unitDone = await wait(unitJob.jobId)
 console.log('unit job:', unitDone.status, unitDone.error ?? unitDone.message, JSON.stringify(unitDone.result ?? {}).slice(0, 220))

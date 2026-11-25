@@ -11,8 +11,9 @@ import {
   questionFingerprint,
   readKnowledge,
   recordEvidence,
+  retentionSafe,
+  reviewOn,
   sectionPointStates,
-  settleIfDone,
   type ConceptState,
 } from '../src/core/knowledge.ts'
 import { LibraryPaths } from '../src/core/paths.ts'
@@ -37,6 +38,26 @@ function state(overrides: Partial<ConceptState> = {}): ConceptState {
     evidence: {},
     ...overrides,
   }
+}
+
+/** A concept that has already been reviewed on `rounds` different days. */
+function reviewedState(mastery: number, rounds: number, overrides: Partial<ConceptState> = {}): ConceptState {
+  const evidence: ConceptState['evidence'] = {}
+  for (let index = 0; index < rounds; index += 1) {
+    evidence[`q-${String(index)}`] = {
+      verdict: 'pass',
+      difficulty: 2,
+      at: `${addDays(today, -(rounds - index))}T10:00:00+08:00`,
+      review: true,
+    }
+  }
+  return state({
+    mastery,
+    peak: mastery,
+    lastAt: `${today}T10:00:00+08:00`,
+    evidence,
+    ...overrides,
+  })
 }
 
 test('the fingerprint ignores whitespace and punctuation, not the question', () => {
@@ -105,9 +126,10 @@ test('an idle month is not undone by the next answer', () => {
     difficulty: 2,
     at: `${today}T10:00:00+08:00`,
   })
-  // Two months away costs about a fifth of the estimate before the next gain.
-  assert.ok(second.mastery < 0.56, `decayed start expected, got ${second.mastery}`)
-  assert.ok(second.mastery > 0.5)
+  // Two months is many half-lives now: the estimate sits near the floor and the
+  // next gain starts from there instead of erasing the absence.
+  assert.ok(second.mastery < 0.5, `decayed start expected, got ${second.mastery}`)
+  assert.ok(second.mastery > 0.3)
 })
 
 test('a won appeal counts, but not at full weight', () => {
@@ -130,30 +152,11 @@ test('a won appeal counts, but not at full weight', () => {
   assert.ok(appealed.mastery > 0.5, 'an appeal still moves the estimate')
 })
 
-test('a concept short of its goal comes back within a week', () => {
-  const base = applyEvidence(state(), {
-    conceptId: 'dp/convergence',
-    fingerprint: 'q-a',
-    verdict: 'pass',
-    difficulty: 2,
-    at: `${addDays(today, -1)}T10:00:00+08:00`,
-  })
-  const input = {
-    conceptId: 'dp/convergence',
-    fingerprint: 'q-b',
-    verdict: 'pass' as const,
-    difficulty: 2 as const,
-    at: `${today}T10:00:00+08:00`,
-  }
-  assert.equal(applyEvidence(base, input, { target: 0.95 }).due, addDays(today, 7))
-  assert.ok((applyEvidence(base, input, { target: 0.6 }).due ?? '') > addDays(today, 7))
-})
-
 test('the documented trajectory: 4 / 7 / 12 passes reach 会用 / 能讲 / 创新', () => {
   const after = (count: number): number => {
-    let state: ConceptState | undefined
+    let value: ConceptState | undefined
     for (let index = 0; index < count; index += 1) {
-      state = applyEvidence(state, {
+      value = applyEvidence(value, {
         conceptId: 'dp/convergence',
         fingerprint: `q-${String(index)}`,
         verdict: 'pass',
@@ -161,38 +164,39 @@ test('the documented trajectory: 4 / 7 / 12 passes reach 会用 / 能讲 / 创�
         at: `${today}T10:00:00+08:00`,
       })
     }
-    return state?.mastery ?? 0
+    return value?.mastery ?? 0
   }
   assert.ok(after(3) < 0.75 && after(4) >= 0.75, '会用 needs four normal passes')
   assert.ok(after(6) < 0.85 && after(7) >= 0.85, '能讲 needs seven')
   assert.ok(after(11) < 0.95 && after(12) >= 0.95, '创新 needs twelve')
 })
 
+test('reviewOn is the day the decay crosses the threshold', () => {
+  const fresh = state({ mastery: 1, peak: 1, lastAt: `${today}T10:00:00+08:00` })
+  assert.equal(reviewOn(fresh, 0.75), addDays(today, 7), 'one half-life to lose half the gap')
+
+  const spaced = reviewedState(1, 3)
+  const later = reviewOn(spaced, 0.75)
+  assert.ok(later !== undefined && later > addDays(today, 7), 'spaced reviews push the crossing out')
+})
+
+test('retentionSafe asks the deadline, and only "at target" once it passed', () => {
+  const fresh = state({ mastery: 0.9, peak: 0.9, lastAt: `${today}T10:00:00+08:00` })
+  assert.equal(retentionSafe(fresh, 0.85, addDays(today, 31), today), false, 'would drop before the deadline')
+
+  const spaced = reviewedState(0.9, 7)
+  assert.equal(retentionSafe(spaced, 0.85, addDays(today, 31), today), true)
+
+  assert.equal(retentionSafe(fresh, 0.85, today, today), true, 'deadline day: at target now is enough')
+  assert.equal(retentionSafe(fresh, 0.85, addDays(today, -1), today), true, 'past deadline: at target now is enough')
+  assert.equal(retentionSafe(state({ mastery: 0.8, peak: 0.8 }), 0.85, addDays(today, -1), today), false)
+})
+
 test('decay halves the gap to the floor every half-life and never goes below it', () => {
-  const long = state({ mastery: 1, peak: 1, lastAt: `${addDays(today, -45)}T10:00:00+08:00` })
+  const long = state({ mastery: 1, peak: 1, lastAt: `${addDays(today, -7)}T10:00:00+08:00` })
   assert.ok(Math.abs(decayedMastery(long, today) - 0.75) < 1e-6)
-  const longer = state({ mastery: 1, peak: 1, lastAt: `${addDays(today, -450)}T10:00:00+08:00` })
+  const longer = state({ mastery: 1, peak: 1, lastAt: `${addDays(today, -70)}T10:00:00+08:00` })
   assert.ok(Math.abs(decayedMastery(longer, today) - 0.5) < 0.01)
-})
-
-test('a reached concept settles when it would outlast the horizon', () => {
-  const stable = { S: 200, D: 3, reps: 3, lapses: 0, lastRating: 4 as const }
-  const far = state({ mastery: 0.95, peak: 0.95, srs: stable })
-  const settled = settleIfDone(far, { conceptId: 'dp/convergence', horizonDays: 90, today })
-  assert.ok(settled.settledAt !== undefined)
-
-  const near = state({ mastery: 0.95, peak: 0.95, srs: { ...stable, S: 40 } })
-  assert.equal(settleIfDone(near, { conceptId: 'dp/convergence', horizonDays: 90, today }).settledAt, undefined)
-
-  const weak = state({ mastery: 0.5, peak: 0.5, srs: stable })
-  assert.equal(settleIfDone(weak, { conceptId: 'dp/convergence', horizonDays: 90, today }).settledAt, undefined)
-})
-
-test('a long deadline still settles: the calendar cap is not the gate', () => {
-  // S=400 means the reader would remember for ~400 days; the scheduled date is
-  // capped at 180, which used to make a 200-day deadline impossible to close.
-  const stable = state({ mastery: 0.95, peak: 0.95, srs: { S: 400, D: 3, reps: 3, lapses: 0, lastRating: 4 } })
-  assert.ok(settleIfDone(stable, { conceptId: 'dp/convergence', horizonDays: 200, today }).settledAt !== undefined)
 })
 
 test('an answer reopens a settled concept', () => {
@@ -206,23 +210,57 @@ test('an answer reopens a settled concept', () => {
   assert.equal(reopened.settledAt, undefined)
 })
 
-test('one answer writes the concept, its due date and the review queue', async () => {
-  await recordEvidence(paths, {
-    conceptId: 'dp/convergence',
-    fingerprint: 'q-file',
-    verdict: 'pass',
-    difficulty: 2,
-    at: `${today}T10:00:00+08:00`,
-  })
+test('the review queue waits for a point that had reached the line, then decays', async () => {
+  await rm(paths.knowledgeFile, { force: true })
+  for (let index = 0; index < 4; index += 1) {
+    await recordEvidence(paths, {
+      conceptId: 'dp/convergence',
+      fingerprint: `q-file-${String(index)}`,
+      verdict: 'pass',
+      difficulty: 2,
+      at: `${today}T10:00:00+08:00`,
+    })
+  }
   const file = await readKnowledge(paths)
   const entry = file.concepts['dp/convergence']
   assert.ok(entry !== undefined)
-  assert.ok(entry.mastery > 0.5)
-  assert.ok(entry.due !== undefined)
-  const due = dueConcepts(file, addDays(today, 30))
+  assert.ok(entry.mastery >= 0.75, 'four passes reach the 会用 line')
+  assert.equal(entry.due, undefined, 'the FSRS due field is no longer written')
+  assert.equal(dueConcepts(file, () => 0.75, today).length, 0, 'at target is not due')
+  const due = dueConcepts(file, () => 0.75, addDays(today, 30))
   assert.equal(due[0]?.conceptId, 'dp/convergence')
-  assert.equal(dueConcepts(file, today).length, 0, 'a fresh pass is not due today')
+  assert.ok((due[0]?.overdueDays ?? 0) > 0)
   assert.equal(file.concepts['dp/convergence']?.settledAt, undefined)
+})
+
+test('an at-target point is not review just because the old FSRS date arrived', () => {
+  const file = emptyKnowledge()
+  file.concepts['dp/steady'] = state({
+    mastery: 0.9,
+    peak: 0.9,
+    lastAt: `${today}T10:00:00+08:00`,
+    due: addDays(today, -2),
+  })
+  assert.equal(dueConcepts(file, () => 0.85, today).length, 0, 'the threshold, not the old date, decides')
+})
+
+test('a settled point that fell below the line still comes back for review', () => {
+  const file = emptyKnowledge()
+  file.concepts['dp/settled'] = state({
+    mastery: 0.84,
+    peak: 0.9,
+    lastAt: `${addDays(today, -2)}T10:00:00+08:00`,
+    settledAt: `${addDays(today, -2)}T10:00:00+08:00`,
+  })
+  const due = dueConcepts(file, () => 0.85, today)
+  assert.equal(due[0]?.conceptId, 'dp/settled', 'a settled mark must not hide the decay')
+  assert.equal(due[0]?.target, 0.85)
+})
+
+test('a point still in its first learning run is not review yet', () => {
+  const file = emptyKnowledge()
+  file.concepts['dp/new'] = state({ mastery: 0.59, peak: 0.59, lastAt: `${today}T10:00:00+08:00` })
+  assert.equal(dueConcepts(file, () => 0.75, addDays(today, 30)).length, 0)
 })
 
 test('section points read the ledger, the threshold and the name map together', () => {

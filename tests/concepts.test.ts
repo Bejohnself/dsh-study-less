@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { normalizeConcepts } from '../src/host/generation/normalize.ts'
+import { bestOccurrence } from '../src/core/concepts.ts'
 
 test('extracted concepts keep valid ids, drop duplicates and out-of-range pages', () => {
   const concepts = normalizeConcepts(
@@ -23,4 +24,25 @@ test('extracted concepts keep valid ids, drop duplicates and out-of-range pages'
 
 test('an empty extraction is an error, not an empty concept list', () => {
   assert.throws(() => normalizeConcepts({ concepts: [] }, { pageStart: 1, pageEnd: 2 }), /知识点/)
+})
+
+test('a due concept opens the goal section that asks for the deepest level', () => {
+  const occurrences = [
+    { material: 'm', unit: '6-1', page: 3, role: 'definition' as const },
+    { material: 'm', unit: '6-2-2', page: 7, role: 'definition' as const },
+  ]
+  const levels = new Map([
+    ['m:6-1', 2],
+    ['m:6-2-2', 3],
+  ])
+  assert.equal(
+    bestOccurrence(occurrences, occurrence => levels.get(`${occurrence.material}:${occurrence.unit}`))?.unit,
+    '6-2-2',
+    'the first occurrence is only a fallback, not the review target',
+  )
+  assert.equal(
+    bestOccurrence(occurrences, () => undefined)?.unit,
+    '6-1',
+    'no goal section carries it: keep the first occurrence',
+  )
 })
