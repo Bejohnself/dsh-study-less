@@ -55,5 +55,6 @@ DSH Web GUI 的知止插件：把目标翻译成「读哪些节、每个知识�
 | `DESIGN.md` | 产品规范；加功能前读「不做什么」 |
 | `ARCHITECTURE.md` | 模块边界、契约、失败模式、测试策略 |
 | `docs/IMPLEMENTATION.md` | 实现现状、界面分块、数据布局、页面内生成、主要 API |
+| `docs/RELEASING.md` | 发版流程、包内容白名单、2FA/staged 发布等坑 |
 | `docs/AGENT-NAV.md` | 改动导航、端点/工具速查、阅读预算、验证矩阵 |
 | `docs/AGENT-RULES.md` | 硬约束与历史包袱（双轨、术语） |

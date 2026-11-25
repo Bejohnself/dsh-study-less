@@ -1,5 +1,8 @@
 # 知止（dsh-study-less）
 
+[![npm](https://img.shields.io/npm/v/dsh-study-less?label=npm&color=cb3837)](https://www.npmjs.com/package/dsh-study-less)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 > **study less, learn more.**
 
 大部分读书工具都在催你读完，这个不是。写下一个目标（比如：能独立推导这篇论文），它把书裁成一条读得完的边界，剩下的明确标为**不需要读**。你每把一个知识点练到档位，它记一笔；全部到档、复习也排到期限之外，这个目标就结案。
@@ -11,6 +14,8 @@
 ![知识点星图](figure/星图.png)
 
 ## 安装
+
+包在 npm 上：[dsh-study-less](https://www.npmjs.com/package/dsh-study-less)。
 
 **插件版**（在 DSH 里用）：
 
@@ -91,7 +96,7 @@ npm run check        # 全量闸门：构建 + 11 项 service / http / ui 检查
 npm run typecheck    # tsc --noEmit（先 npm install）
 ```
 
-工程地图与改动导航见 [AGENTS.md](AGENTS.md)，产品规范与「不做什么」见 [DESIGN.md](DESIGN.md)，模块边界见 [ARCHITECTURE.md](ARCHITECTURE.md)，实现现状、数据布局与 API 见 [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)。
+工程地图与改动导航见 [AGENTS.md](AGENTS.md)，产品规范与「不做什么」见 [DESIGN.md](DESIGN.md)，模块边界见 [ARCHITECTURE.md](ARCHITECTURE.md)，实现现状、数据布局与 API 见 [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)，发版流程见 [docs/RELEASING.md](docs/RELEASING.md)。
 
 ## 许可
 
