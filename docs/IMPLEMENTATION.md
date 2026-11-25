@@ -70,7 +70,7 @@ library root/
 
 - 读：`/library`、`/material`、`/unit`、`/pdf`、`/today`、`/clock`、`/plans`、`/plan`、`/quiz`、`/quiz/sessions`、`/quiz/session`、`/jobs`、`/settings`、`/usage`；`/due` 属于旧账（按节 FSRS）
 - 写：`/import/url`、`/unit/complete`、`/unit/uncomplete`、`/plan/update`、`/plan/close`、`/plan/concepts`（给一节补知识点）、`/goal/create`、`/plan/create`、`/plan/delete`、`/plan/retry-chat`、`/material/archive`、`/material/delete`；`/review`、`/quiz/submit` 只服务旧账
-- 测试时钟：`/clock` 读当前偏移；`POST /clock` 推进一天，`{ reset: true }` 回到今天；只移动「今天」，不改已写入的证据时间，重启即归零。
+- 测试时钟：`/clock` 读当前偏移；`POST /clock` 推进一天，`{ reset: true }` 回到今天；只移动「今天」，不改已写入的证据时间，重启即归零。开发入口（测试时钟、`/plugin/restart`、练习里的「填正确答案 / 填错误答案」）默认不渲染，地址带 `?dev=1` 或 `localStorage["study:dev"]="1"` 才出现；端点本身不设防，这是本地单人应用。
 - 生成：`/generate/plan|unit|quiz|blocks`、`/generate/plan/retry`、`/jobs/:id/cancel`、`/settings/test`、`/plugin/restart`
 - 阅读面：`/layout`（段落几何，按页缓存到 `materials/<mid>/layout/`）、`/ask`（小窗答疑，答完即走、不落库）、`/blocks/merge`（把一块并入上一块；不提供拆分或编辑器）
 - 练习：`/quiz/session/start|answer|next|appeal|finish|reference`（`answer` 只判分，`next` 才写下一道；`start` 默认续答，`restart: true` 重开；传 `concept` 进入该知识点的到期复习；`reference` 取这一题的原文片段；`appeal` 需要 `reason`，可选 `claim` 作为读者主张，最终由 AI 重判）

@@ -12,6 +12,7 @@ import type {QuizSelfGrade} from '../../core/types.ts'
 import {errorText} from '../api.ts'
 import {InlineMarkdown, Markdown, ProgressBar} from './ui.tsx'
 import {UsageNote} from './usage.tsx'
+import {isDevMode} from '../dev.ts'
 
 export function ActiveRun({
   view,
@@ -143,15 +144,17 @@ export function ActiveRun({
             Testing shortcut: fills the answer box (reference answer or junk)
             and submits it. Grading is not bypassed.
           */}
-          <span className="study-quiz-test">
-            <span className="study-muted">测试</span>
-            <button type="button" className="study-ghost" disabled={busy} title="填入参考答案并提交" onClick={() => onFill('pass')}>
-              填正确答案
-            </button>
-            <button type="button" className="study-ghost" disabled={busy} title="填入错误答案并提交" onClick={() => onFill('fail')}>
-              填错误答案
-            </button>
-          </span>
+          {isDevMode() ? (
+            <span className="study-quiz-test">
+              <span className="study-muted">测试</span>
+              <button type="button" className="study-ghost" disabled={busy} title="填入参考答案并提交" onClick={() => onFill('pass')}>
+                填正确答案
+              </button>
+              <button type="button" className="study-ghost" disabled={busy} title="填入错误答案并提交" onClick={() => onFill('fail')}>
+                填错误答案
+              </button>
+            </span>
+          ) : null}
         </div>
       ) : (
         <div className="study-quiz-feedback">

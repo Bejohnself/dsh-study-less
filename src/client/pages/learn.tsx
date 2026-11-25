@@ -10,6 +10,7 @@ import type { MaterialCard, PlanSummary, TodayView } from '../../core/views.ts'
 import { api, errorText, post } from '../api.ts'
 import { MASCOT } from '../mascot.ts'
 import { currentSessionId, openConversation } from '../actions.ts'
+import { isDevMode } from '../dev.ts'
 import { typeLabel } from '../labels.ts'
 import { EmptyState, InlineMarkdown, Modal, ProgressBar, SubNav, Toast } from '../components/ui.tsx'
 import { ClosedGoals } from '../components/closedGoals.tsx'
@@ -190,6 +191,7 @@ function TodayPanel({
       <div className="study-today-line">
         <img className="study-today-fish" src={MASCOT.cute} alt="" />
         <span className="study-today-date">{data.date}</span>
+        {isDevMode() ? (
         <span className="study-clock">
           {data.clockOffsetDays > 0 ? (
             <span className="study-warn-text">测试时钟 +{data.clockOffsetDays} 天</span>
@@ -214,6 +216,7 @@ function TodayPanel({
           ) : null}
           {clockError !== null ? <span className="study-warn-text">{clockError}</span> : null}
         </span>
+        ) : null}
         <span className="study-today-hi">
           {data.next !== null
             ? '先从接着读开始？'

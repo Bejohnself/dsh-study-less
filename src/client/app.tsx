@@ -20,6 +20,7 @@ import { SettingsDialog } from './pages/settings.tsx'
 import { ImportDialog } from './components/import.tsx'
 import { Toast, TopNav, ThemeToggle, type TopTab } from './components/ui.tsx'
 import { api, errorText, post } from './api.ts'
+import { isDevMode } from './dev.ts'
 import type { PlanSummary, TocRow } from '../core/views.ts'
 import { PLUGIN_VERSION } from '../core/version.ts'
 
@@ -186,11 +187,11 @@ export function StudyApp(): ReactElement {
               <button type="button" className="study-ghost" onClick={() => setDialog('settings')}>
                 设置
               </button>
-              {focusMode ? null : (
+              {focusMode ? null : isDevMode() ? (
                 <button type="button" className="study-ghost" disabled={restarting} onClick={() => void restartPlugin()}>
                   {restarting ? '重启中…' : '重启插件'}
                 </button>
-              )}
+              ) : null}
               {focusMode ? null : (
                 <button type="button" className="study-primary study-primary-tight" onClick={() => void openGoal()}>
                   ＋ 新建目标
