@@ -44,6 +44,8 @@ run([
   '--jsx=automatic',
   '--define:process.env.NODE_ENV="production"',
   `--define:${define}`,
+  // No DSH host here: the settings dialog hides "复用 DSH 模型".
+  '--define:__STUDY_NO_DSH__=true',
   '--minify',
   '--log-level=warning',
   '--outfile=dist-web/app.js',

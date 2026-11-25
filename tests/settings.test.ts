@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { defaultSettings, normalizeSettings, patchSettings, settingsView } from '../src/core/settings.ts'
+import { defaultSettings, normalizeSettings, patchSettings, settingsView, usableTextKind } from '../src/core/settings.ts'
 
 test('settings mask secrets', () => {
   const settings = normalizeSettings({
@@ -20,6 +20,12 @@ test('omitted key is preserved, empty key clears it', () => {
   assert.equal(kept.text.model, 'm2')
   const cleared = patchSettings(base, { text: { apiKey: '' } })
   assert.equal(cleared.text.apiKey, undefined)
+})
+
+test('a surface without its own model cannot stay on dsh', () => {
+  assert.equal(usableTextKind('dsh', true), 'dsh')
+  assert.equal(usableTextKind('dsh', false), 'openai-compatible')
+  assert.equal(usableTextKind('openai-compatible', true), 'openai-compatible')
 })
 
 test('study preferences are clamped', () => {

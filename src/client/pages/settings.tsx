@@ -8,11 +8,19 @@ import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { SettingsView, UsageSummaryView } from '../../core/views.ts'
 import type { QuickAction } from '../../core/types.ts'
-import { MAX_QUICK_ACTIONS, QUICK_LABEL_MAX, QUICK_PROMPT_MAX } from '../../core/settings.ts'
+import { MAX_QUICK_ACTIONS, QUICK_LABEL_MAX, QUICK_PROMPT_MAX, usableTextKind } from '../../core/settings.ts'
 import { api, errorText, post } from '../api.ts'
 import { ErrorNote, Modal, THEME_STEPS, Toast, themeLabel } from '../components/ui.tsx'
 import { formatCost, formatTokens, UsageHeatmap } from '../components/usage.tsx'
 import { getPreference, setPreference as applyThemePreference, subscribePreference, type ThemePreference } from '../theme.ts'
+
+/**
+ * Web builds have no host model to borrow; the plugin build never defines this.
+ * The setting stays in the document either way, so the same library can move
+ * between the two surfaces.
+ */
+declare const __STUDY_NO_DSH__: unknown
+const HAS_HOST_MODEL = typeof __STUDY_NO_DSH__ === 'undefined' ? true : __STUDY_NO_DSH__ !== true
 
 type CapabilityKey = 'image' | 'animation' | 'embedding'
 
@@ -62,7 +70,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
       .then(value => {
         if (!alive) return
         setView(value)
-        setKind(value.text.kind)
+        setKind(usableTextKind(value.text.kind, HAS_HOST_MODEL))
         setBaseURL(value.text.baseURL ?? '')
         setApiKeyEnv(value.text.apiKeyEnv ?? '')
         setModel(value.text.model ?? '')
@@ -215,7 +223,16 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
   if (view === null) return <div className="study-empty">正在读取设置…</div>
 
   return (
-    <Modal title="知止设置" subtitle="默认复用 DSH 已配置模型；也可以为文本/图片/动画/嵌入分别指定自定义 API。" onClose={onClose} wide>
+    <Modal
+      title="知止设置"
+      subtitle={
+        HAS_HOST_MODEL
+          ? '默认复用 DSH 已配置模型；也可以为文本/图片/动画/嵌入分别指定自定义 API。'
+          : '填一个 OpenAI 兼容接口，文本生成与判分都用它；也可以为图片/动画/嵌入分别指定自定义 API。'
+      }
+      onClose={onClose}
+      wide
+    >
       <div className="study-settings">
         <section className="study-settings-section">
           <h3>外观</h3>
@@ -237,17 +254,25 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
         <section className="study-settings-section">
           <h3>文本引擎</h3>
           <p className="study-muted">
-            默认直接使用 DSH 当前模型，不需要填 key；自定义 OpenAI 兼容接口用于换模型或换供应商。
-            {view.textReady ? ' 当前可用。' : ' 当前不可用，新建目标会回退到对话。'}
+            {HAS_HOST_MODEL
+              ? '默认直接使用 DSH 当前模型，不需要填 key；自定义 OpenAI 兼容接口用于换模型或换供应商。'
+              : '文本生成与判分都走这个 OpenAI 兼容接口，没有 key 时不会回退到聊天。'}
+            {view.textReady
+              ? ' 当前可用。'
+              : HAS_HOST_MODEL
+                ? ' 当前不可用，新建目标会回退到对话。'
+                : ' 当前不可用，填好下面几项并保存后可用。'}
           </p>
-          <div className="study-segmented">
-            <button type="button" className={kind === 'dsh' ? 'is-on' : ''} onClick={() => setKind('dsh')}>
-              复用 DSH 模型
-            </button>
-            <button type="button" className={kind === 'openai-compatible' ? 'is-on' : ''} onClick={() => setKind('openai-compatible')}>
-              自定义 OpenAI 兼容
-            </button>
-          </div>
+          {HAS_HOST_MODEL ? (
+            <div className="study-segmented">
+              <button type="button" className={kind === 'dsh' ? 'is-on' : ''} onClick={() => setKind('dsh')}>
+                复用 DSH 模型
+              </button>
+              <button type="button" className={kind === 'openai-compatible' ? 'is-on' : ''} onClick={() => setKind('openai-compatible')}>
+                自定义 OpenAI 兼容
+              </button>
+            </div>
+          ) : null}
           {kind === 'openai-compatible' ? (
             <>
               <div className="study-field">

@@ -8,6 +8,7 @@
 import type {
   AnimationSettings,
   CapabilitySettings,
+  EngineKind,
   QuickAction,
   StudyPreferences,
   StudySettings,
@@ -245,6 +246,17 @@ function capabilityView(value: CapabilitySettings): SettingsView['image'] {
 export function textReady(settings: StudySettings): boolean {
   if (settings.text.kind === 'dsh') return true
   return str(settings.text.baseURL) !== undefined && str(settings.text.model) !== undefined
+}
+
+/**
+ * The text engine a surface can actually run.
+ *
+ * `dsh` borrows the host's own model; a build without that host (the web
+ * version) has nothing to borrow, so a stored `dsh` would leave it with no
+ * engine and no field to fix it.
+ */
+export function usableTextKind(kind: EngineKind, hasHostModel: boolean): EngineKind {
+  return kind === 'dsh' && !hasHostModel ? 'openai-compatible' : kind
 }
 
 /** The key a custom endpoint should use, preferring the environment variable. */
