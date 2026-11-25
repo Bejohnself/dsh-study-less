@@ -49,9 +49,6 @@ export interface SkySection {
   atTargetCount: number
   x: number
   y: number
-  /** Where the section's name sits (cell corner, clear of the scattered stars). */
-  labelX: number
-  labelY: number
   /** Star indexes that only this section needs. */
   soloStars: number[]
 }
@@ -66,8 +63,8 @@ export interface SkyMap {
   order: number[]
 }
 
-/** Stable 0..1 from an id, so jitter does not depend on render order. */
-function hash(id: string): number {
+/** Stable 0..1 from an id: jitter and animation phases must not depend on render order. */
+export function hash01(id: string): number {
   let value = 2166136261
   for (let index = 0; index < id.length; index += 1) {
     value = Math.imul(value ^ id.charCodeAt(index), 16777619)
@@ -83,9 +80,9 @@ function hash(id: string): number {
  */
 function scatterPoint(total: number, slot: number, id: string): { dx: number; dy: number } {
   const golden = 2.399963229728653
-  const angle = slot * golden + hash(id) * 0.9
+  const angle = slot * golden + hash01(id) * 0.9
   const spread = total <= 1 ? 0 : slot / (total - 1)
-  const radius = 40 + spread * 54 + (hash(`${id}:r`) - 0.5) * 8
+  const radius = 40 + spread * 54 + (hash01(`${id}:r`) - 0.5) * 8
   return { dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius }
 }
 
@@ -178,19 +175,13 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
   // ── 相邻：共用的节排在路线里相邻，星就落在它们中间 ──
   const order = layoutOrder(owners)
   const centers = sections.map(() => ({ x: 0, y: 0 }))
-  const labels = sections.map(() => ({ x: 0, y: 0 }))
   order.forEach((sectionIndex, slot) => {
     const row = Math.floor(slot / cols)
     const col = row % 2 === 0 ? slot % cols : cols - 1 - (slot % cols)
-    const drift = (hash(`section:${sections[sectionIndex]!.target}`) - 0.5) * CENTER_JITTER * 2
+    const drift = (hash01(`section:${sections[sectionIndex]!.target}`) - 0.5) * CENTER_JITTER * 2
     centers[sectionIndex] = {
       x: Math.round(SKY_PAD + col * SKY_REGION_W + SKY_REGION_W / 2 + drift),
       y: Math.round(SKY_PAD + row * SKY_REGION_H + SKY_REGION_H / 2 + drift / 2),
-    }
-    // 星散开后中心附近没法放字，标签退到格子角落。
-    labels[sectionIndex] = {
-      x: Math.round(SKY_PAD + col * SKY_REGION_W + 6),
-      y: Math.round(SKY_PAD + row * SKY_REGION_H + 16),
     }
   })
 
@@ -226,7 +217,7 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
       x += (target.x - x) * 0.06
       y += (target.y - y) * 0.06
     }
-    const angle = hash(star.id) * Math.PI * 2
+    const angle = hash01(star.id) * Math.PI * 2
     star.x = x + Math.cos(angle) * 6
     star.y = y + Math.sin(angle) * 6
   }
@@ -278,8 +269,6 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
     atTargetCount: section.conceptStates.filter(state => state.atTarget).length,
     x: centers[index]!.x,
     y: centers[index]!.y,
-    labelX: labels[index]!.x,
-    labelY: labels[index]!.y,
     soloStars: stars.map((star, starIndex) => (star.sections.length === 1 && star.sections[0] === index ? starIndex : -1)).filter(starIndex => starIndex >= 0),
   }))
 

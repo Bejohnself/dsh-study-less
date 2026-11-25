@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { SKY_MAIN_R, buildMasterySky } from '../masterySky.ts'
+import { SKY_MAIN_R, buildMasterySky, hash01 } from '../masterySky.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -174,31 +174,110 @@ function fiveStarPath(x: number, y: number, r: number): string {
   return `M${points.join(' L')} Z`
 }
 
-/** SVG text has no ellipsis; keep long section titles from running into the next cluster. */
-function clipTitle(title: string): string {
-  return title.length > 11 ? `${title.slice(0, 11)}…` : title
+/** Rough width of a tooltip line in SVG units at 11px. */
+function textWidth(value: string): number {
+  let width = 0
+  for (const char of value) width += /[\u3000-\u9fff\uff00-\uffef]/u.test(char) ? 11.5 : 6.4
+  return width
+}
+
+type SkyHover = { kind: 'star'; index: number } | { kind: 'section'; index: number }
+
+/** Hover card drawn inside the SVG, so it scales and positions with the map. */
+function SkyTooltip({
+  cx,
+  cy,
+  r,
+  lines,
+  mapWidth,
+}: {
+  cx: number
+  cy: number
+  r: number
+  lines: string[]
+  mapWidth: number
+}): ReactElement {
+  const width = Math.min(mapWidth - 8, Math.max(96, ...lines.map(textWidth)) + 20)
+  const height = lines.length * 14 + 12
+  const above = cy - r - 10 - height
+  const top = above < 6 ? cy + r + 10 : above
+  const x = Math.min(mapWidth - width / 2 - 4, Math.max(width / 2 + 4, cx))
+  return (
+    <g className="study-sky-tip" pointerEvents="none">
+      <rect x={x - width / 2} y={top} width={width} height={height} rx={5} />
+      {lines.map((line, index) => (
+        <text
+          key={`${String(index)}-${line}`}
+          className={index === 0 ? 'study-sky-tip-name' : 'study-sky-tip-meta'}
+          x={x}
+          y={top + 16 + index * 14}
+          textAnchor="middle"
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  )
 }
 
 /**
  * The goal's knowledge sky: one map, one constellation per section.
  *
- * Brightness carries mastery and nothing else is coloured, so a glance answers
- * "how much is still dim". Copied stars keep a dashed ring, and a dashed line
- * joins the copies of a shared concept.
+ * Nothing is labelled until hovered: the map stays a sky, and the detail shows
+ * up where the pointer is. Brightness still carries mastery and nothing else is
+ * coloured; the slow drift is decoration, switched off for reduced motion.
  */
 export function MasterySky({ sections }: { sections: readonly PlanSectionView[] }): ReactElement {
+  const [hover, setHover] = useState<SkyHover | null>(null)
   const map = useMemo(() => buildMasterySky(sections), [sections])
   if (map.sections.length === 0) {
     return <p className="study-muted">还没有知识点目标。切到文字视图逐节补，或重新生成一次路径。</p>
   }
   const atTargetSections = map.sections.filter(section => section.atTarget).length
+  const level = (value: number): string => LEVEL_LABEL[value] ?? '会用'
+
+  let tip: { cx: number; cy: number; r: number; lines: string[] } | null = null
+  if (hover?.kind === 'star') {
+    const star = map.stars[hover.index]
+    if (star !== undefined) {
+      const pct = Math.round(Math.max(0, Math.min(1, star.mastery)) * 100)
+      const firstSection = star.sections[0]
+      const home = firstSection === undefined ? '' : (map.sections[firstSection]?.title ?? '')
+      tip = {
+        cx: star.x,
+        cy: star.y,
+        r: star.r,
+        lines: [
+          star.name,
+          `掌握 ${String(pct)}% · 目标 ${String(Math.round(star.threshold * 100))}%`,
+          star.sections.length > 1 ? `${home} 等 ${String(star.sections.length)} 节共用` : home,
+        ],
+      }
+    }
+  } else if (hover?.kind === 'section') {
+    const section = map.sections[hover.index]
+    if (section !== undefined) {
+      tip = {
+        cx: section.x,
+        cy: section.y,
+        r: SKY_MAIN_R,
+        lines: [
+          section.title,
+          `${level(section.level)} · ${section.conceptCount === 0 ? '未挂知识点' : `${String(section.atTargetCount)}/${String(section.conceptCount)} 到档`}`,
+          `掌握 ${String(Math.round(Math.max(0, Math.min(1, section.mastery)) * 100))}%`,
+        ],
+      }
+    }
+  }
+
   return (
     <div className="study-sky">
       <svg
         className="study-sky-map"
         viewBox={`0 0 ${String(map.width)} ${String(map.height)}`}
         role="img"
-        aria-label={`知识点星图：${String(atTargetSections)}/${String(map.sections.length)} 节到档，${String(map.stars.length)} 颗星`}
+        aria-label={`知识点星图：${String(atTargetSections)}/${String(map.sections.length)} 节到档，${String(map.stars.length)} 颗星；悬停星星看细节`}
+        onMouseLeave={() => setHover(null)}
       >
         <defs>
           <radialGradient id="study-sky-glow">
@@ -206,22 +285,29 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
             <stop offset="100%" className="study-sky-glow-stop" stopOpacity={0} />
           </radialGradient>
         </defs>
-        {map.sections.map(section => (
-          <g key={section.target}>
-            <text className="study-sky-title-text" x={section.labelX} y={section.labelY}>
-              {clipTitle(section.title)}
-            </text>
-            <text className="study-sky-count-text" x={section.labelX} y={section.labelY + 14}>
-              {section.conceptCount === 0 ? '未挂' : `${String(section.atTargetCount)}/${String(section.conceptCount)} 到档`}
-            </text>
-            <circle
-              className="study-sky-main-glow"
-              cx={section.x}
-              cy={section.y}
-              r={SKY_MAIN_R * 3.4}
-              fill="url(#study-sky-glow)"
-              opacity={0.25 + section.mastery * 0.5}
-            />
+        {map.sections.map((section, index) => (
+          <g
+            key={section.target}
+            className="study-sky-section"
+            tabIndex={0}
+            role="img"
+            aria-label={`${section.title}，${level(section.level)}，${String(section.atTargetCount)}/${String(section.conceptCount)} 到档`}
+            onMouseEnter={() => setHover({ kind: 'section', index })}
+            onMouseLeave={() => setHover(null)}
+            onFocus={() => setHover({ kind: 'section', index })}
+            onBlur={() => setHover(null)}
+          >
+            <g className="study-sky-breathe" style={{ animationDelay: `${(hash01(`section:${section.target}`) * 6).toFixed(2)}s` }}>
+              <circle
+                className="study-sky-main-glow"
+                cx={section.x}
+                cy={section.y}
+                r={SKY_MAIN_R * 3.4}
+                fill="url(#study-sky-glow)"
+                opacity={0.25 + section.mastery * 0.5}
+              />
+            </g>
+            <circle className="study-sky-hit" cx={section.x} cy={section.y} r={SKY_MAIN_R + 8} />
             <path
               className="study-sky-main-shape"
               d={fiveStarPath(section.x, section.y, SKY_MAIN_R)}
@@ -229,36 +315,45 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
             />
           </g>
         ))}
-        {map.stars.map(star => {
-          const pct = Math.round(Math.max(0, Math.min(1, star.mastery)) * 100)
-          const label = `${star.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(star.threshold * 100))}%${star.sections.length > 1 ? ` · ${String(star.sections.length)} 节共用` : ''}`
-          return (
-            <g key={star.id}>
-              <circle
-                className="study-sky-star-glow"
-                cx={star.x}
-                cy={star.y}
-                r={star.r * 3}
-                fill="url(#study-sky-glow)"
-                opacity={0.12 + star.mastery * 0.5}
-              />
-              <path
-                className={'study-sky-star-shape' + (star.sections.length > 1 ? ' is-shared' : '')}
-                d={
-                  star.sections.length > 1
-                    ? multiStarPath(star.x, star.y, star.r * 1.15)
-                    : sparklePath(star.x, star.y, star.r)
-                }
-                opacity={0.35 + star.mastery * 0.65}
-              >
-                <title>{label}</title>
-              </path>
-            </g>
-          )
-        })}
+        {map.stars.map((star, index) => (
+          <g
+            key={star.id}
+            className={'study-sky-star' + (hover?.kind === 'star' && hover.index === index ? ' is-hot' : '')}
+            style={{ animationDelay: `${(hash01(star.id) * 9).toFixed(2)}s` }}
+            tabIndex={0}
+            role="img"
+            aria-label={`${star.name}，掌握 ${String(Math.round(Math.max(0, Math.min(1, star.mastery)) * 100))}%`}
+            onMouseEnter={() => setHover({ kind: 'star', index })}
+            onMouseLeave={() => setHover(null)}
+            onFocus={() => setHover({ kind: 'star', index })}
+            onBlur={() => setHover(null)}
+          >
+            <circle
+              className="study-sky-star-glow"
+              cx={star.x}
+              cy={star.y}
+              r={star.r * 3}
+              fill="url(#study-sky-glow)"
+              opacity={0.12 + star.mastery * 0.5}
+            />
+            <circle className="study-sky-hit" cx={star.x} cy={star.y} r={Math.max(star.r + 8, 11)} />
+            <path
+              className={'study-sky-star-shape' + (star.sections.length > 1 ? ' is-shared' : '')}
+              d={
+                star.sections.length > 1
+                  ? multiStarPath(star.x, star.y, star.r * 1.15)
+                  : sparklePath(star.x, star.y, star.r)
+              }
+              opacity={0.35 + star.mastery * 0.65}
+            />
+          </g>
+        ))}
+        {tip === null ? null : (
+          <SkyTooltip cx={tip.cx} cy={tip.cy} r={tip.r} lines={tip.lines} mapWidth={map.width} />
+        )}
       </svg>
       <p className="study-sky-legend">
-        越亮，掌握越牢；大星跟着这一节最暗的那颗星。共用同一个知识点的节挨在一起，六角星就是几节共用的那颗。
+        越亮，掌握越牢；大星跟着这一节最暗的那颗星。共用同一个知识点的节挨在一起，六角星就是几节共用的那颗。悬停星星看细节。
       </p>
     </div>
   )

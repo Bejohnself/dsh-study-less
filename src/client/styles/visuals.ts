@@ -83,10 +83,47 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
 [data-dsh-study] .study-route-legend { margin: 2px 0 0; font-size: 11.5px; color: var(--s-faint); }
 [data-dsh-study] .study-sky { margin-top: 10px; }
 /* 一张图：宽就跟着容器缩，不另开滚动条。 */
-[data-dsh-study] .study-sky-map { display: block; width: 100%; height: auto; border-radius: 6px; background: radial-gradient(120% 90% at 18% 0%, color-mix(in srgb, var(--s-primary) 6%, transparent), transparent 62%); }
+[data-dsh-study] .study-sky-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  background:
+    radial-gradient(90% 80% at 22% 8%, color-mix(in srgb, var(--s-primary) 7%, transparent), transparent 62%),
+    radial-gradient(80% 70% at 82% 88%, color-mix(in srgb, var(--s-primary) 5%, transparent), transparent 58%);
+  background-size: 170% 160%;
+  animation: study-sky-drift-bg 28s ease-in-out infinite alternate;
+}
+/* 星星慢慢飘，像真的夜空；每颗延迟不同，免得齐步走。 */
+@keyframes study-sky-float {
+  0% { transform: translate(0, 0); }
+  55% { transform: translate(1.4px, -2px); }
+  100% { transform: translate(0, 0); }
+}
+[data-dsh-study] .study-sky-star,
+[data-dsh-study] .study-sky-breathe { transform-box: fill-box; transform-origin: center; }
+[data-dsh-study] .study-sky-star { animation: study-sky-float 12s ease-in-out infinite; }
+[data-dsh-study] .study-sky-breathe { animation: study-sky-breathe 7s ease-in-out infinite alternate; }
+@keyframes study-sky-breathe {
+  from { transform: scale(.94); }
+  to { transform: scale(1.08); }
+}
+@keyframes study-sky-drift-bg {
+  from { background-position: 12% 6%; }
+  to { background-position: 78% 92%; }
+}
+[data-dsh-study] .study-sky-star:hover,
+[data-dsh-study] .study-sky-section:hover { cursor: default; }
+[data-dsh-study] .study-sky-star.is-hot .study-sky-hit { stroke: color-mix(in srgb, var(--s-primary) 35%, transparent); }
+[data-dsh-study] .study-sky-hit { fill: transparent; stroke: transparent; stroke-width: 1; }
+[data-dsh-study] .study-sky-tip rect {
+  fill: var(--s-surface);
+  stroke: var(--s-border-strong);
+  stroke-width: 1;
+}
+[data-dsh-study] .study-sky-tip-name { font-size: 11.5px; font-weight: 650; fill: var(--s-text); }
+[data-dsh-study] .study-sky-tip-meta { font-size: 10.5px; fill: var(--s-muted); }
 [data-dsh-study] .study-sky-glow-stop { stop-color: var(--s-primary); }
-[data-dsh-study] .study-sky-title-text { font-size: 12px; font-weight: 600; fill: var(--s-text); paint-order: stroke; stroke: var(--s-surface); stroke-width: 3px; stroke-linejoin: round; }
-[data-dsh-study] .study-sky-count-text { font-size: 11px; fill: var(--s-muted); font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--s-surface); stroke-width: 3px; stroke-linejoin: round; }
 [data-dsh-study] .study-sky-star-shape,
 [data-dsh-study] .study-sky-main-shape { fill: var(--s-primary); }
 [data-dsh-study] .study-sky-star-shape.is-shared { fill: color-mix(in srgb, var(--s-primary) 80%, var(--s-text)); }
@@ -111,6 +148,9 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
   /* 状态仍由文字说明，动画只是装饰 */
   [data-dsh-study] .study-spine,
   [data-dsh-study] .study-spine-fill,
+  [data-dsh-study] .study-sky-star,
+  [data-dsh-study] .study-sky-breathe,
+  [data-dsh-study] .study-sky-map,
   [data-dsh-study] .study-mascot,
   [data-dsh-study] .study-sprite,
   [data-dsh-study] .study-cover-ghost,

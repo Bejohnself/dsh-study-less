@@ -103,6 +103,10 @@ if (row.options.id !== 'study-desk' || page.options.key !== 'study-desk') {
   throw new Error('panel ids disagree')
 }
 
+// 星图的细节只在悬停时出现：常驻标签既挤又不好看。
+if (!/study-sky-tip/u.test(source)) throw new Error('sky has no hover tooltip')
+if (/study-sky-title-text/u.test(source)) throw new Error('sky still prints section names permanently')
+
 // 星图不再用虚线圈/绿框标状态：形状分共用，亮度分掌握。圆环会把它画成原子模型。
 if (/study-sky-(shared|target)-ring/u.test(source)) {
   throw new Error('sky status rings came back (dashed/at-target circles)')
