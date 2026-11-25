@@ -11,6 +11,32 @@
 **改代码前先读 [AGENTS.md](AGENTS.md)——工程地图、改动导航、验证矩阵与阅读预算。**
 **面向读者的文字怎么说，见 [DESIGN.md](DESIGN.md)「文案口径」。**
 
+## 安装
+
+**插件版**（在 DSH 里用，侧栏出现「知止」）：
+
+```bash
+dsh plugin --profile web add dsh-study-less
+dsh --profile web          # 重启后生效
+```
+
+**独立网页版**（不用 DSH，只开一个本机页面）：
+
+```bash
+npx dsh-study-less         # → http://127.0.0.1:7801
+```
+
+数据默认在 `~/.zhizhi`（`STUDY_DATA_ROOT` 可改），和插件的 `$DSH_HOME/study` 互不影响；只监听 `127.0.0.1`。
+
+**从源码**：
+
+```bash
+git clone https://github.com/Bejohnself/dsh-study-less.git && cd dsh-study-less
+npm install && npm run build && npm run build:web
+```
+
+首次打开任意一种，先去「设置 → 文本引擎」填一个 OpenAI 兼容接口的 Base URL、模型名与 Key；插件版也可以直接勾「复用 DSH 模型」。Key 只写本机 `settings.json`（0600），不会上传。
+
 ## 主链路（知识点空间）
 
 当前主回路围绕「知识点」组织：目标决定**学哪些节**和**每个点学到什么程度**，读书与做题只负责更新知识点状态，复习按到期把状态拉回来，全部达标且不再需要复习时结案。
@@ -170,3 +196,7 @@ node scripts/build-mascot.mjs                # 从 figure/ 的圆形头像重建
 检查脚本按用途分在 `scripts/checks/`：`service/`（服务层端到端，stub 引擎）、`http/`（路由契约）、`ui/`（构建产物、Markdown、文案口径）、`adhoc/`（样本排查）。临时库统一落在 `.tmp/checks/`（git 忽略），`npm run check` 成功后会清掉。
 
 构建产物在 `lib/`（git 忽略）。插件通过 profile 的 `link:` 安装，改完 Host 后需要重载插件或重启 Host；Client 改动重新 build 后刷新页面。
+
+## 许可
+
+MIT，见 [LICENSE](LICENSE)。随包分发的第三方运行时：pdf.js（Apache-2.0）、KaTeX（MIT）、marked（MIT），许可原文在 `vendor/*/LICENSE`。`tests/fixtures/attention.pdf` 是 arXiv 论文样张，只给检查脚本当输入，不进 npm 包。

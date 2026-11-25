@@ -82,7 +82,7 @@ host 侧已经没有需要整读的文件：改接口先开 `routes/<域>.ts`，
 
 - `lib/`：构建产物；改了会被覆盖。验证 Client 用 `check-client`。
 - `vendor/`、`tooling/`：第三方运行时（pdf.js / marked / katex）与 esbuild，升级另开任务。`vendor/pdfjs/types/` 与两个 `.d.mts` 只是类型声明，跟着上游版本更新即可。
-- `samples/attention.pdf`：2.2MB 样张，只用于检查脚本。
+- `tests/fixtures/attention.pdf`：2.2MB 检查用样张（arXiv 原文件），只给 `check` 与 pdf worker 测试当输入，不进 npm 包。
 - `.tmp/`：检查脚本的临时库，可随时删。
 - 不要为了“看看现状”跑全量 `check`；先 `npm test`，再按下面「验证矩阵」挑一项。
 - 不要用 `grep -rn` / `find` 找“这个功能在哪”：先按本页的端点速查、工具速查、域索引定位文件。

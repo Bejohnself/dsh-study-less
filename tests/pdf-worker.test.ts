@@ -36,7 +36,7 @@ test('bundled PDF extraction finds its Node worker', async () => {
   await cp(`${root}/vendor/pdfjs/pdf.worker.mjs`, `${out}/pdfjs/pdf.worker.mjs`)
 
   const { extractPdf } = await import(pathToFileURL(`${out}/chunk.mjs`).href)
-  const data = new Uint8Array(await readFile(`${root}/samples/attention.pdf`))
+  const data = new Uint8Array(await readFile(`${root}/tests/fixtures/attention.pdf`))
   const result = await extractPdf(data)
 
   assert.ok(result.numPages > 0)

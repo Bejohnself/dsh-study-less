@@ -1,8 +1,32 @@
 {
   "name": "dsh-study-less",
   "version": "0.8.3",
-  "private": true,
   "description": "DSH study desk: knowledge base, learning paths with inline generation, spaced review and distilled insights",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "study",
+    "spaced-repetition",
+    "pdf"
+  ],
+  "files": [
+    "lib",
+    "dist-web",
+    "icon.svg",
+    "cordis.patch.yml"
+  ],
+  "bin": {
+    "dsh-study-less": "./web/cli.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bejohnself/dsh-study-less.git"
+  },
+  "homepage": "https://github.com/Bejohnself/dsh-study-less#readme",
+  "bugs": {
+    "url": "https://github.com/Bejohnself/dsh-study-less/issues"
+  },
   "icon": "icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -37,11 +61,20 @@
     "test": "node --test tests/*.test.ts",
     "check": "node scripts/checks/all.mjs",
     "check:docs": "node scripts/check-docs.mjs",
-    "pretest": "node scripts/check-docs.mjs"
+    "pretest": "node scripts/check-docs.mjs",
+    "prepublishOnly": "npm run build && npm run build:web"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh": ">=0.2.2-rc.1 <0.3.0-0",
     "react": "^18.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
   },
   "pnpm": {
     "onlyBuiltDependencies": [

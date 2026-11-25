@@ -13,7 +13,7 @@ import { makeStudyRoutes } from '../../../src/host/routes.ts'
 const root = fileURLToPath(new URL('../../../.tmp/checks/pdf-route', import.meta.url))
 await rm(root, { recursive: true, force: true })
 const service = new StudyService(new LibraryPaths(root))
-const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
+const imported = await service.import({ filePath: fileURLToPath(new URL('../../../tests/fixtures/attention.pdf', import.meta.url)) })
 const mid = imported.manifest.id
 const routes = makeStudyRoutes(service)
 const server = createServer((req, res) => {

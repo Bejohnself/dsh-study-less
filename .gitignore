@@ -15,3 +15,5 @@ lib/
 figure/out/
 .archify/
 dist-web/
+*.tsbuildinfo
+.DS_Store

@@ -8,7 +8,7 @@ import { emptyKnowledge, writeKnowledge } from '../../../src/core/knowledge.ts'
 const root = fileURLToPath(new URL('../../../.tmp/checks/service', import.meta.url))
 await rm(root, { recursive: true, force: true })
 const service = new StudyService(new LibraryPaths(root))
-const result = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
+const result = await service.import({ filePath: fileURLToPath(new URL('../../../tests/fixtures/attention.pdf', import.meta.url)) })
 console.log('imported:', result.manifest.id, result.manifest.type, 'pages', result.manifest.source.pages, 'units', result.manifest.structure.length)
 console.log('warnings:', result.warnings)
 console.log('first units:', result.manifest.structure.slice(0, 5).map(n => `${n.uid}(${n.pageStart}-${n.pageEnd})`).join(', '))

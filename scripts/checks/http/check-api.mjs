@@ -92,7 +92,7 @@ const fake = {
 await settings.patch({ text: { kind: 'dsh', model: 'fake' }, study: { autoQuiz: true, autoInsight: true } })
 const generation = new GenerationService(paths, { service, insights, settings, jobs, books, usage, textProvider: () => fake })
 const quizSessions = new QuizSessionService(paths, service, generation)
-const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
+const imported = await service.import({ filePath: fileURLToPath(new URL('../../../tests/fixtures/attention.pdf', import.meta.url)) })
 mid = imported.manifest.id
 const node = imported.manifest.structure.find(candidate => candidate.kind === 'section') ?? imported.manifest.structure[0]
 uid = node.uid

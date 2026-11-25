@@ -14,7 +14,7 @@ import { QuizSessionService } from '../../../src/host/quizSessions.ts'
 const root = fileURLToPath(new URL('../../../.tmp/checks/plan', import.meta.url))
 await rm(root, { recursive: true, force: true })
 const service = new StudyService(new LibraryPaths(root))
-const imported = await service.import({ filePath: fileURLToPath(new URL('../../../samples/attention.pdf', import.meta.url)) })
+const imported = await service.import({ filePath: fileURLToPath(new URL('../../../tests/fixtures/attention.pdf', import.meta.url)) })
 const mid = imported.manifest.id
 const state = await service.materialState(mid)
 const sections = state.toc.filter(row => row.kind === 'section').slice(0, 3)
