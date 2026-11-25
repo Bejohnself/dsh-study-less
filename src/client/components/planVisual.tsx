@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { SKY_BOX, SKY_CENTER, SKY_MAIN_R, buildMasterySky } from '../masterySky.ts'
+import { SKY_MAIN_R, SKY_REGION_H, SKY_REGION_W, buildMasterySky } from '../masterySky.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -146,89 +146,139 @@ export function RouteMap({
   )
 }
 
-/** Glow of a small star: brightness is mastery, nothing else. */
-function starGlow(mastery: number): string {
-  const size = 1.5 + mastery * 5
-  return `0 0 ${size.toFixed(1)}px ${(size / 2).toFixed(1)}px color-mix(in srgb, var(--s-primary) ${String(Math.round(35 + mastery * 55))}%, transparent)`
+/** A four-point sparkle: the shape reads as a star at 4px wide. */
+function sparklePath(x: number, y: number, r: number): string {
+  const waist = r * 0.2
+  return `M${x} ${y - r} L${x + waist} ${y - waist} L${x + r} ${y} L${x + waist} ${y + waist} L${x} ${y + r} L${x - waist} ${y + waist} L${x - r} ${y} L${x - waist} ${y - waist} Z`
 }
 
-/** Glow of the main star: it faces the section's weakest concept. */
-function mainGlow(mastery: number): string {
-  return `0 0 ${(8 + mastery * 16).toFixed(0)}px ${(3 + mastery * 5).toFixed(0)}px color-mix(in srgb, var(--s-primary) ${String(Math.round(20 + mastery * 45))}%, transparent)`
+/** The section's own star: a five-point star, so it never reads as a dot. */
+function fiveStarPath(x: number, y: number, r: number): string {
+  const points: string[] = []
+  for (let index = 0; index < 10; index += 1) {
+    const radius = index % 2 === 0 ? r : r * 0.45
+    const angle = -Math.PI / 2 + (index * Math.PI) / 5
+    points.push(`${(x + Math.cos(angle) * radius).toFixed(2)} ${(y + Math.sin(angle) * radius).toFixed(2)}`)
+  }
+  return `M${points.join(' L')} Z`
+}
+
+/** SVG text has no ellipsis; keep long section titles from running into the next cluster. */
+function clipTitle(title: string): string {
+  return title.length > 11 ? `${title.slice(0, 11)}…` : title
 }
 
 /**
- * The goal's knowledge sky: one cluster per section, one star per concept.
+ * The goal's knowledge sky: one map, one constellation per section.
  *
  * Brightness carries mastery and nothing else is coloured, so a glance answers
- * "how much is still dim". Shared concepts keep a dashed ring, because the same
- * star rises in every section that needs it.
+ * "how much is still dim". Copied stars keep a dashed ring, and a dashed line
+ * joins the copies of a shared concept.
  */
 export function MasterySky({ sections }: { sections: readonly PlanSectionView[] }): ReactElement {
-  const clusters = useMemo(() => buildMasterySky(sections), [sections])
-  if (clusters.length === 0) {
+  const map = useMemo(() => buildMasterySky(sections), [sections])
+  if (map.sections.length === 0) {
     return <p className="study-muted">还没有知识点目标。切到文字视图逐节补，或重新生成一次路径。</p>
   }
+  const atTargetSections = map.sections.filter(section => section.atTarget).length
   return (
     <div className="study-sky">
-      <div className="study-sky-grid">
-        {clusters.map(cluster => (
-          <div key={cluster.target} className={'study-sky-cluster' + (cluster.atTarget ? ' is-passed' : '')}>
-            <div className="study-sky-head">
-              <span className="study-sky-title" title={`${cluster.title} · ${LEVEL_LABEL[cluster.level]}`}>
-                {cluster.title}
-              </span>
-              <span className="study-sky-meta">
-                {cluster.conceptCount === 0 ? '未挂' : `${String(cluster.atTargetCount)}/${String(cluster.conceptCount)}`}
-              </span>
-            </div>
-            <div
-              className="study-sky-field"
-              style={{ width: `${SKY_BOX}px`, height: `${SKY_BOX}px` }}
-              role="img"
-              aria-label={`${cluster.title}，${LEVEL_LABEL[cluster.level]}，${cluster.conceptCount === 0 ? '未挂知识点' : `${String(cluster.atTargetCount)}/${String(cluster.conceptCount)} 个概念到档`}`}
+      <svg
+        className="study-sky-map"
+        viewBox={`0 0 ${String(map.width)} ${String(map.height)}`}
+        role="img"
+        aria-label={`知识点星图：${String(atTargetSections)}/${String(map.sections.length)} 节到档，${String(map.stars.length)} 颗星`}
+      >
+        <defs>
+          <radialGradient id="study-sky-glow">
+            <stop offset="0%" className="study-sky-glow-stop" stopOpacity={0.55} />
+            <stop offset="100%" className="study-sky-glow-stop" stopOpacity={0} />
+          </radialGradient>
+        </defs>
+        {map.links.map(link => {
+          const from = map.stars[link.from]
+          const to = map.stars[link.to]
+          if (from === undefined || to === undefined) return null
+          return (
+            <line
+              key={`${link.concept}-${String(link.from)}-${String(link.to)}`}
+              className="study-sky-link"
+              x1={from.x}
+              y1={from.y}
+              x2={to.x}
+              y2={to.y}
+            />
+          )
+        })}
+        {map.sections.map(section => (
+          <g key={section.target}>
+            <text
+              className="study-sky-title-text"
+              x={section.x - SKY_REGION_W / 2 + 8}
+              y={section.y - SKY_REGION_H / 2 + 14}
             >
-              <span
-                className="study-sky-main"
-                style={{
-                  left: `${SKY_CENTER - SKY_MAIN_R}px`,
-                  top: `${SKY_CENTER - SKY_MAIN_R}px`,
-                  width: `${SKY_MAIN_R * 2}px`,
-                  height: `${SKY_MAIN_R * 2}px`,
-                  opacity: `${0.3 + cluster.mastery * 0.7}`,
-                  boxShadow: mainGlow(cluster.mastery),
-                }}
-              />
-              {cluster.stars.length === 0 ? <span className="study-sky-empty">未挂知识点</span> : null}
-              {cluster.stars.map(star => {
-                const pct = Math.round(Math.max(0, Math.min(1, star.mastery)) * 100)
-                const label = `${star.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(star.threshold * 100))}%${star.sections.length > 1 ? ` · ${String(star.sections.length)} 节共用` : ''}`
-                return (
-                  <span
-                    key={star.id}
-                    className={
-                      'study-sky-star' +
-                      (star.sections.length > 1 ? ' is-shared' : '') +
-                      (star.atTarget ? ' is-on' : '')
-                    }
-                    style={{
-                      left: `${star.x - star.r}px`,
-                      top: `${star.y - star.r}px`,
-                      width: `${star.r * 2}px`,
-                      height: `${star.r * 2}px`,
-                      opacity: `${0.35 + star.mastery * 0.65}`,
-                      boxShadow: starGlow(star.mastery),
-                    }}
-                    title={label}
-                  />
-                )
-              })}
-            </div>
-          </div>
+              {clipTitle(section.title)}
+            </text>
+            <text
+              className="study-sky-count-text"
+              x={section.x + SKY_REGION_W / 2 - 8}
+              y={section.y - SKY_REGION_H / 2 + 14}
+              textAnchor="end"
+            >
+              {section.conceptCount === 0 ? '未挂' : `${String(section.atTargetCount)}/${String(section.conceptCount)}`}
+            </text>
+            <circle
+              className="study-sky-nebula"
+              cx={section.x}
+              cy={section.y}
+              r={SKY_MAIN_R * 9}
+              fill="url(#study-sky-glow)"
+              opacity={0.35}
+            />
+            <circle
+              className="study-sky-main-glow"
+              cx={section.x}
+              cy={section.y}
+              r={SKY_MAIN_R * 3.4}
+              fill="url(#study-sky-glow)"
+              opacity={0.25 + section.mastery * 0.5}
+            />
+            <path
+              className="study-sky-main-shape"
+              d={fiveStarPath(section.x, section.y, SKY_MAIN_R)}
+              opacity={0.35 + section.mastery * 0.65}
+            />
+            {section.atTarget ? (
+              <circle className="study-sky-target-ring" cx={section.x} cy={section.y} r={SKY_MAIN_R + 4} />
+            ) : null}
+          </g>
         ))}
-      </div>
+        {map.stars.map(star => {
+          const pct = Math.round(Math.max(0, Math.min(1, star.mastery)) * 100)
+          const label = `${star.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(star.threshold * 100))}%${star.sections.length > 1 ? ` · ${String(star.sections.length)} 节共用` : ''}`
+          return (
+            <g key={`${String(star.section)}-${star.id}`}>
+              <circle
+                className="study-sky-star-glow"
+                cx={star.x}
+                cy={star.y}
+                r={star.r * 3}
+                fill="url(#study-sky-glow)"
+                opacity={0.12 + star.mastery * 0.5}
+              />
+              <path className="study-sky-star-shape" d={sparklePath(star.x, star.y, star.r)} opacity={0.35 + star.mastery * 0.65}>
+                <title>{label}</title>
+              </path>
+              {star.sections.length > 1 ? (
+                <circle className="study-sky-shared-ring" cx={star.x} cy={star.y} r={star.r + 3.5} />
+              ) : null}
+              {star.atTarget ? <circle className="study-sky-target-ring" cx={star.x} cy={star.y} r={star.r + 2} /> : null}
+            </g>
+          )
+        })}
+      </svg>
       <p className="study-sky-legend">
-        越亮，掌握越牢；大星跟着这一节最暗的那颗星。带虚线圈的小星，是几节共用的知识点。
+        越亮，掌握越牢；大星跟着这一节最暗的那颗星。带虚线圈的小星是几节共用的，虚线把它的几份连起来。
       </p>
     </div>
   )

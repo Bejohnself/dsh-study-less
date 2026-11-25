@@ -82,27 +82,16 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
 }
 [data-dsh-study] .study-route-legend { margin: 2px 0 0; font-size: 11.5px; color: var(--s-faint); }
 [data-dsh-study] .study-sky { margin-top: 10px; }
-[data-dsh-study] .study-sky-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 10px; }
-[data-dsh-study] .study-sky-cluster {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px 8px;
-  border: 1px solid var(--s-border);
-  border-radius: 4px;
-  background: var(--s-surface);
-}
-[data-dsh-study] .study-sky-cluster.is-passed { border-color: color-mix(in srgb, var(--s-success) 55%, var(--s-border)); }
-[data-dsh-study] .study-sky-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
-[data-dsh-study] .study-sky-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--s-text); }
-[data-dsh-study] .study-sky-meta { flex: none; font-size: 11px; color: var(--s-muted); font-variant-numeric: tabular-nums; }
-/* 星空只在中间有一层很淡的底，亮度全靠星自己。 */
-[data-dsh-study] .study-sky-field { position: relative; margin: 0 auto; border-radius: 50%; background: radial-gradient(circle at 50% 46%, color-mix(in srgb, var(--s-primary) 7%, transparent), transparent 68%); }
-[data-dsh-study] .study-sky-main { position: absolute; border-radius: 50%; background: var(--s-primary); }
-[data-dsh-study] .study-sky-star { position: absolute; border-radius: 50%; background: var(--s-primary); }
-[data-dsh-study] .study-sky-star.is-on { outline: 1px solid color-mix(in srgb, var(--s-success) 60%, transparent); outline-offset: 1px; }
-[data-dsh-study] .study-sky-star.is-shared::after { content: ''; position: absolute; inset: -3px; border: 1px dashed color-mix(in srgb, var(--s-primary) 45%, transparent); border-radius: 50%; }
-[data-dsh-study] .study-sky-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11.5px; color: var(--s-faint); }
+/* 一张图：宽就跟着容器缩，不另开滚动条。 */
+[data-dsh-study] .study-sky-map { display: block; width: 100%; height: auto; }
+[data-dsh-study] .study-sky-glow-stop { stop-color: var(--s-primary); }
+[data-dsh-study] .study-sky-link { stroke: var(--s-border-strong); stroke-width: 1; stroke-dasharray: 3 4; opacity: .35; }
+[data-dsh-study] .study-sky-title-text { font-size: 12px; font-weight: 600; fill: var(--s-text); }
+[data-dsh-study] .study-sky-count-text { font-size: 11px; fill: var(--s-muted); font-variant-numeric: tabular-nums; }
+[data-dsh-study] .study-sky-star-shape,
+[data-dsh-study] .study-sky-main-shape { fill: var(--s-primary); }
+[data-dsh-study] .study-sky-shared-ring { fill: none; stroke: var(--s-primary); stroke-width: 1; stroke-dasharray: 2 3; opacity: .45; }
+[data-dsh-study] .study-sky-target-ring { fill: none; stroke: var(--s-success); stroke-width: 1; opacity: .75; }
 [data-dsh-study] .study-sky-legend { margin: 8px 0 0; font-size: 11.5px; color: var(--s-faint); }
 
 @media (max-width: 900px) {

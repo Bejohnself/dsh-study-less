@@ -626,7 +626,7 @@ export const PANELS_CSS = `/* ---------- 0.2: sub navigation, dashboards, insigh
 }
 [data-dsh-study] .study-version.is-stale { color: var(--s-warning); border-color: var(--s-warning); background: var(--s-warning-soft); }
 [data-dsh-study] .study-panel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 12px; }
-[data-dsh-study] .study-panel-head.is-split { align-items: flex-start; justify-content: space-between; }
+[data-dsh-study] .study-panel-head.is-split { flex-direction: column; align-items: flex-start; gap: 8px; }
 /* 标题在上、说明在下：标题与说明同一行时，说明被挤成右半边，读起来像两栏。 */
 [data-dsh-study] .study-panel-head.is-split .study-panel-head-main { flex-direction: column; align-items: flex-start; gap: 3px; }
 [data-dsh-study] .study-panel-head.is-split .study-panel-head-main > .study-muted { font-size: 12px; line-height: 1.6; }
