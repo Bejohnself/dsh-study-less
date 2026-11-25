@@ -121,14 +121,20 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
 [data-dsh-study] .study-sky-star:focus { outline: none; }
 [data-dsh-study] .study-sky-section:focus-visible .study-sky-hit,
 [data-dsh-study] .study-sky-star:focus-visible .study-sky-hit { stroke: color-mix(in srgb, var(--s-primary) 45%, transparent); stroke-width: 1.5; }
-[data-dsh-study] .study-sky-names text { animation: none; }
+/* 星名跟着星轻轻漂一点，幅度只有星的一半；不要缩放，字忽大忽小最刺眼。 */
+@keyframes study-sky-name-float {
+  0% { transform: translate(0, 0); }
+  50% { transform: translate(.5px, -.9px); }
+  100% { transform: translate(0, 0); }
+}
+[data-dsh-study] .study-sky-names text { animation: study-sky-name-float 13s ease-in-out infinite; }
 [data-dsh-study] .study-sky-section { cursor: pointer; }
 [data-dsh-study] .study-sky-skim { fill: var(--s-primary); opacity: .32; }
 [data-dsh-study] .study-sky-star-name { font-size: 4.4px; fill: var(--s-text); paint-order: stroke; stroke: var(--s-surface); stroke-width: 1.2px; }
 [data-dsh-study] .study-sky-zoombar { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 12.5px; }
 [data-dsh-study] .study-sky-zoombar-title { font-weight: 650; }
 [data-dsh-study] .study-sky-star.is-hot .study-sky-hit { stroke: color-mix(in srgb, var(--s-primary) 35%, transparent); }
-[data-dsh-study] .study-sky-hit { fill: transparent; stroke: transparent; stroke-width: 1; }
+[data-dsh-study] .study-sky-hit { fill: transparent; stroke: transparent; stroke-width: 1; vector-effect: non-scaling-stroke; }
 [data-dsh-study] .study-sky-tip rect {
   fill: var(--s-surface);
   stroke: var(--s-border-strong);
@@ -165,6 +171,7 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
   [data-dsh-study] .study-sky-breathe,
   [data-dsh-study] .study-sky-map,
   [data-dsh-study] .study-sky-view,
+  [data-dsh-study] .study-sky-names text,
   [data-dsh-study] .study-mascot,
   [data-dsh-study] .study-sprite,
   [data-dsh-study] .study-cover-ghost,

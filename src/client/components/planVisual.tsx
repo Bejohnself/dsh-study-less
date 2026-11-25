@@ -9,7 +9,16 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { SKY_MAIN_R, brightnessOf, buildMasterySky, glowOf, goldOf, hash01, zoomTransform } from '../masterySky.ts'
+import {
+  SKY_MAIN_R,
+  SKY_ZOOM_SCALE,
+  brightnessOf,
+  buildMasterySky,
+  glowOf,
+  goldOf,
+  hash01,
+  zoomTransform,
+} from '../masterySky.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -251,6 +260,8 @@ export function MasterySky({
   const level = (value: number): string => LEVEL_LABEL[value] ?? '会用'
   const opened = zoom === null ? undefined : map.sections[zoom]
   const view = opened === undefined ? null : zoomTransform(opened)
+  // 命中圈是屏幕上的目标，别跟着缩放一起变大：放大后它会把星围成一圈。
+  const hitGrow = 6 / (zoom === null ? 1 : SKY_ZOOM_SCALE)
   const atTargetSections = map.sections.filter(section => section.atTarget).length
 
   // ── 悬浮卡片：画在缩放层外面，字号不跟着放大 ──
@@ -373,7 +384,7 @@ export function MasterySky({
                     opacity={dim ? 0.08 : glowOf(section.mastery)}
                   />
                 </g>
-                <circle className="study-sky-hit" cx={section.x} cy={section.y} r={SKY_MAIN_R + 10} />
+                <circle className="study-sky-hit" cx={section.x} cy={section.y} r={SKY_MAIN_R + hitGrow} />
                 {dim ? (
                   <circle className="study-sky-skim" cx={section.x} cy={section.y} r={3.4} />
                 ) : (
@@ -439,7 +450,7 @@ export function MasterySky({
                     opacity={(goldOf(star.mastery) / 100) * 0.85}
                   />
                 )}
-                <circle className="study-sky-hit" cx={star.x} cy={star.y} r={Math.max(star.r + 8, 11)} />
+                <circle className="study-sky-hit" cx={star.x} cy={star.y} r={Math.max(star.r + hitGrow, hitGrow + 2)} />
                 <path
                   className={'study-sky-star-shape' + (star.sections.length > 1 ? ' is-shared' : '')}
                   d={
@@ -458,7 +469,14 @@ export function MasterySky({
               {map.stars
                 .filter(star => star.sections.includes(zoom))
                 .map(star => (
-                  <text key={`name-${star.id}`} className="study-sky-star-name" x={star.x} y={star.y + star.r + 7} textAnchor="middle">
+                  <text
+                    key={`name-${star.id}`}
+                    className="study-sky-star-name"
+                    x={star.x}
+                    y={star.y + star.r + 7}
+                    textAnchor="middle"
+                    style={{ animationDelay: `${(hash01(`name:${star.id}`) * 8).toFixed(2)}s` }}
+                  >
                     {star.name}
                   </text>
                 ))}
