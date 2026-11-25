@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { SKY_MAIN_R, brightnessOf, buildMasterySky, glowOf, hash01 } from '../masterySky.ts'
+import { SKY_MAIN_R, brightnessOf, buildMasterySky, glowOf, goldOf, hash01 } from '../masterySky.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -174,6 +174,14 @@ function fiveStarPath(x: number, y: number, r: number): string {
   return `M${points.join(' L')} Z`
 }
 
+/** Ink to gold: the fill of a star that has been learned well. */
+function goldFill(mastery: number): string {
+  const gold = goldOf(mastery)
+  return gold === 0
+    ? 'var(--s-primary)'
+    : `color-mix(in srgb, var(--s-sky-gold) ${String(gold)}%, var(--s-primary))`
+}
+
 /** Rough width of a tooltip line in SVG units at 11px. */
 function textWidth(value: string): number {
   let width = 0
@@ -284,6 +292,10 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
             <stop offset="0%" className="study-sky-glow-stop" stopOpacity={0.55} />
             <stop offset="100%" className="study-sky-glow-stop" stopOpacity={0} />
           </radialGradient>
+          <radialGradient id="study-sky-gold-glow">
+            <stop offset="0%" className="study-sky-gold-stop" stopOpacity={0.7} />
+            <stop offset="100%" className="study-sky-gold-stop" stopOpacity={0} />
+          </radialGradient>
         </defs>
         {map.sections.map((section, index) => (
           <g
@@ -307,11 +319,22 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
                 opacity={glowOf(section.mastery)}
               />
             </g>
+            {goldOf(section.mastery) === 0 ? null : (
+              <circle
+                className="study-sky-gold-glow"
+                cx={section.x}
+                cy={section.y}
+                r={SKY_MAIN_R * 3.2}
+                fill="url(#study-sky-gold-glow)"
+                opacity={(goldOf(section.mastery) / 100) * 0.8}
+              />
+            )}
             <circle className="study-sky-hit" cx={section.x} cy={section.y} r={SKY_MAIN_R + 8} />
             <path
               className="study-sky-main-shape"
               d={fiveStarPath(section.x, section.y, SKY_MAIN_R)}
               opacity={brightnessOf(section.mastery)}
+              style={{ fill: goldFill(section.mastery) }}
             />
           </g>
         ))}
@@ -339,6 +362,16 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
               fill="url(#study-sky-glow)"
               opacity={glowOf(star.mastery)}
             />
+            {goldOf(star.mastery) === 0 ? null : (
+              <circle
+                className="study-sky-gold-glow"
+                cx={star.x}
+                cy={star.y}
+                r={star.r * 3.4}
+                fill="url(#study-sky-gold-glow)"
+                opacity={(goldOf(star.mastery) / 100) * 0.85}
+              />
+            )}
             <circle className="study-sky-hit" cx={star.x} cy={star.y} r={Math.max(star.r + 8, 11)} />
             <path
               className={'study-sky-star-shape' + (star.sections.length > 1 ? ' is-shared' : '')}
@@ -356,7 +389,7 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
         )}
       </svg>
       <p className="study-sky-legend">
-        越亮，掌握越牢；大星跟着这一节最暗的那颗星。共用同一个知识点的节挨在一起，六角星就是几节共用的那颗。悬停星星看细节。
+        越亮越金，掌握越牢；大星跟着这一节最暗的那颗星。共用同一个知识点的节挨在一起，六角星就是几节共用的那颗。悬停星星看细节。
       </p>
     </div>
   )

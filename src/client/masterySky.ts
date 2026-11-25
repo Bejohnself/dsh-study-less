@@ -97,6 +97,17 @@ export function brightnessOf(mastery: number): number {
   return Math.round((0.15 + Math.pow(value, 1.6) * 0.85) * 100) / 100
 }
 
+/**
+ * How far a star drifts from ink towards gold, in percent.
+ *
+ * Brightness alone was hard to read on this parchment background; a warm shift
+ * is what people actually see at a glance.
+ */
+export function goldOf(mastery: number): number {
+  const value = Math.max(0, Math.min(1, mastery))
+  return Math.round(Math.max(0, Math.min(1, (value - 0.55) / 0.4)) * 100)
+}
+
 /** Halo strength; dimmer than the core so a bright star reads as bright. */
 export function glowOf(mastery: number): number {
   const value = Math.max(0, Math.min(1, mastery))

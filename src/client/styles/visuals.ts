@@ -125,9 +125,9 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
 [data-dsh-study] .study-sky-tip-name { font-size: 11.5px; font-weight: 650; fill: var(--s-text); }
 [data-dsh-study] .study-sky-tip-meta { font-size: 10.5px; fill: var(--s-muted); }
 [data-dsh-study] .study-sky-glow-stop { stop-color: var(--s-primary); }
+[data-dsh-study] .study-sky-gold-stop { stop-color: var(--s-sky-gold); }
 [data-dsh-study] .study-sky-star-shape,
 [data-dsh-study] .study-sky-main-shape { fill: var(--s-primary); }
-[data-dsh-study] .study-sky-star-shape.is-shared { fill: color-mix(in srgb, var(--s-primary) 80%, var(--s-text)); }
 [data-dsh-study] .study-sky-legend { margin: 8px 0 0; font-size: 11.5px; color: var(--s-faint); }
 
 @media (max-width: 900px) {

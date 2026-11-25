@@ -24,6 +24,8 @@ export const BASE_CSS = `[data-dsh-study] {
   --s-success-soft: #e5ebe0;
   --s-warning: #8a6a2f;
   --s-warning-soft: #f3ebd9;
+  /* 星图的高掌握色：亮起来之后是金光，不是更黑。 */
+  --s-sky-gold: #b98a2e;
   --s-danger: #a4402f;
   --s-danger-soft: #f4e4de;
   --s-code-bg: #23211b;
@@ -81,6 +83,7 @@ html[data-dsh-study-theme='dark'] [data-dsh-study] {
   --s-success-soft: #1d2620;
   --s-warning: #c9a45c;
   --s-warning-soft: #2a2317;
+  --s-sky-gold: #f2c66a;
   --s-danger: #d0765f;
   --s-danger-soft: #2b1c18;
   --s-code-bg: #0f0e0b;

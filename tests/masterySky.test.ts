@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { SKY_MAIN_R, SKY_PAD, brightnessOf, buildMasterySky, glowOf } from '../src/client/masterySky.ts'
+import { SKY_MAIN_R, SKY_PAD, brightnessOf, buildMasterySky, glowOf, goldOf } from '../src/client/masterySky.ts'
 import type { PlanSectionView } from '../src/core/views.ts'
 
 /** One section with the given concepts; mastery and threshold live on the states. */
@@ -129,4 +129,12 @@ test('mastery spreads the brightness, not just tints it', () => {
   assert.ok(brightnessOf(0) >= 0.1, 'never fully disappears')
   assert.ok(brightnessOf(2) <= 1 && brightnessOf(-1) >= 0, 'clamped')
   assert.ok(glowOf(0.9) > glowOf(0.5) && glowOf(0.5) > glowOf(0.1))
+})
+test('gold only shows up once a concept is well learned', () => {
+  assert.equal(goldOf(0.5), 0)
+  assert.equal(goldOf(0.55), 0)
+  assert.ok(goldOf(0.75) >= 40 && goldOf(0.75) <= 60)
+  assert.equal(goldOf(0.95), 100)
+  assert.equal(goldOf(1.4), 100)
+  assert.equal(goldOf(-1), 0)
 })
