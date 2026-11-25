@@ -1,6 +1,8 @@
 # 改动导航（AGENTS.md 的细则页）
 
 > 先读 [AGENTS.md](../AGENTS.md) 的目录地图，再按这张表落到文件；不要用全仓 grep 代替这里。
+>
+> 实现现状、数据布局、页面内生成与 API 清单在 [IMPLEMENTATION.md](IMPLEMENTATION.md)；README 只写怎么用。
 
 ## 改动导航（先看这张表，再打开文件）
 
