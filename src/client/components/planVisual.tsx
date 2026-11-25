@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { SKY_MAIN_R, SKY_REGION_H, SKY_REGION_W, buildMasterySky } from '../masterySky.ts'
+import { SKY_MAIN_R, buildMasterySky } from '../masterySky.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -195,38 +195,8 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
             <stop offset="100%" className="study-sky-glow-stop" stopOpacity={0} />
           </radialGradient>
         </defs>
-        {map.links.map(link => {
-          const from = map.stars[link.from]
-          const to = map.stars[link.to]
-          if (from === undefined || to === undefined) return null
-          return (
-            <line
-              key={`${link.concept}-${String(link.from)}-${String(link.to)}`}
-              className="study-sky-link"
-              x1={from.x}
-              y1={from.y}
-              x2={to.x}
-              y2={to.y}
-            />
-          )
-        })}
         {map.sections.map(section => (
           <g key={section.target}>
-            <text
-              className="study-sky-title-text"
-              x={section.x - SKY_REGION_W / 2 + 8}
-              y={section.y - SKY_REGION_H / 2 + 14}
-            >
-              {clipTitle(section.title)}
-            </text>
-            <text
-              className="study-sky-count-text"
-              x={section.x + SKY_REGION_W / 2 - 8}
-              y={section.y - SKY_REGION_H / 2 + 14}
-              textAnchor="end"
-            >
-              {section.conceptCount === 0 ? '未挂' : `${String(section.atTargetCount)}/${String(section.conceptCount)}`}
-            </text>
             <circle
               className="study-sky-nebula"
               cx={section.x}
@@ -235,6 +205,13 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
               fill="url(#study-sky-glow)"
               opacity={0.35}
             />
+            {/* 名字放在星团轨道外：环上到处是星，放中心附近一定会压到星。 */}
+            <text className="study-sky-title-text" x={section.x} y={section.y - 100} textAnchor="middle">
+              {clipTitle(section.title)}
+            </text>
+            <text className="study-sky-count-text" x={section.x} y={section.y - 86} textAnchor="middle">
+              {section.conceptCount === 0 ? '未挂' : `${String(section.atTargetCount)}/${String(section.conceptCount)}`}
+            </text>
             <circle
               className="study-sky-main-glow"
               cx={section.x}
@@ -257,7 +234,7 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
           const pct = Math.round(Math.max(0, Math.min(1, star.mastery)) * 100)
           const label = `${star.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(star.threshold * 100))}%${star.sections.length > 1 ? ` · ${String(star.sections.length)} 节共用` : ''}`
           return (
-            <g key={`${String(star.section)}-${star.id}`}>
+            <g key={star.id}>
               <circle
                 className="study-sky-star-glow"
                 cx={star.x}
@@ -278,7 +255,7 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
         })}
       </svg>
       <p className="study-sky-legend">
-        越亮，掌握越牢；大星跟着这一节最暗的那颗星。带虚线圈的小星是几节共用的，虚线把它的几份连起来。
+        越亮，掌握越牢；大星跟着这一节最暗的那颗星。要共用同一个知识点的节，排在彼此旁边，那颗星只画一次。
       </p>
     </div>
   )

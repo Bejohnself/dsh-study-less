@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { SKY_MAIN_R, SKY_PAD, SKY_REGION_W, buildMasterySky } from '../src/client/masterySky.ts'
+import { SKY_MAIN_R, SKY_PAD, buildMasterySky } from '../src/client/masterySky.ts'
 import type { PlanSectionView } from '../src/core/views.ts'
 
 /** One section with the given concepts; mastery and threshold live on the states. */
@@ -29,59 +29,80 @@ function section(
   }
 }
 
-test('the whole goal is one map: one section per region, one star per concept copy', () => {
+test('sections that share a concept are laid out next to each other', () => {
+  const map = buildMasterySky([
+    section('m:a', [{ id: 'x' }]),
+    section('m:b', [{ id: 'y' }]),
+    section('m:c', [{ id: 'x' }]),
+  ])
+  const positionOf = (index: number): number => map.order.indexOf(index)
+  assert.equal(Math.abs(positionOf(0) - positionOf(2)), 1)
+})
+
+test('a shared concept is one star, placed between the sections that need it', () => {
   const map = buildMasterySky([
     section('m:a', [{ id: 'shared' }, { id: 'only-a' }]),
     section('m:b', [{ id: 'shared' }]),
   ])
-  assert.equal(map.sections.length, 2)
-  assert.equal(map.stars.length, 3)
+  assert.equal(map.stars.length, 2)
+  const shared = map.stars.find(star => star.id === 'shared')!
+  assert.deepEqual(shared.sections, [0, 1])
+  const [a, b] = map.sections
+  const middle = { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 }
+  assert.ok(Math.hypot(shared.x - middle.x, shared.y - middle.y) < 45, 'shared star is not near both sections')
+})
+
+test('the map is one canvas and stars stay inside it', () => {
+  const map = buildMasterySky([
+    section('m:a', [{ id: 'x' }, { id: 'y' }, { id: 'z' }]),
+    section('m:b', [{ id: 'x' }, { id: 'q' }]),
+  ])
   assert.equal(map.cols, 2)
-  assert.equal(map.sections[0]?.stars.length, 2)
-  assert.equal(map.sections[1]?.stars.length, 1)
   assert.ok(map.width > SKY_PAD * 2 && map.height > SKY_PAD * 2)
+  for (const star of map.stars) {
+    assert.ok(star.x > 0 && star.x < map.width, `star x escapes canvas: ${star.id}`)
+    assert.ok(star.y > 0 && star.y < map.height, `star y escapes canvas: ${star.id}`)
+  }
 })
 
-test('a shared concept is drawn once per section and joined by a link', () => {
-  const map = buildMasterySky([
-    section('m:a', [{ id: 'shared' }, { id: 'only-a' }]),
-    section('m:b', [{ id: 'shared' }]),
-    section('m:c', [{ id: 'shared' }]),
-  ])
-  const copies = map.stars.filter(star => star.id === 'shared')
-  assert.deepEqual(copies.map(star => star.section), [0, 1, 2])
-  assert.equal(map.links.filter(link => link.concept === 'shared').length, 2)
-  assert.ok(map.stars.every(star => star.id === 'shared' || star.sections.length === 1))
-})
-
-test('stars sit inside their own region and clear of each other and the main star', () => {
+test('stars are pushed clear of each other and of every main star', () => {
   const states = Array.from({ length: 12 }, (_, index) => ({ id: `c${String(index)}` }))
-  const map = buildMasterySky([section('m:a', states), section('m:b', states.slice(0, 5))])
-  for (const skySection of map.sections) {
-    const stars = skySection.stars.map(index => map.stars[index]!)
-    for (const star of stars) {
-      assert.ok(Math.abs(star.x - skySection.x) < SKY_REGION_W / 2, `star escapes region: ${star.id}`)
-      assert.ok(Math.hypot(star.x - skySection.x, star.y - skySection.y) >= SKY_MAIN_R + star.r, `star touches main: ${star.id}`)
+  const map = buildMasterySky([section('m:a', states), section('m:b', states.slice(0, 5)), section('m:c', states.slice(3, 9))])
+  for (let left = 0; left < map.stars.length; left += 1) {
+    for (let right = left + 1; right < map.stars.length; right += 1) {
+      const a = map.stars[left]!
+      const b = map.stars[right]!
+      assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 12.5, `stars overlap: ${a.id}/${b.id}`)
     }
-    for (let left = 0; left < stars.length; left += 1) {
-      for (let right = left + 1; right < stars.length; right += 1) {
-        const a = stars[left]!
-        const b = stars[right]!
-        assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 10, `stars overlap: ${a.id}/${b.id}`)
-      }
+  }
+  for (const star of map.stars) {
+    for (const skySection of map.sections) {
+      assert.ok(
+        Math.hypot(star.x - skySection.x, star.y - skySection.y) >= SKY_MAIN_R + star.r - 0.5,
+        `star ${star.id} overlaps main star of section ${String(skySection.index)}`,
+      )
     }
   }
 })
 
-test('positions and links are stable between renders', () => {
-  const sections = [section('m:a', [{ id: 'x' }, { id: 'y' }]), section('m:b', [{ id: 'x' }])]
+test('positions and layout order are stable between renders', () => {
+  const sections = [section('m:a', [{ id: 'x' }, { id: 'y' }]), section('m:b', [{ id: 'x' }]), section('m:c', [{ id: 'y' }])]
   const first = buildMasterySky(sections)
   const second = buildMasterySky(sections)
   assert.deepEqual(
     second.stars.map(star => [star.x, star.y, star.r]),
     first.stars.map(star => [star.x, star.y, star.r]),
   )
-  assert.deepEqual(second.links, first.links)
+  assert.deepEqual(second.order, first.order)
+})
+
+test('a shared star takes the strictest threshold and is at target only when every section agrees', () => {
+  const map = buildMasterySky([
+    section('m:a', [{ id: 'shared', mastery: 0.8, threshold: 0.75 }]),
+    section('m:b', [{ id: 'shared', mastery: 0.8, threshold: 0.85 }]),
+  ])
+  assert.equal(map.stars[0]?.threshold, 0.85)
+  assert.equal(map.stars[0]?.atTarget, false)
 })
 
 test('the main star follows the weakest concept of its section', () => {

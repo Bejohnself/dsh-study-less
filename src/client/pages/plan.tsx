@@ -434,13 +434,13 @@ export function PlanDetailPage({
         <>
           <section className="study-boundary">
             <div className="study-panel-head is-split">
-              <div className="study-panel-head-main">
+              <div className="study-panel-head-row">
                 <h3>节级路线</h3>
-                <span className="study-muted">
-                  最小集 {data.boundary.minPages} 页 / 全书 {data.boundary.totalPages} 页 · 必读 {data.boundary.read} · 略读 {data.boundary.skim} · 不读 {data.boundary.skip}
-                </span>
+                <PlanViewSwitch value={routeView} onChange={changeRouteView} label="节级路线" />
               </div>
-              <PlanViewSwitch value={routeView} onChange={changeRouteView} label="节级路线" />
+              <span className="study-muted">
+                最小集 {data.boundary.minPages} 页 / 全书 {data.boundary.totalPages} 页 · 必读 {data.boundary.read} · 略读 {data.boundary.skim} · 不读 {data.boundary.skip}
+              </span>
             </div>
             {routeView === 'visual' ? (
               <RouteMap steps={unitSteps} onOpenUnit={onOpenUnit} planId={pid} />
@@ -539,15 +539,15 @@ export function PlanDetailPage({
 
           <section className="study-mastery">
             <div className="study-panel-head is-split">
-              <div className="study-panel-head-main">
+              <div className="study-panel-head-row">
                 <h3>知识点目标</h3>
-                <span className="study-muted">
-                  到档位 {data.sections.filter(section => section.atTarget).length}/{data.sections.length}
-                  {data.goalProgress.missingSections === 0 ? '' : ` · 还有 ${data.goalProgress.missingSections} 节没有知识点`}
-                  {' · '}知识点属于节本身，目标只定这一节要到哪一档
-                </span>
+                <PlanViewSwitch value={masteryView} onChange={changeMasteryView} label="知识点目标" />
               </div>
-              <PlanViewSwitch value={masteryView} onChange={changeMasteryView} label="知识点目标" />
+              <span className="study-muted">
+                到档位 {data.sections.filter(section => section.atTarget).length}/{data.sections.length}
+                {data.goalProgress.missingSections === 0 ? '' : ` · 还有 ${data.goalProgress.missingSections} 节没有知识点`}
+                {' · '}知识点属于节本身，目标只定这一节要到哪一档
+              </span>
             </div>
             {masteryView === 'visual' ? (
               <MasterySky sections={data.sections} />

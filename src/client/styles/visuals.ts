@@ -85,9 +85,8 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
 /* 一张图：宽就跟着容器缩，不另开滚动条。 */
 [data-dsh-study] .study-sky-map { display: block; width: 100%; height: auto; }
 [data-dsh-study] .study-sky-glow-stop { stop-color: var(--s-primary); }
-[data-dsh-study] .study-sky-link { stroke: var(--s-border-strong); stroke-width: 1; stroke-dasharray: 3 4; opacity: .35; }
-[data-dsh-study] .study-sky-title-text { font-size: 12px; font-weight: 600; fill: var(--s-text); }
-[data-dsh-study] .study-sky-count-text { font-size: 11px; fill: var(--s-muted); font-variant-numeric: tabular-nums; }
+[data-dsh-study] .study-sky-title-text { font-size: 12px; font-weight: 600; fill: var(--s-text); paint-order: stroke; stroke: var(--s-surface); stroke-width: 3px; stroke-linejoin: round; }
+[data-dsh-study] .study-sky-count-text { font-size: 11px; fill: var(--s-muted); font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--s-surface); stroke-width: 3px; stroke-linejoin: round; }
 [data-dsh-study] .study-sky-star-shape,
 [data-dsh-study] .study-sky-main-shape { fill: var(--s-primary); }
 [data-dsh-study] .study-sky-shared-ring { fill: none; stroke: var(--s-primary); stroke-width: 1; stroke-dasharray: 2 3; opacity: .45; }

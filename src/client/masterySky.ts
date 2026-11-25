@@ -1,26 +1,28 @@
 /**
  * Star map for the goal's knowledge points: one canvas, one constellation per
- * section, one star per concept instance, brightness carried by mastery.
+ * section, one star per concept.
  *
- * A concept is global, so it rises again in every section that needs it; `links`
- * joins those copies. Positions are deterministic — a re-render must not
- * reshuffle the sky.
+ * Sections that share concepts are laid out next to each other, so a shared
+ * star simply rises between them — no lines are drawn across the map.
  */
 import type { PlanSectionView } from '../core/views.ts'
 
-export const SKY_PAD = 16
+export const SKY_PAD = 20
 export const SKY_REGION_W = 250
 export const SKY_REGION_H = 210
-/** Room above each constellation for its label. */
-const SKY_LABEL_H = 22
 export const SKY_COLS_MAX = 3
 export const SKY_MAIN_R = 10
 const OUTER_CAPACITY = 9
 const OUTER_RADIUS = 62
 const INNER_RADIUS = 36
+/** How far a section's own star may drift from its grid slot. */
+const CENTER_JITTER = 10
+/** Minimum gap between two concept stars. */
+const STAR_GAP = 13
+/** Shared stars sit near the middle of the sections that need them. */
+const SHARED_OFFSET = 14
 
 export interface SkyStar {
-  /** Concept id; repeated once per section that requires it. */
   id: string
   name: string
   mastery: number
@@ -30,8 +32,6 @@ export interface SkyStar {
   atTarget: boolean
   /** Section indexes requiring this concept, in route order. */
   sections: number[]
-  /** The section this copy belongs to. */
-  section: number
   x: number
   y: number
   r: number
@@ -49,14 +49,8 @@ export interface SkySection {
   atTargetCount: number
   x: number
   y: number
-  /** Indexes into `stars`. */
-  stars: number[]
-}
-
-export interface SkyLink {
-  concept: string
-  from: number
-  to: number
+  /** Star indexes that only this section needs. */
+  soloStars: number[]
 }
 
 export interface SkyMap {
@@ -65,7 +59,8 @@ export interface SkyMap {
   cols: number
   sections: SkySection[]
   stars: SkyStar[]
-  links: SkyLink[]
+  /** Section indexes in layout order; neighbours here share the most concepts. */
+  order: number[]
 }
 
 /** Stable 0..1 from an id, so jitter does not depend on render order. */
@@ -77,7 +72,7 @@ function hash(id: string): number {
   return (value >>> 0) / 4294967296
 }
 
-/** Orbit position for star `slot` of `total`, nudged by the concept id. */
+/** Orbit position for solo star `slot` of `total`, nudged by the concept id. */
 function orbitPoint(total: number, slot: number, id: string): { dx: number; dy: number } {
   const outerCount = Math.min(total, OUTER_CAPACITY)
   const inner = slot >= outerCount
@@ -95,84 +90,185 @@ function starRadius(threshold: number): number {
   return Math.round((3.2 + share * 1.8) * 10) / 10
 }
 
-/** One big map: sections sit on a grid, their concepts orbit the section star. */
+/** Number of concepts two sections must both learn. */
+function sharedCount(left: Set<string>, right: readonly string[]): number {
+  let count = 0
+  for (const id of right) if (left.has(id)) count += 1
+  return count
+}
+
+/** Greedy route over sections: each step takes the neighbour sharing the most. */
+function layoutOrder(conceptIds: ReadonlyArray<readonly string[]>): number[] {
+  const sets = conceptIds.map(ids => new Set(ids))
+  const left = new Set(conceptIds.map((_, index) => index))
+  // Start from the most connected section so shared stars land near the middle.
+  let start = 0
+  let bestDegree = -1
+  for (const index of left) {
+    const degree = sets.reduce((sum, set, other) => sum + (other === index ? 0 : sharedCount(set, conceptIds[index]!)), 0)
+    if (degree > bestDegree) {
+      start = index
+      bestDegree = degree
+    }
+  }
+  const order = [start]
+  left.delete(start)
+  while (left.size > 0) {
+    const last = sets[order[order.length - 1]!]!
+    let pick = -1
+    let pickScore = -1
+    for (const index of left) {
+      const score = sharedCount(last, conceptIds[index]!)
+      if (score > pickScore) {
+        pick = index
+        pickScore = score
+      }
+    }
+    order.push(pick)
+    left.delete(pick)
+  }
+  return order
+}
+
+/** The whole goal on one canvas: neighbours share stars, so no links are needed. */
 export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
   if (sections.length === 0) {
-    return { width: SKY_PAD * 2, height: SKY_PAD * 2, cols: 1, sections: [], stars: [], links: [] }
+    return { width: SKY_PAD * 2, height: SKY_PAD * 2, cols: 1, sections: [], stars: [], order: [] }
   }
   const cols = Math.max(1, Math.min(SKY_COLS_MAX, Math.ceil(Math.sqrt(sections.length))))
   const rows = Math.max(1, Math.ceil(sections.length / cols))
   const width = cols * SKY_REGION_W + SKY_PAD * 2
   const height = rows * SKY_REGION_H + SKY_PAD * 2
 
-  // ── 共用关系：概念在哪些节里出现，决定星径与共用标记 ──
-  const owner = new Map<string, { sections: number[]; threshold: number; atTarget: boolean }>()
+  // ── 一概念一星：先记住谁要它，再决定画在哪 ──
+  const stars: SkyStar[] = []
+  const starByConcept = new Map<string, number>()
+  const owners = sections.map(() => [] as string[])
   for (const [index, section] of sections.entries()) {
     for (const state of section.conceptStates) {
-      const existing = owner.get(state.id)
-      if (existing === undefined) {
-        owner.set(state.id, { sections: [index], threshold: state.threshold, atTarget: state.atTarget })
+      owners[index]!.push(state.id)
+      const existing = starByConcept.get(state.id)
+      if (existing !== undefined) {
+        const star = stars[existing]!
+        star.sections.push(index)
+        star.threshold = Math.max(star.threshold, state.threshold)
+        star.atTarget = star.atTarget && state.atTarget
         continue
       }
-      existing.sections.push(index)
-      existing.threshold = Math.max(existing.threshold, state.threshold)
-      existing.atTarget = existing.atTarget && state.atTarget
-    }
-  }
-
-  // ── 排布：每节一团，星星绕着自己的主星 ──
-  const stars: SkyStar[] = []
-  const starByConcept = new Map<string, number[]>()
-  const skySections: SkySection[] = sections.map((section, index) => {
-    const col = index % cols
-    const row = Math.floor(index / cols)
-    const x = Math.round(SKY_PAD + col * SKY_REGION_W + SKY_REGION_W / 2)
-    const y = Math.round(SKY_PAD + row * SKY_REGION_H + SKY_REGION_H / 2 + SKY_LABEL_H / 2)
-    const indexes: number[] = []
-    section.conceptStates.forEach((state, slot) => {
-      const shared = owner.get(state.id)
-      const { dx, dy } = orbitPoint(section.conceptStates.length, slot, state.id)
-      const threshold = shared?.threshold ?? state.threshold
-      const star: SkyStar = {
+      starByConcept.set(state.id, stars.length)
+      stars.push({
         id: state.id,
         name: state.name,
         mastery: state.mastery,
-        threshold,
-        atTarget: shared?.atTarget ?? state.atTarget,
-        sections: shared?.sections ?? [index],
-        section: index,
-        x: x + dx,
-        y: y + dy,
-        r: starRadius(threshold),
-      }
-      indexes.push(stars.length)
-      stars.push(star)
-      const copies = starByConcept.get(state.id)
-      if (copies === undefined) starByConcept.set(state.id, [stars.length - 1])
-      else copies.push(stars.length - 1)
-    })
-    return {
-      index,
-      target: section.target,
-      title: section.title,
-      level: section.level,
-      mastery: section.mastery,
-      atTarget: section.atTarget,
-      conceptCount: section.conceptStates.length,
-      atTargetCount: section.conceptStates.filter(state => state.atTarget).length,
-      x,
-      y,
-      stars: indexes,
-    }
-  })
-
-  // ── 连线：同一个概念的几份星用虚线连起来，读作「几节共用」 ──
-  const links: SkyLink[] = []
-  for (const [concept, copies] of starByConcept) {
-    for (let index = 1; index < copies.length; index += 1) {
-      links.push({ concept, from: copies[index - 1]!, to: copies[index]! })
+        threshold: state.threshold,
+        atTarget: state.atTarget,
+        sections: [index],
+        x: 0,
+        y: 0,
+        r: starRadius(state.threshold),
+      })
     }
   }
 
-  return { width, height, cols, sections: skySections, stars, links }
+  // ── 相邻：共用的节排在路线里相邻，星就落在它们中间 ──
+  const order = layoutOrder(owners)
+  const centers = sections.map(() => ({ x: 0, y: 0 }))
+  order.forEach((sectionIndex, slot) => {
+    const row = Math.floor(slot / cols)
+    const col = row % 2 === 0 ? slot % cols : cols - 1 - (slot % cols)
+    const drift = (hash(`section:${sections[sectionIndex]!.target}`) - 0.5) * CENTER_JITTER * 2
+    centers[sectionIndex] = {
+      x: Math.round(SKY_PAD + col * SKY_REGION_W + SKY_REGION_W / 2 + drift),
+      y: Math.round(SKY_PAD + row * SKY_REGION_H + SKY_REGION_H / 2 + drift / 2),
+    }
+  })
+
+  // ── 落星：独占概念绕自己的节转，共用概念落在相关节的重心 ──
+  const soloTotal = sections.map(() => 0)
+  for (const star of stars) if (star.sections.length === 1) soloTotal[star.sections[0]!]! += 1
+  const soloSlot = sections.map(() => 0)
+  for (const star of stars) {
+    if (star.sections.length === 1) {
+      const home = star.sections[0]!
+      const center = centers[home]!
+      const { dx, dy } = orbitPoint(soloTotal[home]!, soloSlot[home]!, star.id)
+      soloSlot[home]! += 1
+      star.x = center.x + dx
+      star.y = center.y + dy
+      continue
+    }
+    // 重心对四个节的情况会偏向一边，再朝最远的那个节挪几步，让每节都够得着。
+    let x = star.sections.reduce((sum, index) => sum + centers[index]!.x, 0) / star.sections.length
+    let y = star.sections.reduce((sum, index) => sum + centers[index]!.y, 0) / star.sections.length
+    for (let step = 0; step < 60; step += 1) {
+      let far = star.sections[0]!
+      let farDistance = -1
+      for (const index of star.sections) {
+        const center = centers[index]!
+        const distance = Math.hypot(x - center.x, y - center.y)
+        if (distance > farDistance) {
+          farDistance = distance
+          far = index
+        }
+      }
+      const target = centers[far]!
+      x += (target.x - x) * 0.06
+      y += (target.y - y) * 0.06
+    }
+    const angle = hash(star.id) * Math.PI * 2
+    star.x = x + Math.cos(angle) * 6
+    star.y = y + Math.sin(angle) * 6
+  }
+
+  // ── 让开：星不压主星、不互相压，也别跑出画布 ──
+  const minX = SKY_PAD + 8
+  const maxX = width - SKY_PAD - 8
+  const minY = SKY_PAD + 8
+  const maxY = height - SKY_PAD - 8
+  for (let pass = 0; pass < 12; pass += 1) {
+    for (let index = 0; index < stars.length; index += 1) {
+      const star = stars[index]!
+      for (const [sectionIndex] of sections.entries()) {
+        const center = centers[sectionIndex]!
+        const dx = star.x - center.x
+        const dy = star.y - center.y
+        const distance = Math.hypot(dx, dy) || 1
+        const need = SKY_MAIN_R + star.r + 4
+        if (distance < need) {
+          star.x = center.x + (dx / distance) * need
+          star.y = center.y + (dy / distance) * need
+        }
+      }
+      for (let other = index + 1; other < stars.length; other += 1) {
+        const peer = stars[other]!
+        const dx = peer.x - star.x
+        const dy = peer.y - star.y
+        const distance = Math.hypot(dx, dy) || 1
+        if (distance >= STAR_GAP) continue
+        const push = (STAR_GAP - distance) / 2
+        star.x -= (dx / distance) * push
+        star.y -= (dy / distance) * push
+        peer.x += (dx / distance) * push
+        peer.y += (dy / distance) * push
+      }
+      star.x = Math.min(maxX, Math.max(minX, star.x))
+      star.y = Math.min(maxY, Math.max(minY, star.y))
+    }
+  }
+
+  const skySections: SkySection[] = sections.map((section, index) => ({
+    index,
+    target: section.target,
+    title: section.title,
+    level: section.level,
+    mastery: section.mastery,
+    atTarget: section.atTarget,
+    conceptCount: section.conceptStates.length,
+    atTargetCount: section.conceptStates.filter(state => state.atTarget).length,
+    x: centers[index]!.x,
+    y: centers[index]!.y,
+    soloStars: stars.map((star, starIndex) => (star.sections.length === 1 && star.sections[0] === index ? starIndex : -1)).filter(starIndex => starIndex >= 0),
+  }))
+
+  return { width, height, cols, sections: skySections, stars, order }
 }
