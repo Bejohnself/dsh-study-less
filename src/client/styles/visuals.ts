@@ -81,53 +81,29 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
   font-weight: 700;
 }
 [data-dsh-study] .study-route-legend { margin: 2px 0 0; font-size: 11.5px; color: var(--s-faint); }
-[data-dsh-study] .study-tree { margin-top: 10px; }
-[data-dsh-study] .study-tree-scroll { max-height: 420px; overflow: auto; overscroll-behavior: contain; padding-right: 6px; }
-[data-dsh-study] .study-tree-canvas { position: relative; }
-[data-dsh-study] .study-tree-edges { position: absolute; top: 0; left: 0; pointer-events: none; }
-/* 枝干与叶用同一套墨色：线是骨，点是掌握。 */
-[data-dsh-study] .study-tree-trunk { fill: none; stroke: var(--s-border-strong); stroke-width: 2; stroke-linecap: round; opacity: .75; }
-[data-dsh-study] .study-tree-edge { fill: none; stroke: color-mix(in srgb, var(--s-border-strong) 85%, transparent); stroke-width: 1; }
-[data-dsh-study] .study-tree-edge.is-hub { stroke: var(--s-primary); stroke-width: 1.4; opacity: .5; }
-[data-dsh-study] .study-tree-branch {
-  position: absolute;
-  height: 22px;
+[data-dsh-study] .study-sky { margin-top: 10px; }
+[data-dsh-study] .study-sky-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 10px; }
+[data-dsh-study] .study-sky-cluster {
   display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 6px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 8px;
   border: 1px solid var(--s-border);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--s-surface);
-  box-shadow: var(--s-shadow-sm);
-  font-size: 12px;
-  line-height: 1;
-  color: var(--s-text);
-  text-align: left;
 }
-[data-dsh-study] .study-tree-branch:hover { border-color: var(--s-border-strong); }
-[data-dsh-study] .study-tree-branch.is-passed { border-color: color-mix(in srgb, var(--s-success) 55%, var(--s-border)); }
-[data-dsh-study] .study-tree-chevron { flex: none; font-size: 10px; color: var(--s-faint); transition: transform 120ms ease; }
-[data-dsh-study] .study-tree-branch:not(.is-collapsed) .study-tree-chevron { transform: rotate(90deg); }
-[data-dsh-study] .study-tree-branch-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-[data-dsh-study] .study-tree-branch-meta { flex: none; font-size: 10.5px; color: var(--s-muted); font-variant-numeric: tabular-nums; }
-[data-dsh-study] .study-tree-leaf {
-  position: absolute;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s-border-strong) 55%, transparent);
-}
-[data-dsh-study] .study-tree-leaf.is-on { box-shadow: 0 0 0 1.5px var(--s-success); }
-[data-dsh-study] .study-tree-leaf-label {
-  position: absolute;
-  right: 8px;
-  font-size: 11.5px;
-  line-height: 16px;
-  color: var(--s-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-[data-dsh-study] .study-tree-legend { margin: 8px 0 0; font-size: 11.5px; color: var(--s-faint); }
+[data-dsh-study] .study-sky-cluster.is-passed { border-color: color-mix(in srgb, var(--s-success) 55%, var(--s-border)); }
+[data-dsh-study] .study-sky-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
+[data-dsh-study] .study-sky-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--s-text); }
+[data-dsh-study] .study-sky-meta { flex: none; font-size: 11px; color: var(--s-muted); font-variant-numeric: tabular-nums; }
+/* 星空只在中间有一层很淡的底，亮度全靠星自己。 */
+[data-dsh-study] .study-sky-field { position: relative; margin: 0 auto; border-radius: 50%; background: radial-gradient(circle at 50% 46%, color-mix(in srgb, var(--s-primary) 7%, transparent), transparent 68%); }
+[data-dsh-study] .study-sky-main { position: absolute; border-radius: 50%; background: var(--s-primary); }
+[data-dsh-study] .study-sky-star { position: absolute; border-radius: 50%; background: var(--s-primary); }
+[data-dsh-study] .study-sky-star.is-on { outline: 1px solid color-mix(in srgb, var(--s-success) 60%, transparent); outline-offset: 1px; }
+[data-dsh-study] .study-sky-star.is-shared::after { content: ''; position: absolute; inset: -3px; border: 1px dashed color-mix(in srgb, var(--s-primary) 45%, transparent); border-radius: 50%; }
+[data-dsh-study] .study-sky-empty { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11.5px; color: var(--s-faint); }
+[data-dsh-study] .study-sky-legend { margin: 8px 0 0; font-size: 11.5px; color: var(--s-faint); }
 
 @media (max-width: 900px) {
   [data-dsh-study] .study-boundary-row { grid-template-columns: auto minmax(0, 1fr); }

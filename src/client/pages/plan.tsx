@@ -13,7 +13,7 @@ import { coverageLabel } from '../labels.ts'
 import { InlineMarkdown, JobBanner, Toast } from '../components/ui.tsx'
 import {
   MASTERY_VIEW_KEY,
-  MasteryTree,
+  MasterySky,
   PlanViewSwitch,
   ROUTE_GROUPS,
   ROUTE_VIEW_KEY,
@@ -550,7 +550,7 @@ export function PlanDetailPage({
               <PlanViewSwitch value={masteryView} onChange={changeMasteryView} label="知识点目标" />
             </div>
             {masteryView === 'visual' ? (
-              <MasteryTree sections={data.sections} />
+              <MasterySky sections={data.sections} />
             ) : data.sections.length === 0 ? (
               <p className="study-muted">
                 还没有知识点目标。逐节点「补知识点」从原文抽，或重新生成一次路径。

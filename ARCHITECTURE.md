@@ -74,7 +74,7 @@
 
 ## 测试策略
 
-- 单测：`src/core` 规则（掌握度、复习间隔、计划门、结构切分）与知识点树布局（`client/masteryTree`，纯函数）。
+- 单测：`src/core` 规则（掌握度、复习间隔、计划门、结构切分）与知识点星图布局（`client/masterySky`，纯函数）。
 - 端到端：`scripts/checks/service` 用 stub 引擎跑真实 service。
 - 边界：预计掉档日、申诉改判、结案阈值、页码范围不重叠、目标外练习拒绝。
 - 不测：浏览器渲染、PDF 分页的视觉正确性。

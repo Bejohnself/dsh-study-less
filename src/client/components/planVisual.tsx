@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { buildMasteryTree } from '../masteryTree.ts'
+import { SKY_BOX, SKY_CENTER, SKY_MAIN_R, buildMasterySky } from '../masterySky.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -146,117 +146,89 @@ export function RouteMap({
   )
 }
 
-/** Geometry of the tree canvas, in px: branch column, leaf column, label room. */
-const TREE_BRANCH_LEFT = 16
-const TREE_BRANCH_WIDTH = 168
-const TREE_BRANCH_RIGHT = TREE_BRANCH_LEFT + TREE_BRANCH_WIDTH
-const TREE_TRUNK_X = 6
-const TREE_LEAF_X = TREE_BRANCH_RIGHT + 48
-const TREE_WIDTH = 560
+/** Glow of a small star: brightness is mastery, nothing else. */
+function starGlow(mastery: number): string {
+  const size = 1.5 + mastery * 5
+  return `0 0 ${size.toFixed(1)}px ${(size / 2).toFixed(1)}px color-mix(in srgb, var(--s-primary) ${String(Math.round(35 + mastery * 55))}%, transparent)`
+}
 
-/** Leaf size grows with the threshold: a deeper level asks for a bigger mark. */
-function leafSize(threshold: number): number {
-  const share = Math.max(0, Math.min(1, (threshold - 0.6) / 0.35))
-  return Math.round(8 + share * 6)
+/** Glow of the main star: it faces the section's weakest concept. */
+function mainGlow(mastery: number): string {
+  return `0 0 ${(8 + mastery * 16).toFixed(0)}px ${(3 + mastery * 5).toFixed(0)}px color-mix(in srgb, var(--s-primary) ${String(Math.round(20 + mastery * 45))}%, transparent)`
 }
 
 /**
- * The goal's knowledge tree: one leaf per concept, one branch per section.
+ * The goal's knowledge sky: one cluster per section, one star per concept.
  *
- * The view is deliberately rough: it answers "how much is left" at a glance and
- * shows a hub leaf when several sections need the same concept. Rows scroll and
- * each branch folds, because a real goal can hold far more leaves than a card.
+ * Brightness carries mastery and nothing else is coloured, so a glance answers
+ * "how much is still dim". Shared concepts keep a dashed ring, because the same
+ * star rises in every section that needs it.
  */
-export function MasteryTree({ sections }: { sections: readonly PlanSectionView[] }): ReactElement {
-  const [collapsed, setCollapsed] = useState<readonly string[]>([])
-  const tree = useMemo(() => buildMasteryTree(sections, new Set(collapsed)), [sections, collapsed])
-
-  if (sections.length === 0) {
+export function MasterySky({ sections }: { sections: readonly PlanSectionView[] }): ReactElement {
+  const clusters = useMemo(() => buildMasterySky(sections), [sections])
+  if (clusters.length === 0) {
     return <p className="study-muted">还没有知识点目标。切到文字视图逐节补，或重新生成一次路径。</p>
   }
-
-  const toggle = (target: string): void => {
-    setCollapsed(previous => (previous.includes(target) ? previous.filter(value => value !== target) : [...previous, target]))
-  }
-  const first = tree.branches[0]
-  const last = tree.branches[tree.branches.length - 1]
-
   return (
-    <div className="study-tree">
-      <div className="study-tree-scroll">
-        <div className="study-tree-canvas" style={{ height: `${tree.height}px`, width: `${TREE_WIDTH}px` }}>
-          <svg className="study-tree-edges" width={TREE_WIDTH} height={tree.height} aria-hidden="true">
-            {first === undefined || last === undefined || first === last ? null : (
-              <path className="study-tree-trunk" d={`M${TREE_TRUNK_X} ${first.y} L ${TREE_TRUNK_X} ${last.y}`} />
-            )}
-            {tree.edges.map(edge => {
-              const branch = tree.branches[edge.branch]
-              const leaf = tree.leaves[edge.leaf]
-              if (branch === undefined || leaf === undefined) return null
-              const end = TREE_LEAF_X - leafSize(leaf.threshold) / 2
-              return (
-                <path
-                  key={`${String(edge.branch)}-${String(edge.leaf)}`}
-                  className={'study-tree-edge' + (leaf.sections.length > 1 ? ' is-hub' : '')}
-                  d={`M${TREE_BRANCH_RIGHT} ${branch.y} C ${TREE_BRANCH_RIGHT + 26} ${branch.y}, ${end - 26} ${leaf.y}, ${end} ${leaf.y}`}
-                />
-              )
-            })}
-          </svg>
-          {tree.branches.map(branch => (
-            <button
-              key={branch.target}
-              type="button"
-              className={
-                'study-tree-branch' + (branch.atTarget ? ' is-passed' : '') + (branch.collapsed ? ' is-collapsed' : '')
-              }
-              style={{ top: `${branch.y - 11}px`, left: `${TREE_BRANCH_LEFT}px`, width: `${TREE_BRANCH_WIDTH}px` }}
-              aria-expanded={!branch.collapsed}
-              aria-label={`${branch.title}，${LEVEL_LABEL[branch.level]}，${branch.conceptCount === 0 ? '未挂知识点' : `${String(branch.atTargetCount)}/${String(branch.conceptCount)} 个概念到档`}`}
-              onClick={() => toggle(branch.target)}
+    <div className="study-sky">
+      <div className="study-sky-grid">
+        {clusters.map(cluster => (
+          <div key={cluster.target} className={'study-sky-cluster' + (cluster.atTarget ? ' is-passed' : '')}>
+            <div className="study-sky-head">
+              <span className="study-sky-title" title={`${cluster.title} · ${LEVEL_LABEL[cluster.level]}`}>
+                {cluster.title}
+              </span>
+              <span className="study-sky-meta">
+                {cluster.conceptCount === 0 ? '未挂' : `${String(cluster.atTargetCount)}/${String(cluster.conceptCount)}`}
+              </span>
+            </div>
+            <div
+              className="study-sky-field"
+              style={{ width: `${SKY_BOX}px`, height: `${SKY_BOX}px` }}
+              role="img"
+              aria-label={`${cluster.title}，${LEVEL_LABEL[cluster.level]}，${cluster.conceptCount === 0 ? '未挂知识点' : `${String(cluster.atTargetCount)}/${String(cluster.conceptCount)} 个概念到档`}`}
             >
-              <span className="study-tree-chevron" aria-hidden="true">
-                ▸
-              </span>
-              <span className="study-tree-branch-title">{branch.title}</span>
-              <span className="study-tree-branch-meta">
-                {branch.conceptCount === 0 ? '未挂' : `${String(branch.atTargetCount)}/${String(branch.conceptCount)}`}
-              </span>
-            </button>
-          ))}
-          {tree.leaves.map(leaf => {
-            const size = leafSize(leaf.threshold)
-            const pct = Math.round(Math.max(0, Math.min(1, leaf.mastery)) * 100)
-            const label = `${leaf.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(leaf.threshold * 100))}%${leaf.sections.length > 1 ? ` · ${String(leaf.sections.length)} 节共用` : ''}`
-            return (
-              <span key={leaf.id}>
-                <span
-                  className={'study-tree-leaf' + (leaf.atTarget ? ' is-on' : '')}
-                  style={{
-                    top: `${leaf.y - size / 2}px`,
-                    left: `${TREE_LEAF_X - size / 2}px`,
-                    width: `${size}px`,
-                    height: `${size}px`,
-                    background: `color-mix(in srgb, var(--s-primary) ${String(10 + pct * 0.85)}%, var(--s-surface-3))`,
-                  }}
-                  title={label}
-                  role="img"
-                  aria-label={label}
-                />
-                <span
-                  className="study-tree-leaf-label"
-                  style={{ top: `${leaf.y - 8}px`, left: `${TREE_LEAF_X + 14}px` }}
-                  title={label}
-                >
-                  {leaf.name}
-                </span>
-              </span>
-            )
-          })}
-        </div>
+              <span
+                className="study-sky-main"
+                style={{
+                  left: `${SKY_CENTER - SKY_MAIN_R}px`,
+                  top: `${SKY_CENTER - SKY_MAIN_R}px`,
+                  width: `${SKY_MAIN_R * 2}px`,
+                  height: `${SKY_MAIN_R * 2}px`,
+                  opacity: `${0.3 + cluster.mastery * 0.7}`,
+                  boxShadow: mainGlow(cluster.mastery),
+                }}
+              />
+              {cluster.stars.length === 0 ? <span className="study-sky-empty">未挂知识点</span> : null}
+              {cluster.stars.map(star => {
+                const pct = Math.round(Math.max(0, Math.min(1, star.mastery)) * 100)
+                const label = `${star.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(star.threshold * 100))}%${star.sections.length > 1 ? ` · ${String(star.sections.length)} 节共用` : ''}`
+                return (
+                  <span
+                    key={star.id}
+                    className={
+                      'study-sky-star' +
+                      (star.sections.length > 1 ? ' is-shared' : '') +
+                      (star.atTarget ? ' is-on' : '')
+                    }
+                    style={{
+                      left: `${star.x - star.r}px`,
+                      top: `${star.y - star.r}px`,
+                      width: `${star.r * 2}px`,
+                      height: `${star.r * 2}px`,
+                      opacity: `${0.35 + star.mastery * 0.65}`,
+                      boxShadow: starGlow(star.mastery),
+                    }}
+                    title={label}
+                  />
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </div>
-      <p className="study-tree-legend">
-        叶越深，掌握越牢；叶越大，这节要的档位越高；一根线连到几节，说明这个概念几节都要用。点枝可折叠。
+      <p className="study-sky-legend">
+        越亮，掌握越牢；大星跟着这一节最暗的那颗星。带虚线圈的小星，是几节共用的知识点。
       </p>
     </div>
   )
