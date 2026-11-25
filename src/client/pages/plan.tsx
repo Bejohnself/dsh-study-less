@@ -4,7 +4,7 @@
  * The old attempt / judgement-question layer is a compatibility surface and is
  * intentionally absent here: the main loop passes and closes via knowledge.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { JobView, PlanDetailView, PlanStepView } from '../../core/views.ts'
 import { api, errorText, post, waitForJob } from '../api.ts'
@@ -57,6 +57,17 @@ export function PlanDetailPage({
   const [routeView, setRouteView] = useState<PlanViewMode>(() => readPlanView(ROUTE_VIEW_KEY))
   const [masteryView, setMasteryView] = useState<PlanViewMode>(() => readPlanView(MASTERY_VIEW_KEY))
   const [conceptBusy, setConceptBusy] = useState<string | null>(null)
+
+  // 略读的节在星图总览里只留一个暗点；集合每次 data 变化才重建，免得悬停时重排星图。
+  const skimTargets = useMemo(
+    () =>
+      new Set(
+        (data?.steps ?? [])
+          .filter(step => step.coverage === 'skim' && step.target !== undefined)
+          .map(step => `${step.target!.materialId}:${step.target!.unitId}`),
+      ),
+    [data?.steps],
+  )
 
   const reload = useCallback(async () => {
     const raw = await api<PlanDetailView>(`/plan?pid=${encodeURIComponent(pid)}`)
@@ -550,7 +561,7 @@ export function PlanDetailPage({
               </span>
             </div>
             {masteryView === 'visual' ? (
-              <MasterySky sections={data.sections} />
+              <MasterySky sections={data.sections} skim={skimTargets} />
             ) : data.sections.length === 0 ? (
               <p className="study-muted">
                 还没有知识点目标。逐节点「补知识点」从原文抽，或重新生成一次路径。

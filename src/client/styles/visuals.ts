@@ -115,6 +115,12 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
 }
 [data-dsh-study] .study-sky-star:hover,
 [data-dsh-study] .study-sky-section:hover { cursor: default; }
+[data-dsh-study] .study-sky-view { transform-origin: 0 0; transition: transform 320ms ease; }
+[data-dsh-study] .study-sky-section { cursor: pointer; }
+[data-dsh-study] .study-sky-skim { fill: var(--s-primary); opacity: .32; }
+[data-dsh-study] .study-sky-star-name { font-size: 4.4px; fill: var(--s-text); paint-order: stroke; stroke: var(--s-surface); stroke-width: 1.2px; }
+[data-dsh-study] .study-sky-zoombar { display: flex; align-items: center; gap: 10px; margin: 0 0 6px; font-size: 12.5px; }
+[data-dsh-study] .study-sky-zoombar-title { font-weight: 650; }
 [data-dsh-study] .study-sky-star.is-hot .study-sky-hit { stroke: color-mix(in srgb, var(--s-primary) 35%, transparent); }
 [data-dsh-study] .study-sky-hit { fill: transparent; stroke: transparent; stroke-width: 1; }
 [data-dsh-study] .study-sky-tip rect {
@@ -152,6 +158,7 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
   [data-dsh-study] .study-sky-star,
   [data-dsh-study] .study-sky-breathe,
   [data-dsh-study] .study-sky-map,
+  [data-dsh-study] .study-sky-view,
   [data-dsh-study] .study-mascot,
   [data-dsh-study] .study-sprite,
   [data-dsh-study] .study-cover-ghost,

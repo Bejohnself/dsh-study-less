@@ -103,6 +103,10 @@ if (row.options.id !== 'study-desk' || page.options.key !== 'study-desk') {
   throw new Error('panel ids disagree')
 }
 
+// 星图总览要能在原位放大（缩放层），略读的节要缩成暗点。
+if (!/study-sky-view/u.test(source)) throw new Error('sky overview lost its zoom layer')
+if (!/study-sky-skim/u.test(source)) throw new Error('sky overview lost the skim dot')
+
 // 星图的细节只在悬停时出现：常驻标签既挤又不好看。
 if (!/study-sky-tip/u.test(source)) throw new Error('sky has no hover tooltip')
 if (/study-sky-title-text/u.test(source)) throw new Error('sky still prints section names permanently')

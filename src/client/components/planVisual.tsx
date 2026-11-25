@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { SKY_MAIN_R, brightnessOf, buildMasterySky, glowOf, goldOf, hash01 } from '../masterySky.ts'
+import { SKY_MAIN_R, brightnessOf, buildMasterySky, glowOf, goldOf, hash01, zoomTransform } from '../masterySky.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -229,21 +229,31 @@ function SkyTooltip({
 }
 
 /**
- * The goal's knowledge sky: one map, one constellation per section.
+ * The goal's knowledge sky: one spiral arm, one constellation per section.
  *
- * Nothing is labelled until hovered: the map stays a sky, and the detail shows
- * up where the pointer is. Brightness still carries mastery and nothing else is
- * coloured; the slow drift is decoration, switched off for reduced motion.
+ * The overview is small and only draws 必读; 略读 sections are a dim dot. A
+ * click opens one section in place — the galaxy scales up around it — and the
+ * opened section shows its star names. Nothing is labelled before that.
  */
-export function MasterySky({ sections }: { sections: readonly PlanSectionView[] }): ReactElement {
+export function MasterySky({
+  sections,
+  skim,
+}: {
+  sections: readonly PlanSectionView[]
+  skim?: ReadonlySet<string>
+}): ReactElement {
   const [hover, setHover] = useState<SkyHover | null>(null)
-  const map = useMemo(() => buildMasterySky(sections), [sections])
+  const [zoom, setZoom] = useState<number | null>(null)
+  const map = useMemo(() => buildMasterySky(sections, { skim }), [sections, skim])
   if (map.sections.length === 0) {
     return <p className="study-muted">还没有知识点目标。切到文字视图逐节补，或重新生成一次路径。</p>
   }
-  const atTargetSections = map.sections.filter(section => section.atTarget).length
   const level = (value: number): string => LEVEL_LABEL[value] ?? '会用'
+  const opened = zoom === null ? undefined : map.sections[zoom]
+  const view = opened === undefined ? null : zoomTransform(opened)
+  const atTargetSections = map.sections.filter(section => section.atTarget).length
 
+  // ── 悬浮卡片：画在缩放层外面，字号不跟着放大 ──
   let tip: { cx: number; cy: number; r: number; lines: string[] } | null = null
   if (hover?.kind === 'star') {
     const star = map.stars[hover.index]
@@ -268,24 +278,42 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
       tip = {
         cx: section.x,
         cy: section.y,
-        r: SKY_MAIN_R,
+        r: section.coverage === 'skim' ? 4 : SKY_MAIN_R,
         lines: [
           section.title,
-          `${level(section.level)} · ${section.conceptCount === 0 ? '未挂知识点' : `${String(section.atTargetCount)}/${String(section.conceptCount)} 到档`}`,
+          `${section.coverage === 'skim' ? '略读 · ' : ''}${level(section.level)} · ${section.conceptCount === 0 ? '未挂知识点' : `${String(section.atTargetCount)}/${String(section.conceptCount)} 到档`}`,
           `掌握 ${String(Math.round(Math.max(0, Math.min(1, section.mastery)) * 100))}%`,
         ],
       }
     }
   }
+  const tipX = tip === null || view === null ? tip?.cx : view.tx + tip.cx * view.scale
+  const tipY = tip === null || view === null ? tip?.cy : view.ty + tip.cy * view.scale
+  const tipR = tip === null ? 0 : view === null ? tip.r : tip.r * view.scale
 
   return (
     <div className="study-sky">
+      {opened === undefined ? null : (
+        <div className="study-sky-zoombar">
+          <button type="button" className="study-link" onClick={() => setZoom(null)}>
+            ← 总览
+          </button>
+          <span className="study-sky-zoombar-title">{opened.title}</span>
+          <span className="study-muted">
+            {opened.coverage === 'skim' ? '略读 · ' : ''}
+            {level(opened.level)}
+            {opened.conceptCount === 0 ? '' : ` · ${String(opened.atTargetCount)}/${String(opened.conceptCount)} 到档`}
+            {` · 掌握 ${String(Math.round(Math.max(0, Math.min(1, opened.mastery)) * 100))}%`}
+          </span>
+        </div>
+      )}
       <svg
         className="study-sky-map"
         viewBox={`0 0 ${String(map.width)} ${String(map.height)}`}
         role="img"
-        aria-label={`知识点星图：${String(atTargetSections)}/${String(map.sections.length)} 节到档，${String(map.stars.length)} 颗星；悬停星星看细节`}
+        aria-label={`知识点星图：${String(atTargetSections)}/${String(map.sections.length)} 节到档，${String(map.stars.length)} 颗星；悬停看细节，点主星放大`}
         onMouseLeave={() => setHover(null)}
+        onClick={() => setZoom(null)}
       >
         <defs>
           <radialGradient id="study-sky-glow">
@@ -297,99 +325,147 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
             <stop offset="100%" className="study-sky-gold-stop" stopOpacity={0} />
           </radialGradient>
         </defs>
-        {map.sections.map((section, index) => (
-          <g
-            key={section.target}
-            className="study-sky-section"
-            tabIndex={0}
-            role="img"
-            aria-label={`${section.title}，${level(section.level)}，${String(section.atTargetCount)}/${String(section.conceptCount)} 到档`}
-            onMouseEnter={() => setHover({ kind: 'section', index })}
-            onMouseLeave={() => setHover(null)}
-            onFocus={() => setHover({ kind: 'section', index })}
-            onBlur={() => setHover(null)}
-          >
-            <g className="study-sky-breathe" style={{ animationDelay: `${(hash01(`section:${section.target}`) * 6).toFixed(2)}s` }}>
-              <circle
-                className="study-sky-main-glow"
-                cx={section.x}
-                cy={section.y}
-                r={SKY_MAIN_R * 3.4}
-                fill="url(#study-sky-glow)"
-                opacity={glowOf(section.mastery)}
-              />
-            </g>
-            {goldOf(section.mastery) === 0 ? null : (
-              <circle
-                className="study-sky-gold-glow"
-                cx={section.x}
-                cy={section.y}
-                r={SKY_MAIN_R * 3.2}
-                fill="url(#study-sky-gold-glow)"
-                opacity={(goldOf(section.mastery) / 100) * 0.8}
-              />
-            )}
-            <circle className="study-sky-hit" cx={section.x} cy={section.y} r={SKY_MAIN_R + 8} />
-            <path
-              className="study-sky-main-shape"
-              d={fiveStarPath(section.x, section.y, SKY_MAIN_R)}
-              opacity={brightnessOf(section.mastery)}
-              style={{ fill: goldFill(section.mastery) }}
-            />
-          </g>
-        ))}
-        {map.stars.map((star, index) => (
-          <g
-            key={star.id}
-            className={'study-sky-star' + (hover?.kind === 'star' && hover.index === index ? ' is-hot' : '')}
-            style={{
-              animationDelay: `${(hash01(`delay:${star.id}`) * 6).toFixed(2)}s`,
-              animationDuration: `${(5 + hash01(`speed:${star.id}`) * 4).toFixed(2)}s`,
-            }}
-            tabIndex={0}
-            role="img"
-            aria-label={`${star.name}，掌握 ${String(Math.round(Math.max(0, Math.min(1, star.mastery)) * 100))}%`}
-            onMouseEnter={() => setHover({ kind: 'star', index })}
-            onMouseLeave={() => setHover(null)}
-            onFocus={() => setHover({ kind: 'star', index })}
-            onBlur={() => setHover(null)}
-          >
-            <circle
-              className="study-sky-star-glow"
-              cx={star.x}
-              cy={star.y}
-              r={star.r * 3}
-              fill="url(#study-sky-glow)"
-              opacity={glowOf(star.mastery)}
-            />
-            {goldOf(star.mastery) === 0 ? null : (
-              <circle
-                className="study-sky-gold-glow"
-                cx={star.x}
-                cy={star.y}
-                r={star.r * 3.4}
-                fill="url(#study-sky-gold-glow)"
-                opacity={(goldOf(star.mastery) / 100) * 0.85}
-              />
-            )}
-            <circle className="study-sky-hit" cx={star.x} cy={star.y} r={Math.max(star.r + 8, 11)} />
-            <path
-              className={'study-sky-star-shape' + (star.sections.length > 1 ? ' is-shared' : '')}
-              d={
-                star.sections.length > 1
-                  ? multiStarPath(star.x, star.y, star.r * 1.15)
-                  : sparklePath(star.x, star.y, star.r)
-              }
-              opacity={brightnessOf(star.mastery)}
-            />
-          </g>
-        ))}
-        {tip === null ? null : (
-          <SkyTooltip cx={tip.cx} cy={tip.cy} r={tip.r} lines={tip.lines} mapWidth={map.width} />
+        <g
+          className="study-sky-view"
+          style={
+            view === null
+              ? undefined
+              : { transform: `translate(${view.tx.toFixed(2)}px, ${view.ty.toFixed(2)}px) scale(${String(view.scale)})` }
+          }
+        >
+          {map.sections.map((section, index) => {
+            const isOpen = opened?.index === section.index
+            const dim = section.coverage === 'skim'
+            return (
+              <g
+                key={section.target}
+                className={'study-sky-section' + (dim ? ' is-skim' : '') + (isOpen ? ' is-open' : '')}
+                tabIndex={0}
+                role="button"
+                aria-label={`${section.title}，${section.coverage === 'skim' ? '略读，' : ''}${level(section.level)}，${String(section.atTargetCount)}/${String(section.conceptCount)} 到档；点开放大`}
+                onMouseEnter={() => setHover({ kind: 'section', index })}
+                onMouseLeave={() => setHover(null)}
+                onFocus={() => setHover({ kind: 'section', index })}
+                onBlur={() => setHover(null)}
+                onClick={event => {
+                  event.stopPropagation()
+                  setZoom(section.index)
+                }}
+                onKeyDown={event => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return
+                  event.preventDefault()
+                  setZoom(section.index)
+                }}
+              >
+                <g
+                  className="study-sky-breathe"
+                  style={{
+                    animationDelay: `${(hash01(`section:${section.target}`) * 4).toFixed(2)}s`,
+                    animationDuration: `${(4.5 + hash01(`section:${section.target}`) * 2).toFixed(2)}s`,
+                  }}
+                >
+                  <circle
+                    className="study-sky-main-glow"
+                    cx={section.x}
+                    cy={section.y}
+                    r={SKY_MAIN_R * (dim ? 2 : 3.4)}
+                    fill="url(#study-sky-glow)"
+                    opacity={dim ? 0.08 : glowOf(section.mastery)}
+                  />
+                </g>
+                <circle className="study-sky-hit" cx={section.x} cy={section.y} r={SKY_MAIN_R + 10} />
+                {dim ? (
+                  <circle className="study-sky-skim" cx={section.x} cy={section.y} r={3.4} />
+                ) : (
+                  <>
+                    {goldOf(section.mastery) === 0 ? null : (
+                      <circle
+                        className="study-sky-gold-glow"
+                        cx={section.x}
+                        cy={section.y}
+                        r={SKY_MAIN_R * 3.2}
+                        fill="url(#study-sky-gold-glow)"
+                        opacity={(goldOf(section.mastery) / 100) * 0.8}
+                      />
+                    )}
+                    <path
+                      className="study-sky-main-shape"
+                      d={fiveStarPath(section.x, section.y, SKY_MAIN_R)}
+                      opacity={brightnessOf(section.mastery)}
+                      style={{ fill: goldFill(section.mastery) }}
+                    />
+                  </>
+                )}
+              </g>
+            )
+          })}
+          {map.stars.map((star, index) => {
+            const shown = zoom !== null ? star.sections.includes(zoom) : star.sections.some(sectionIndex => map.sections[sectionIndex]?.coverage !== 'skim')
+            if (!shown) return null
+            const pct = Math.round(Math.max(0, Math.min(1, star.mastery)) * 100)
+            const label = `${star.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(star.threshold * 100))}%${star.sections.length > 1 ? ` · ${String(star.sections.length)} 节共用` : ''}`
+            const named = zoom !== null && star.sections.includes(zoom)
+            return (
+              <g
+                key={star.id}
+                className={'study-sky-star' + (hover?.kind === 'star' && hover.index === index ? ' is-hot' : '')}
+                style={{
+                  animationDelay: `${(hash01(`delay:${star.id}`) * 6).toFixed(2)}s`,
+                  animationDuration: `${(5 + hash01(`speed:${star.id}`) * 4).toFixed(2)}s`,
+                }}
+                tabIndex={0}
+                role="img"
+                aria-label={label}
+                onMouseEnter={() => setHover({ kind: 'star', index })}
+                onMouseLeave={() => setHover(null)}
+                onFocus={() => setHover({ kind: 'star', index })}
+                onBlur={() => setHover(null)}
+                onClick={event => event.stopPropagation()}
+              >
+                <circle
+                  className="study-sky-star-glow"
+                  cx={star.x}
+                  cy={star.y}
+                  r={star.r * 3}
+                  fill="url(#study-sky-glow)"
+                  opacity={glowOf(star.mastery)}
+                />
+                {goldOf(star.mastery) === 0 ? null : (
+                  <circle
+                    className="study-sky-gold-glow"
+                    cx={star.x}
+                    cy={star.y}
+                    r={star.r * 3.4}
+                    fill="url(#study-sky-gold-glow)"
+                    opacity={(goldOf(star.mastery) / 100) * 0.85}
+                  />
+                )}
+                <circle className="study-sky-hit" cx={star.x} cy={star.y} r={Math.max(star.r + 8, 11)} />
+                <path
+                  className={'study-sky-star-shape' + (star.sections.length > 1 ? ' is-shared' : '')}
+                  d={
+                    star.sections.length > 1
+                      ? multiStarPath(star.x, star.y, star.r * 1.15)
+                      : sparklePath(star.x, star.y, star.r)
+                  }
+                  opacity={brightnessOf(star.mastery)}
+                  style={{ fill: goldFill(star.mastery) }}
+                />
+                {named ? (
+                  <text className="study-sky-star-name" x={star.x} y={star.y + star.r + 7} textAnchor="middle">
+                    {star.name}
+                  </text>
+                ) : null}
+              </g>
+            )
+          })}
+        </g>
+        {tip === null || tipX === undefined || tipY === undefined ? null : (
+          <SkyTooltip cx={tipX} cy={tipY} r={tipR} lines={tip.lines} mapWidth={map.width} />
         )}
       </svg>
       <p className="study-sky-legend">
-        越亮越金，掌握越牢；大星取这一节的平均。共用同一个知识点的节挨在一起，六角星就是几节共用的那颗。悬停星星看细节。
+        越亮越金，掌握越牢；大星取这一节的平均。总览只画必读，略读是一颗暗点；点主星原位放大，点空白处回来。
       </p>
     </div>
   )

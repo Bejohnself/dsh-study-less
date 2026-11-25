@@ -1,26 +1,28 @@
 /**
- * Star map for the goal's knowledge points: one canvas, one constellation per
- * section, one star per concept.
+ * Star map for the goal's knowledge points: one spiral galaxy, one star per
+ * concept, brightness carried by mastery.
  *
- * Sections that share concepts are laid out next to each other, so a shared
- * star simply rises between them — no lines are drawn across the map.
+ * Sections follow the learning order along a single arm; sections that share a
+ * concept end up next to each other, so the shared star rises between them with
+ * no lines across the map. `skim` sections are only a dim dot in the overview.
  */
 import type { PlanSectionView } from '../core/views.ts'
 
-export const SKY_PAD = 20
-export const SKY_REGION_W = 250
-export const SKY_REGION_H = 210
-export const SKY_COLS_MAX = 3
-export const SKY_MAIN_R = 10
+/** Overview canvas, deliberately small: the detail comes from zooming in. */
+export const SKY_W = 760
+export const SKY_H = 460
+export const SKY_MAIN_R = 8
+/** How much an opened section grows in place. */
+export const SKY_ZOOM_SCALE = 2.8
+const SPIRAL_X = 1.38
+const SPIRAL_Y = 0.82
 const OUTER_CAPACITY = 9
-const OUTER_RADIUS = 62
-const INNER_RADIUS = 36
-/** How far a section's own star may drift from its grid slot. */
-const CENTER_JITTER = 10
-/** Minimum gap between two concept stars. */
-const STAR_GAP = 13
-/** Shared stars sit near the middle of the sections that need them. */
-const SHARED_OFFSET = 14
+const OUTER_RADIUS = 26
+const INNER_RADIUS = 14
+const CENTER_JITTER = 8
+const STAR_GAP = 10
+
+export type SkyCoverage = 'read' | 'skim'
 
 export interface SkyStar {
   id: string
@@ -42,7 +44,9 @@ export interface SkySection {
   target: string
   title: string
   level: number
-  /** Section mastery: the mean of its concepts, so the main star reads the whole cluster. */
+  /** Overview draws a skim section as one dim dot, not a constellation. */
+  coverage: SkyCoverage
+  /** Section mastery: the mean of its concepts, so the main star reads the cluster. */
   mastery: number
   atTarget: boolean
   conceptCount: number
@@ -56,10 +60,9 @@ export interface SkySection {
 export interface SkyMap {
   width: number
   height: number
-  cols: number
   sections: SkySection[]
   stars: SkyStar[]
-  /** Section indexes in layout order; neighbours here share the most concepts. */
+  /** Section indexes in route order; neighbours here share the most concepts. */
   order: number[]
 }
 
@@ -72,18 +75,22 @@ export function hash01(id: string): number {
   return (value >>> 0) / 4294967296
 }
 
-/**
- * Scatter position for solo star `slot` of `total`.
- *
- * A golden-angle spiral keeps stars apart without stacking them on rings —
- * rings read as electron shells, which is not what this map is.
- */
-function scatterPoint(total: number, slot: number, id: string): { dx: number; dy: number } {
-  const golden = 2.399963229728653
-  const angle = slot * golden + hash01(id) * 0.9
-  const spread = total <= 1 ? 0 : slot / (total - 1)
-  const radius = 40 + spread * 54 + (hash01(`${id}:r`) - 0.5) * 8
+/** Orbit position for solo star `slot` of `total`, nudged by the concept id. */
+function orbitPoint(total: number, slot: number, id: string): { dx: number; dy: number } {
+  const outerCount = Math.min(total, OUTER_CAPACITY)
+  const inner = slot >= outerCount
+  const count = inner ? total - outerCount : outerCount
+  const place = inner ? slot - outerCount : slot
+  // Stagger the inner ring so it does not line up with the outer spokes.
+  const angle = (place / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2 + (inner ? Math.PI / Math.max(3, count) : 0)
+  const radius = (inner ? INNER_RADIUS : OUTER_RADIUS) + (hash01(id) - 0.5) * 5
   return { dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius }
+}
+
+/** Star radius by threshold: a deeper level asks for a bigger star. */
+function starRadius(threshold: number): number {
+  const share = Math.max(0, Math.min(1, (threshold - 0.6) / 0.35))
+  return Math.round((2.2 + share * 1.4) * 10) / 10
 }
 
 /**
@@ -114,10 +121,13 @@ export function glowOf(mastery: number): number {
   return Math.round((0.04 + Math.pow(value, 1.8) * 0.7) * 100) / 100
 }
 
-/** Star radius by threshold: a deeper level asks for a bigger star. */
-function starRadius(threshold: number): number {
-  const share = Math.max(0, Math.min(1, (threshold - 0.6) / 0.35))
-  return Math.round((3.2 + share * 1.8) * 10) / 10
+/** Translate/scale that centres one section in the overview when opened. */
+export function zoomTransform(section: SkySection): { scale: number; tx: number; ty: number } {
+  return {
+    scale: SKY_ZOOM_SCALE,
+    tx: SKY_W / 2 - section.x * SKY_ZOOM_SCALE,
+    ty: SKY_H / 2 - section.y * SKY_ZOOM_SCALE,
+  }
 }
 
 /** Number of concepts two sections must both learn. */
@@ -160,15 +170,30 @@ function layoutOrder(conceptIds: ReadonlyArray<readonly string[]>): number[] {
   return order
 }
 
-/** The whole goal on one canvas: neighbours share stars, so no links are needed. */
-export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
-  if (sections.length === 0) {
-    return { width: SKY_PAD * 2, height: SKY_PAD * 2, cols: 1, sections: [], stars: [], order: [] }
+/** One arm: radius grows with the slot, so the galaxy is not a grid. */
+function spiralPoint(slot: number, total: number, id: string): { x: number; y: number } {
+  if (total <= 1) return { x: SKY_W / 2, y: SKY_H / 2 }
+  const t = slot / (total - 1)
+  const turns = total <= 4 ? 0.55 : 0.95
+  const inner = total <= 4 ? 60 : 104
+  const outer = total <= 4 ? 150 : 206
+  const angle = -Math.PI / 2 + t * turns * Math.PI * 2
+  const radius = inner + t * (outer - inner)
+  const drift = (hash01(`section:${id}`) - 0.5) * CENTER_JITTER * 2
+  return {
+    x: SKY_W / 2 + Math.cos(angle) * radius * SPIRAL_X + drift,
+    y: SKY_H / 2 + Math.sin(angle) * radius * SPIRAL_Y + drift / 2,
   }
-  const cols = Math.max(1, Math.min(SKY_COLS_MAX, Math.ceil(Math.sqrt(sections.length))))
-  const rows = Math.max(1, Math.ceil(sections.length / cols))
-  const width = cols * SKY_REGION_W + SKY_PAD * 2
-  const height = rows * SKY_REGION_H + SKY_PAD * 2
+}
+
+/** The whole goal on one spiral arm: neighbours in route order sit next to each other. */
+export function buildMasterySky(
+  sections: readonly PlanSectionView[],
+  options: { skim?: ReadonlySet<string> } = {},
+): SkyMap {
+  if (sections.length === 0) {
+    return { width: SKY_W, height: SKY_H, sections: [], stars: [], order: [] }
+  }
 
   // ── 一概念一星：先记住谁要它，再决定画在哪 ──
   const stars: SkyStar[] = []
@@ -200,17 +225,11 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
     }
   }
 
-  // ── 相邻：共用的节排在路线里相邻，星就落在它们中间 ──
+  // ── 排位：按共用关系排出的路线铺到旋臂上 ──
   const order = layoutOrder(owners)
   const centers = sections.map(() => ({ x: 0, y: 0 }))
   order.forEach((sectionIndex, slot) => {
-    const row = Math.floor(slot / cols)
-    const col = row % 2 === 0 ? slot % cols : cols - 1 - (slot % cols)
-    const drift = (hash01(`section:${sections[sectionIndex]!.target}`) - 0.5) * CENTER_JITTER * 2
-    centers[sectionIndex] = {
-      x: Math.round(SKY_PAD + col * SKY_REGION_W + SKY_REGION_W / 2 + drift),
-      y: Math.round(SKY_PAD + row * SKY_REGION_H + SKY_REGION_H / 2 + drift / 2),
-    }
+    centers[sectionIndex] = spiralPoint(slot, sections.length, sections[sectionIndex]!.target)
   })
 
   // ── 落星：独占概念绕自己的节转，共用概念落在相关节的重心 ──
@@ -221,13 +240,13 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
     if (star.sections.length === 1) {
       const home = star.sections[0]!
       const center = centers[home]!
-      const { dx, dy } = scatterPoint(soloTotal[home]!, soloSlot[home]!, star.id)
+      const { dx, dy } = orbitPoint(soloTotal[home]!, soloSlot[home]!, star.id)
       soloSlot[home]! += 1
       star.x = center.x + dx
       star.y = center.y + dy
       continue
     }
-    // 重心对四个节的情况会偏向一边，再朝最远的那个节挪几步，让每节都够得着。
+    // 重心对多个节的情况会偏向一边，再朝最远的那个节挪几步，让每节都够得着。
     let x = star.sections.reduce((sum, index) => sum + centers[index]!.x, 0) / star.sections.length
     let y = star.sections.reduce((sum, index) => sum + centers[index]!.y, 0) / star.sections.length
     for (let step = 0; step < 60; step += 1) {
@@ -251,10 +270,10 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
   }
 
   // ── 让开：星不压主星、不互相压，也别跑出画布 ──
-  const minX = SKY_PAD + 8
-  const maxX = width - SKY_PAD - 8
-  const minY = SKY_PAD + 8
-  const maxY = height - SKY_PAD - 8
+  const minX = 12
+  const maxX = SKY_W - 12
+  const minY = 12
+  const maxY = SKY_H - 12
   for (let pass = 0; pass < 12; pass += 1) {
     for (let index = 0; index < stars.length; index += 1) {
       const star = stars[index]!
@@ -263,7 +282,7 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
         const dx = star.x - center.x
         const dy = star.y - center.y
         const distance = Math.hypot(dx, dy) || 1
-        const need = SKY_MAIN_R + star.r + 4
+        const need = SKY_MAIN_R + star.r + 3
         if (distance < need) {
           star.x = center.x + (dx / distance) * need
           star.y = center.y + (dy / distance) * need
@@ -286,11 +305,13 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
     }
   }
 
+  const skim = options.skim
   const skySections: SkySection[] = sections.map((section, index) => ({
     index,
     target: section.target,
     title: section.title,
     level: section.level,
+    coverage: skim?.has(section.target) === true ? 'skim' : 'read',
     mastery: section.mastery,
     atTarget: section.atTarget,
     conceptCount: section.conceptStates.length,
@@ -300,5 +321,5 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
     soloStars: stars.map((star, starIndex) => (star.sections.length === 1 && star.sections[0] === index ? starIndex : -1)).filter(starIndex => starIndex >= 0),
   }))
 
-  return { width, height, cols, sections: skySections, stars, order }
+  return { width: SKY_W, height: SKY_H, sections: skySections, stars, order }
 }

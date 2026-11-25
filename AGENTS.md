@@ -10,7 +10,7 @@ DSH Web GUI 的书桌插件：把目标翻译成「读哪些节、每个知识�
 | `src/core/` | 领域规则与文件仓库：掌握度、FSRS、计划门、结构切分（只依赖 node 内置） |
 | `src/host/` | 服务外壳与编排：`service/` `routes/` `tools/` `generation/` `providers/` |
 | `src/client/` | React 面板，只读 `/study-api`，从不直接写文件 |
-| `src/client/masterySky.ts` | 知识点星图布局：一张图的区域网格、相邻节共用一颗星、星位避让（纯函数，可单测） |
+| `src/client/masterySky.ts` | 知识点星图布局：螺旋单臂、相邻节共用一颗星、略读标记与缩放变换（纯函数，可单测） |
 | `scripts/` | 构建与检查：`build.mjs` 与 `checks/{service,http,ui,adhoc}/` |
 | `tests/` | node:test 纯逻辑单测 |
 | `docs/` | AGENTS 的导航与规则细则（产品与文案已并入 DESIGN） |
