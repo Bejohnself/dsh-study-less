@@ -89,28 +89,29 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
   height: auto;
   border-radius: 6px;
   background:
-    radial-gradient(90% 80% at 22% 8%, color-mix(in srgb, var(--s-primary) 7%, transparent), transparent 62%),
-    radial-gradient(80% 70% at 82% 88%, color-mix(in srgb, var(--s-primary) 5%, transparent), transparent 58%);
-  background-size: 170% 160%;
-  animation: study-sky-drift-bg 28s ease-in-out infinite alternate;
+    radial-gradient(90% 80% at 22% 8%, color-mix(in srgb, var(--s-primary) 11%, transparent), transparent 64%),
+    radial-gradient(80% 70% at 82% 88%, color-mix(in srgb, var(--s-primary) 8%, transparent), transparent 60%);
+  background-size: 230% 210%;
+  animation: study-sky-drift-bg 18s ease-in-out infinite alternate;
 }
 /* 星星慢慢飘，像真的夜空；每颗延迟不同，免得齐步走。 */
 @keyframes study-sky-float {
-  0% { transform: translate(0, 0); }
-  55% { transform: translate(1.4px, -2px); }
-  100% { transform: translate(0, 0); }
+  0% { transform: translate(0, 0) scale(1); }
+  35% { transform: translate(-2.6px, -3.4px) scale(1.14); }
+  70% { transform: translate(2.4px, 1.8px) scale(.96); }
+  100% { transform: translate(0, 0) scale(1); }
 }
 [data-dsh-study] .study-sky-star,
 [data-dsh-study] .study-sky-breathe { transform-box: fill-box; transform-origin: center; }
-[data-dsh-study] .study-sky-star { animation: study-sky-float 12s ease-in-out infinite; }
-[data-dsh-study] .study-sky-breathe { animation: study-sky-breathe 7s ease-in-out infinite alternate; }
+[data-dsh-study] .study-sky-star { animation: study-sky-float 8s ease-in-out infinite; }
+[data-dsh-study] .study-sky-breathe { animation: study-sky-breathe 4.5s ease-in-out infinite alternate; }
 @keyframes study-sky-breathe {
-  from { transform: scale(.94); }
-  to { transform: scale(1.08); }
+  from { transform: scale(.86); }
+  to { transform: scale(1.16); }
 }
 @keyframes study-sky-drift-bg {
-  from { background-position: 12% 6%; }
-  to { background-position: 78% 92%; }
+  from { background-position: 8% 4%; }
+  to { background-position: 84% 96%; }
 }
 [data-dsh-study] .study-sky-star:hover,
 [data-dsh-study] .study-sky-section:hover { cursor: default; }

@@ -86,6 +86,23 @@ function scatterPoint(total: number, slot: number, id: string): { dx: number; dy
   return { dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius }
 }
 
+/**
+ * How lit a star is, given mastery.
+ *
+ * The curve is deliberately steep: 0.5 lights the core only, 0.95 nearly blows
+ * out. A linear map made half-learned and well-known stars look the same.
+ */
+export function brightnessOf(mastery: number): number {
+  const value = Math.max(0, Math.min(1, mastery))
+  return Math.round((0.15 + Math.pow(value, 1.6) * 0.85) * 100) / 100
+}
+
+/** Halo strength; dimmer than the core so a bright star reads as bright. */
+export function glowOf(mastery: number): number {
+  const value = Math.max(0, Math.min(1, mastery))
+  return Math.round((0.04 + Math.pow(value, 1.8) * 0.7) * 100) / 100
+}
+
 /** Star radius by threshold: a deeper level asks for a bigger star. */
 function starRadius(threshold: number): number {
   const share = Math.max(0, Math.min(1, (threshold - 0.6) / 0.35))

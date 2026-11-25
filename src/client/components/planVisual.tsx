@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { PlanSectionView, PlanStepView } from '../../core/views.ts'
 import type { Coverage } from '../../core/types.ts'
-import { SKY_MAIN_R, buildMasterySky, hash01 } from '../masterySky.ts'
+import { SKY_MAIN_R, brightnessOf, buildMasterySky, glowOf, hash01 } from '../masterySky.ts'
 
 export type PlanViewMode = 'text' | 'visual'
 
@@ -304,14 +304,14 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
                 cy={section.y}
                 r={SKY_MAIN_R * 3.4}
                 fill="url(#study-sky-glow)"
-                opacity={0.25 + section.mastery * 0.5}
+                opacity={glowOf(section.mastery)}
               />
             </g>
             <circle className="study-sky-hit" cx={section.x} cy={section.y} r={SKY_MAIN_R + 8} />
             <path
               className="study-sky-main-shape"
               d={fiveStarPath(section.x, section.y, SKY_MAIN_R)}
-              opacity={0.35 + section.mastery * 0.65}
+              opacity={brightnessOf(section.mastery)}
             />
           </g>
         ))}
@@ -319,7 +319,10 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
           <g
             key={star.id}
             className={'study-sky-star' + (hover?.kind === 'star' && hover.index === index ? ' is-hot' : '')}
-            style={{ animationDelay: `${(hash01(star.id) * 9).toFixed(2)}s` }}
+            style={{
+              animationDelay: `${(hash01(`delay:${star.id}`) * 6).toFixed(2)}s`,
+              animationDuration: `${(5 + hash01(`speed:${star.id}`) * 4).toFixed(2)}s`,
+            }}
             tabIndex={0}
             role="img"
             aria-label={`${star.name}，掌握 ${String(Math.round(Math.max(0, Math.min(1, star.mastery)) * 100))}%`}
@@ -334,7 +337,7 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
               cy={star.y}
               r={star.r * 3}
               fill="url(#study-sky-glow)"
-              opacity={0.12 + star.mastery * 0.5}
+              opacity={glowOf(star.mastery)}
             />
             <circle className="study-sky-hit" cx={star.x} cy={star.y} r={Math.max(star.r + 8, 11)} />
             <path
@@ -344,7 +347,7 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
                   ? multiStarPath(star.x, star.y, star.r * 1.15)
                   : sparklePath(star.x, star.y, star.r)
               }
-              opacity={0.35 + star.mastery * 0.65}
+              opacity={brightnessOf(star.mastery)}
             />
           </g>
         ))}

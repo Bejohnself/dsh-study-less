@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { SKY_MAIN_R, SKY_PAD, buildMasterySky } from '../src/client/masterySky.ts'
+import { SKY_MAIN_R, SKY_PAD, brightnessOf, buildMasterySky, glowOf } from '../src/client/masterySky.ts'
 import type { PlanSectionView } from '../src/core/views.ts'
 
 /** One section with the given concepts; mastery and threshold live on the states. */
@@ -121,4 +121,12 @@ test('no sections means an empty map', () => {
   assert.deepEqual(map.sections, [])
   assert.deepEqual(map.stars, [])
   assert.equal(map.width, SKY_PAD * 2)
+})
+test('mastery spreads the brightness, not just tints it', () => {
+  assert.ok(brightnessOf(0.5) < 0.6, 'a half-learned star must look half dark')
+  assert.ok(brightnessOf(0.9) > 0.85)
+  assert.ok(brightnessOf(0.9) - brightnessOf(0.5) > 0.35, 'the gap is what the eye reads')
+  assert.ok(brightnessOf(0) >= 0.1, 'never fully disappears')
+  assert.ok(brightnessOf(2) <= 1 && brightnessOf(-1) >= 0, 'clamped')
+  assert.ok(glowOf(0.9) > glowOf(0.5) && glowOf(0.5) > glowOf(0.1))
 })
