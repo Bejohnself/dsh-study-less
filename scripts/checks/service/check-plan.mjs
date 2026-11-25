@@ -172,4 +172,21 @@ const linked = await service.planView(pid)
 assert.equal(linked.sections[0]?.level, 3, 'the depth is read from the step')
 assert.ok((linked.sections[0]?.concepts ?? []).length > 0, 'section concepts come from the unit itself')
 console.log('goal section at 能讲, runnable:', linked.sections[0].concepts.join(', '))
+
+// 页面上的「掌握 x%」是这一节知识点的平均；按最弱点算会把平均值压低。
+// 加一个没练过的第二知识点（0.5），平均值与最弱值才分得开。
+await service.writeConcepts(mid, goalUnit, [
+  { id: conceptOf(required[0]), name: '第 1 节' },
+  { id: `${conceptOf(required[0])}-extra`, name: '第 1 节 补充' },
+])
+const mixed = await service.planView(pid)
+const linkedSection = mixed.sections[0]
+const conceptStates = linkedSection.conceptStates
+const mean = conceptStates.reduce((sum, state) => sum + state.mastery, 0) / conceptStates.length
+assert.ok(
+  Math.abs(linkedSection.mastery - mean) < 1e-9,
+  `section mastery must be the mean (${mean.toFixed(3)}) but was ${linkedSection.mastery.toFixed(3)}`,
+)
+console.log('section mastery is the mean of its points:', linkedSection.mastery.toFixed(3))
+
 console.log('plan check: ok')

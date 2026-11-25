@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import {
   applyEvidence,
   decayedMastery,
+  sectionMastery,
   dueConcepts,
   emptyKnowledge,
   questionFingerprint,
@@ -289,4 +290,10 @@ test('an empty space is not an error', async () => {
   const file = await readKnowledge(other)
   assert.deepEqual(file.concepts, {})
   assert.equal(localDate(new Date(`${today}T12:00:00+08:00`)), today)
+})
+test('a section shows the mean of its points, not the weakest', () => {
+  assert.equal(sectionMastery([]), 0)
+  assert.equal(sectionMastery([{ mastery: 0.8 }]), 0.8)
+  assert.ok(Math.abs(sectionMastery([{ mastery: 0.9 }, { mastery: 0.5 }]) - 0.7) < 1e-9)
+  assert.ok(sectionMastery([{ mastery: 0.9 }, { mastery: 0.9 }, { mastery: 0.2 }]) > 0.6)
 })

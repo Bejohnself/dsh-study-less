@@ -12,6 +12,7 @@ import { listConcepts } from '../../core/concepts.ts'
 import {
   decayedMastery,
   ensureKnowledge,
+  sectionMastery,
   retentionSafe,
   thresholdForLevel,
   type KnowledgeFile,
@@ -306,7 +307,8 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
         atTarget: mastery >= threshold,
       }
     })
-    const weakest = conceptStates.length === 0 ? 0 : Math.min(...conceptStates.map(state => state.mastery))
+    // 页面上的百分比取平均；结案仍看「每个点到档」，这里只是读数。
+    const mastery = sectionMastery(conceptStates)
     const peaks = section.concepts
       .map(id => knowledge.concepts[id]?.peak)
       .filter((value): value is number => typeof value === 'number')
@@ -321,7 +323,7 @@ export async function planView(svc: StudyService, planId: string): Promise<PlanD
       level: section.level,
       threshold,
       concepts: [...section.concepts],
-      mastery: weakest,
+      mastery,
       ...(peak === undefined ? {} : { peak }),
       atTarget: conceptStates.length > 0 && conceptStates.every(state => state.atTarget),
       conceptStates,

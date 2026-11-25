@@ -279,6 +279,18 @@ export function sectionPointStates(
   })
 }
 
+/**
+ * One number for a section: the mean of its knowledge points.
+ *
+ * Completion is still "every point at target". This average is only what the
+ * plan page and the star map show, and it is symmetric: no single weak point
+ * can hold the displayed number down while the rest are solid.
+ */
+export function sectionMastery(states: readonly { mastery: number }[]): number {
+  if (states.length === 0) return 0
+  return states.reduce((sum, state) => sum + state.mastery, 0) / states.length
+}
+
 /** The state of a concept that never had evidence. */
 function freshState(): ConceptState {
   return {

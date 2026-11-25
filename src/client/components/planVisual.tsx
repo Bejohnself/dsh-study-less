@@ -389,7 +389,7 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
         )}
       </svg>
       <p className="study-sky-legend">
-        越亮越金，掌握越牢；大星跟着这一节最暗的那颗星。共用同一个知识点的节挨在一起，六角星就是几节共用的那颗。悬停星星看细节。
+        越亮越金，掌握越牢；大星取这一节的平均。共用同一个知识点的节挨在一起，六角星就是几节共用的那颗。悬停星星看细节。
       </p>
     </div>
   )

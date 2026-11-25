@@ -42,7 +42,7 @@ export interface SkySection {
   target: string
   title: string
   level: number
-  /** Section mastery: the weakest concept, so the main star faces the gap. */
+  /** Section mastery: the mean of its concepts, so the main star reads the whole cluster. */
   mastery: number
   atTarget: boolean
   conceptCount: number

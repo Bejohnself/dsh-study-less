@@ -324,7 +324,7 @@ export interface PlanSectionView {
   /** Required mastery threshold for the level. */
   threshold: number
   concepts: string[]
-  /** Current decayed mastery; the weakest concept of the section wins. */
+  /** Current decayed mastery: the mean of the section's concepts. */
   mastery: number
   /** Weakest concept's historical peak, when the section has concepts. */
   peak?: number
