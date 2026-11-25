@@ -52,6 +52,18 @@ test('a shared concept is one star, placed between the sections that need it', (
   assert.ok(Math.hypot(shared.x - middle.x, shared.y - middle.y) < 45, 'shared star is not near both sections')
 })
 
+test('section names sit in the cell corner, clear of scattered stars', () => {
+  const states = Array.from({ length: 6 }, (_, index) => ({ id: `c${String(index)}` }))
+  const map = buildMasterySky([section('m:a', states), section('m:b', states.slice(0, 2))])
+  for (const skySection of map.sections) {
+    assert.ok(skySection.labelX >= 0 && skySection.labelX < map.width)
+    assert.ok(skySection.labelY >= 0 && skySection.labelY < map.height)
+    for (const star of map.stars) {
+      assert.ok(Math.hypot(star.x - skySection.labelX, star.y - skySection.labelY) > 20, 'label lands on a star')
+    }
+  }
+})
+
 test('the map is one canvas and stars stay inside it', () => {
   const map = buildMasterySky([
     section('m:a', [{ id: 'x' }, { id: 'y' }, { id: 'z' }]),

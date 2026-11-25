@@ -152,6 +152,17 @@ function sparklePath(x: number, y: number, r: number): string {
   return `M${x} ${y - r} L${x + waist} ${y - waist} L${x + r} ${y} L${x + waist} ${y + waist} L${x} ${y + r} L${x - waist} ${y + waist} L${x - r} ${y} L${x - waist} ${y - waist} Z`
 }
 
+/** A six-point star marks a concept several sections share, without a frame. */
+function multiStarPath(x: number, y: number, r: number): string {
+  const points: string[] = []
+  for (let index = 0; index < 12; index += 1) {
+    const radius = index % 2 === 0 ? r : r * 0.5
+    const angle = -Math.PI / 2 + (index * Math.PI) / 6
+    points.push(`${(x + Math.cos(angle) * radius).toFixed(2)} ${(y + Math.sin(angle) * radius).toFixed(2)}`)
+  }
+  return `M${points.join(' L')} Z`
+}
+
 /** The section's own star: a five-point star, so it never reads as a dot. */
 function fiveStarPath(x: number, y: number, r: number): string {
   const points: string[] = []
@@ -197,20 +208,11 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
         </defs>
         {map.sections.map(section => (
           <g key={section.target}>
-            <circle
-              className="study-sky-nebula"
-              cx={section.x}
-              cy={section.y}
-              r={SKY_MAIN_R * 9}
-              fill="url(#study-sky-glow)"
-              opacity={0.35}
-            />
-            {/* 名字放在星团轨道外：环上到处是星，放中心附近一定会压到星。 */}
-            <text className="study-sky-title-text" x={section.x} y={section.y - 100} textAnchor="middle">
+            <text className="study-sky-title-text" x={section.labelX} y={section.labelY}>
               {clipTitle(section.title)}
             </text>
-            <text className="study-sky-count-text" x={section.x} y={section.y - 86} textAnchor="middle">
-              {section.conceptCount === 0 ? '未挂' : `${String(section.atTargetCount)}/${String(section.conceptCount)}`}
+            <text className="study-sky-count-text" x={section.labelX} y={section.labelY + 14}>
+              {section.conceptCount === 0 ? '未挂' : `${String(section.atTargetCount)}/${String(section.conceptCount)} 到档`}
             </text>
             <circle
               className="study-sky-main-glow"
@@ -225,9 +227,6 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
               d={fiveStarPath(section.x, section.y, SKY_MAIN_R)}
               opacity={0.35 + section.mastery * 0.65}
             />
-            {section.atTarget ? (
-              <circle className="study-sky-target-ring" cx={section.x} cy={section.y} r={SKY_MAIN_R + 4} />
-            ) : null}
           </g>
         ))}
         {map.stars.map(star => {
@@ -243,19 +242,23 @@ export function MasterySky({ sections }: { sections: readonly PlanSectionView[] 
                 fill="url(#study-sky-glow)"
                 opacity={0.12 + star.mastery * 0.5}
               />
-              <path className="study-sky-star-shape" d={sparklePath(star.x, star.y, star.r)} opacity={0.35 + star.mastery * 0.65}>
+              <path
+                className={'study-sky-star-shape' + (star.sections.length > 1 ? ' is-shared' : '')}
+                d={
+                  star.sections.length > 1
+                    ? multiStarPath(star.x, star.y, star.r * 1.15)
+                    : sparklePath(star.x, star.y, star.r)
+                }
+                opacity={0.35 + star.mastery * 0.65}
+              >
                 <title>{label}</title>
               </path>
-              {star.sections.length > 1 ? (
-                <circle className="study-sky-shared-ring" cx={star.x} cy={star.y} r={star.r + 3.5} />
-              ) : null}
-              {star.atTarget ? <circle className="study-sky-target-ring" cx={star.x} cy={star.y} r={star.r + 2} /> : null}
             </g>
           )
         })}
       </svg>
       <p className="study-sky-legend">
-        越亮，掌握越牢；大星跟着这一节最暗的那颗星。要共用同一个知识点的节，排在彼此旁边，那颗星只画一次。
+        越亮，掌握越牢；大星跟着这一节最暗的那颗星。共用同一个知识点的节挨在一起，六角星就是几节共用的那颗。
       </p>
     </div>
   )

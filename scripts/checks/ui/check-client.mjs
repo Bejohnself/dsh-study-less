@@ -103,6 +103,11 @@ if (row.options.id !== 'study-desk' || page.options.key !== 'study-desk') {
   throw new Error('panel ids disagree')
 }
 
+// 星图不再用虚线圈/绿框标状态：形状分共用，亮度分掌握。圆环会把它画成原子模型。
+if (/study-sky-(shared|target)-ring/u.test(source)) {
+  throw new Error('sky status rings came back (dashed/at-target circles)')
+}
+
 // 计划页的知识点板块曾经借用洞察页掌握度条的 .study-mastery；reading.ts 里那条
 // display:flex 会把整块 section 排成左右两栏。板块必须有自己的 class。
 if (!/className:"study-knowledge"/u.test(source)) {

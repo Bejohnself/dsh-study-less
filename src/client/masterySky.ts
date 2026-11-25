@@ -49,6 +49,9 @@ export interface SkySection {
   atTargetCount: number
   x: number
   y: number
+  /** Where the section's name sits (cell corner, clear of the scattered stars). */
+  labelX: number
+  labelY: number
   /** Star indexes that only this section needs. */
   soloStars: number[]
 }
@@ -72,15 +75,17 @@ function hash(id: string): number {
   return (value >>> 0) / 4294967296
 }
 
-/** Orbit position for solo star `slot` of `total`, nudged by the concept id. */
-function orbitPoint(total: number, slot: number, id: string): { dx: number; dy: number } {
-  const outerCount = Math.min(total, OUTER_CAPACITY)
-  const inner = slot >= outerCount
-  const count = inner ? total - outerCount : outerCount
-  const place = inner ? slot - outerCount : slot
-  // Stagger the inner ring so it does not line up with the outer spokes.
-  const angle = (place / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2 + (inner ? Math.PI / Math.max(3, count) : 0)
-  const radius = (inner ? INNER_RADIUS : OUTER_RADIUS) + (hash(id) - 0.5) * 7
+/**
+ * Scatter position for solo star `slot` of `total`.
+ *
+ * A golden-angle spiral keeps stars apart without stacking them on rings —
+ * rings read as electron shells, which is not what this map is.
+ */
+function scatterPoint(total: number, slot: number, id: string): { dx: number; dy: number } {
+  const golden = 2.399963229728653
+  const angle = slot * golden + hash(id) * 0.9
+  const spread = total <= 1 ? 0 : slot / (total - 1)
+  const radius = 40 + spread * 54 + (hash(`${id}:r`) - 0.5) * 8
   return { dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius }
 }
 
@@ -173,6 +178,7 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
   // ── 相邻：共用的节排在路线里相邻，星就落在它们中间 ──
   const order = layoutOrder(owners)
   const centers = sections.map(() => ({ x: 0, y: 0 }))
+  const labels = sections.map(() => ({ x: 0, y: 0 }))
   order.forEach((sectionIndex, slot) => {
     const row = Math.floor(slot / cols)
     const col = row % 2 === 0 ? slot % cols : cols - 1 - (slot % cols)
@@ -180,6 +186,11 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
     centers[sectionIndex] = {
       x: Math.round(SKY_PAD + col * SKY_REGION_W + SKY_REGION_W / 2 + drift),
       y: Math.round(SKY_PAD + row * SKY_REGION_H + SKY_REGION_H / 2 + drift / 2),
+    }
+    // 星散开后中心附近没法放字，标签退到格子角落。
+    labels[sectionIndex] = {
+      x: Math.round(SKY_PAD + col * SKY_REGION_W + 6),
+      y: Math.round(SKY_PAD + row * SKY_REGION_H + 16),
     }
   })
 
@@ -191,7 +202,7 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
     if (star.sections.length === 1) {
       const home = star.sections[0]!
       const center = centers[home]!
-      const { dx, dy } = orbitPoint(soloTotal[home]!, soloSlot[home]!, star.id)
+      const { dx, dy } = scatterPoint(soloTotal[home]!, soloSlot[home]!, star.id)
       soloSlot[home]! += 1
       star.x = center.x + dx
       star.y = center.y + dy
@@ -267,6 +278,8 @@ export function buildMasterySky(sections: readonly PlanSectionView[]): SkyMap {
     atTargetCount: section.conceptStates.filter(state => state.atTarget).length,
     x: centers[index]!.x,
     y: centers[index]!.y,
+    labelX: labels[index]!.x,
+    labelY: labels[index]!.y,
     soloStars: stars.map((star, starIndex) => (star.sections.length === 1 && star.sections[0] === index ? starIndex : -1)).filter(starIndex => starIndex >= 0),
   }))
 
