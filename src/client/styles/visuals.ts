@@ -116,6 +116,12 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
 [data-dsh-study] .study-sky-star:hover,
 [data-dsh-study] .study-sky-section:hover { cursor: default; }
 [data-dsh-study] .study-sky-view { transform-origin: 0 0; transition: transform 320ms ease; }
+/* 点星星会把它 focus 起来，浏览器默认画一个方框在图上；键盘操作改用命中圈提示。 */
+[data-dsh-study] .study-sky-section:focus,
+[data-dsh-study] .study-sky-star:focus { outline: none; }
+[data-dsh-study] .study-sky-section:focus-visible .study-sky-hit,
+[data-dsh-study] .study-sky-star:focus-visible .study-sky-hit { stroke: color-mix(in srgb, var(--s-primary) 45%, transparent); stroke-width: 1.5; }
+[data-dsh-study] .study-sky-names text { animation: none; }
 [data-dsh-study] .study-sky-section { cursor: pointer; }
 [data-dsh-study] .study-sky-skim { fill: var(--s-primary); opacity: .32; }
 [data-dsh-study] .study-sky-star-name { font-size: 4.4px; fill: var(--s-text); paint-order: stroke; stroke: var(--s-surface); stroke-width: 1.2px; }

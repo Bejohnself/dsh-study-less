@@ -103,6 +103,9 @@ if (row.options.id !== 'study-desk' || page.options.key !== 'study-desk') {
   throw new Error('panel ids disagree')
 }
 
+// 放大后的星名要单独一层：留在星星组里会跟着浮动动画一起晃、一起改字号。
+if (!/study-sky-names/u.test(source)) throw new Error('sky star names are not on their own layer')
+
 // 星图总览要能在原位放大（缩放层），略读的节要缩成暗点。
 if (!/study-sky-view/u.test(source)) throw new Error('sky overview lost its zoom layer')
 if (!/study-sky-skim/u.test(source)) throw new Error('sky overview lost the skim dot')

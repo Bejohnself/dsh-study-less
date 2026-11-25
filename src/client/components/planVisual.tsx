@@ -404,7 +404,6 @@ export function MasterySky({
             if (!shown) return null
             const pct = Math.round(Math.max(0, Math.min(1, star.mastery)) * 100)
             const label = `${star.name} · 掌握 ${String(pct)}% / 目标 ${String(Math.round(star.threshold * 100))}%${star.sections.length > 1 ? ` · ${String(star.sections.length)} 节共用` : ''}`
-            const named = zoom !== null && star.sections.includes(zoom)
             return (
               <g
                 key={star.id}
@@ -451,14 +450,20 @@ export function MasterySky({
                   opacity={brightnessOf(star.mastery)}
                   style={{ fill: goldFill(star.mastery) }}
                 />
-                {named ? (
-                  <text className="study-sky-star-name" x={star.x} y={star.y + star.r + 7} textAnchor="middle">
-                    {star.name}
-                  </text>
-                ) : null}
               </g>
             )
           })}
+          {zoom === null ? null : (
+            <g className="study-sky-names">
+              {map.stars
+                .filter(star => star.sections.includes(zoom))
+                .map(star => (
+                  <text key={`name-${star.id}`} className="study-sky-star-name" x={star.x} y={star.y + star.r + 7} textAnchor="middle">
+                    {star.name}
+                  </text>
+                ))}
+            </g>
+          )}
         </g>
         {tip === null || tipX === undefined || tipY === undefined ? null : (
           <SkyTooltip cx={tipX} cy={tipY} r={tipR} lines={tip.lines} mapWidth={map.width} />
