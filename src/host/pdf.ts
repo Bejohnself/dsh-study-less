@@ -5,7 +5,6 @@
  * jumps by page, and MinerU stays an optional high-fidelity backend for formulas
  * and figures.
  */
-import { fileURLToPath } from 'node:url'
 import * as pdfjs from '../../vendor/pdfjs/pdf.mjs'
 import type { PdfDocumentProxy, PdfOutlineItem, PdfTextContent } from '../../vendor/pdfjs/pdf.mjs'
 import { layoutPage, type LayoutParagraph, type TextBox } from '../core/layout.ts'
@@ -25,12 +24,15 @@ const { getDocument, Util } = pdfjs
  */
 declare const __STUDY_PDF_WORKER__: string
 const runtime = pdfjs as unknown as { GlobalWorkerOptions: { workerSrc: string } }
-runtime.GlobalWorkerOptions.workerSrc = fileURLToPath(
-  new URL(
-    typeof __STUDY_PDF_WORKER__ === 'string' ? __STUDY_PDF_WORKER__ : '../../vendor/pdfjs/pdf.worker.mjs',
-    import.meta.url,
-  ),
-)
+/*
+ * A file URL, not a filesystem path: pdf.js loads the fake worker with a
+ * dynamic `import()`, and on Windows `fileURLToPath` yields `C:\...`, whose
+ * `c:` prefix the ESM loader rejects as an unsupported protocol.
+ */
+runtime.GlobalWorkerOptions.workerSrc = new URL(
+  typeof __STUDY_PDF_WORKER__ === 'string' ? __STUDY_PDF_WORKER__ : '../../vendor/pdfjs/pdf.worker.mjs',
+  import.meta.url,
+).href
 
 /** One page of extracted text. */
 export interface ExtractedPage {

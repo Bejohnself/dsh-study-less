@@ -102,9 +102,9 @@ export function UnitReader(props: UnitReaderProps): ReactElement {
     activeParaIndex,
     setActiveParaIndex,
     full,
-    setFull,
+    toggleFull,
+    exitFull,
     zoom,
-    setZoom,
     cardPos,
     setCardPos,
     dock,
@@ -150,7 +150,7 @@ export function UnitReader(props: UnitReaderProps): ReactElement {
             <button type="button" className="study-floatbar-btn" onClick={() => onOpenQuiz?.(unit.unit)}>
               过关测试
             </button>
-            <button type="button" className="study-floatbar-btn is-primary" onClick={() => setFull(false)}>
+            <button type="button" className="study-floatbar-btn is-primary" onClick={exitFull}>
               退出全屏
             </button>
             <button
@@ -201,7 +201,7 @@ export function UnitReader(props: UnitReaderProps): ReactElement {
                 {showTint ? '隐藏颜色' : '显示颜色'}
               </button>
             )}
-            <button type="button" className="study-ghost" onClick={() => setFull(value => !value)}>
+            <button type="button" className="study-ghost" onClick={toggleFull}>
               {full ? '退出全屏' : '全屏'}
             </button>
             <button type="button" className="study-ghost" onClick={() => setTocOpen(true)}>

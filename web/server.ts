@@ -25,6 +25,7 @@ import { makeStudyRoutes } from '../src/host/routes.ts'
 import { StudyService } from '../src/host/service.ts'
 import { SettingsService } from '../src/host/settings.ts'
 import { UsageService } from '../src/host/usage.ts'
+import { openBrowser } from './openBrowser.ts'
 
 /** Files live next to the built server, so `dist-web/` stays self-contained. */
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -100,8 +101,11 @@ const server = createServer((req, res) => {
 })
 
 server.listen(PORT, HOST, () => {
-  console.log(`知止网页版：http://${HOST}:${PORT}`)
+  const url = `http://${HOST}:${PORT}`
+  console.log(`知止网页版：${url}`)
   console.log(`数据目录：${DATA_ROOT}`)
+  // 启动命令就是给人用的：顺手开页面，省掉复制粘贴。
+  openBrowser(url)
 })
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

@@ -15,6 +15,7 @@ import {paragraphAt} from '../../../core/layout.ts'
 import {api, errorText, post, waitForJob} from '../../api.ts'
 import {promptKindLabel} from '../../labels.ts'
 import {TINT_PREF, ZOOM_MAX, ZOOM_MIN, ZOOM_STEPS, tintOf, tintVisible} from './chrome.tsx'
+import {anchorAt, anchorDelta, readingLine, type PageBox, type ReadingAnchor} from './scrollAnchor.ts'
 
 /** Everything the reading screen receives from its page. */
 export interface UnitReaderProps {
@@ -90,6 +91,18 @@ export function useUnitReader(props: UnitReaderProps) {
   const pageElements = useRef(new Map<number, HTMLDivElement>())
   const layoutRef = useRef<ParagraphRecord[] | null>(null)
   const [columnWidth, setColumnWidth] = useState(0)
+  // 进出全屏时先记下阅读线，换完容器再把它放回去。
+  const scrollAnchor = useRef<ReadingAnchor | null>(null)
+
+  const captureScroll = useCallback((): void => {
+    const boxes = [...pageElements.current.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([page, element]): PageBox => {
+        const rect = element.getBoundingClientRect()
+        return {page, top: rect.top, height: rect.height}
+      })
+    scrollAnchor.current = anchorAt(boxes, readingLine(window.innerHeight))
+  }, [])
 
   const loadLayout = useCallback(
     async (view: UnitView) => {
@@ -149,16 +162,57 @@ export function useUnitReader(props: UnitReaderProps) {
     if (full) setBarOpen(true)
   }, [full])
 
+  /**
+   * 换完滚动容器（全屏）或页框尺寸（缩放）后，把阅读位置放回去。
+   *
+   * 两帧：一帧等新容器，一帧等页框按新宽度量好。坐标按锚点现算，所以全屏多出的
+   * 顶部留白和页框高度变化都不用单独处理。
+   */
+  useEffect(() => {
+    const anchor = scrollAnchor.current
+    scrollAnchor.current = null
+    if (anchor === null) return
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        const column = columnRef.current
+        const element = pageElements.current.get(anchor.page)
+        if (column === null || element === undefined) return
+        const rect = element.getBoundingClientRect()
+        const scroller = full ? column : column.closest('[data-dsh-study]')
+        if (!(scroller instanceof HTMLElement)) return
+        scroller.scrollTop += anchorDelta(
+          anchor,
+          {page: anchor.page, top: rect.top, height: rect.height},
+          readingLine(window.innerHeight),
+        )
+      })
+    })
+    return () => {
+      window.cancelAnimationFrame(frame)
+    }
+  }, [full, zoom])
+
+  /** 进出全屏都先记位置：入口按钮和 Esc 走的是同一条路。 */
+  const toggleFull = useCallback((): void => {
+    captureScroll()
+    setFull(current => !current)
+  }, [captureScroll])
+
+  const exitFull = useCallback((): void => {
+    captureScroll()
+    setFull(false)
+  }, [captureScroll])
+
   useEffect(() => {
     if (!full) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setFull(false)
+      if (event.key === 'Escape') exitFull()
     }
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('keydown', onKey)
     }
-  }, [full])
+  }, [full, exitFull])
 
   // Selecting text is the way in now: drag over the page, then ask about exactly
   // that passage. The button is transient — scrolling or clicking away drops it.
@@ -235,13 +289,19 @@ export function useUnitReader(props: UnitReaderProps) {
     }
   }, [])
 
+  /** 缩放前先记位置：页框宽度一变，原来的滚动偏移就指着别的字了。 */
   const zoomIn = useCallback(() => {
+    captureScroll()
     setZoom(current => ZOOM_STEPS.find(step => step > current) ?? ZOOM_MAX)
-  }, [])
+  }, [captureScroll])
   const zoomOut = useCallback(() => {
+    captureScroll()
     setZoom(current => [...ZOOM_STEPS].reverse().find(step => step < current) ?? ZOOM_MIN)
-  }, [])
-  const zoomFit = useCallback(() => setZoom(1), [])
+  }, [captureScroll])
+  const zoomFit = useCallback(() => {
+    captureScroll()
+    setZoom(1)
+  }, [captureScroll])
 
   // Ctrl/⌘ + / − / 0, the shortcuts a PDF viewer is expected to answer. Text
   // fields keep the browser's own zoom: the reader never swallows typing.
@@ -302,7 +362,7 @@ export function useUnitReader(props: UnitReaderProps) {
     let frame = 0
     const measure = (): void => {
       frame = 0
-      const line = Math.min(window.innerHeight * 0.32, 280)
+      const line = readingLine(window.innerHeight)
       const entries = [...pageElements.current.entries()].sort((a, b) => a[0] - b[0])
       for (const [page, element] of entries) {
         const rect = element.getBoundingClientRect()
@@ -688,9 +748,9 @@ export function useUnitReader(props: UnitReaderProps) {
     activeParaIndex,
     setActiveParaIndex,
     full,
-    setFull,
+    toggleFull,
+    exitFull,
     zoom,
-    setZoom,
     cardPos,
     setCardPos,
     dock,
