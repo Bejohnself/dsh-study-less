@@ -499,7 +499,17 @@ export async function updatePlan(svc: StudyService,
       ...(step.level === undefined ? {} : { level: step.level }),
       why: step.why,
     }))
-    plan.generation = { status: 'done', updatedAt: new Date().toISOString() }
+    // An inline job writes the route first and only then fills in knowledge
+    // points, so its own terminal write owns `generation`; marking it done here
+    // stripped the jobId the client polls and left the banner mid-section. Only
+    // a chat or hand-written route (no job) is finished by writing the steps.
+    if (plan.generation?.jobId === undefined) {
+      plan.generation = {
+        ...(plan.generation?.mode === undefined ? {} : { mode: plan.generation.mode }),
+        status: 'done',
+        updatedAt: new Date().toISOString(),
+      }
+    }
   }
   if (input.setLevel !== undefined) {
     const step = plan.steps.find(candidate => candidate.n === input.setLevel!.n)

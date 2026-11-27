@@ -66,6 +66,8 @@ export interface TocRow {
   uid: string
   title: string
   kind: UnitKind
+  /** Heading depth; 1 is a chapter. The drawer indents by it. */
+  level: number
   pass?: number
   pageStart: number
   pageEnd: number

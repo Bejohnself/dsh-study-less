@@ -5,11 +5,12 @@
  * may point at. The Host validates the answer with the same gates as the agent
  * tools, so a bad generation is refused rather than written.
  */
+import { isLeafUnit } from '../../core/library.ts'
 import { REQUIRED_NOTE_HEADINGS } from '../../core/validate.ts'
 import type { MaterialManifest, PlanStepKind } from '../../core/types.ts'
 
 /** Bump when a prompt's contract changes; stored on generated records. */
-export const PROMPT_VERSION = '2'
+export const PROMPT_VERSION = '3'
 
 /** System prompt shared by the JSON-producing calls. */
 export const JSON_SYSTEM = [
@@ -132,16 +133,17 @@ export function judgePrompt(input: JudgePromptInput): { system: string; user: st
   }
 }
 
-/** One material row in a plan prompt. */
+/** One material row in a plan prompt; only leaf units are allowed as steps. */
 function catalogue(manifests: readonly MaterialManifest[], maxUnits = 120): string {
   return manifests
     .map(manifest => {
-      const rows = manifest.structure.slice(0, maxUnits).map(node => {
+      const leaves = manifest.structure.filter(node => isLeafUnit(manifest.structure, node.uid))
+      const rows = leaves.slice(0, maxUnits).map(node => {
         const pass = node.pass === undefined ? '' : ` pass=${node.pass}`
         return `  - ${manifest.id}:${node.uid} | ${node.title} | p${node.pageStart}-${node.pageEnd}${pass} | ${node.kind}`
       })
-      const more = manifest.structure.length > maxUnits ? `\n  …另有 ${manifest.structure.length - maxUnits} 个单元未列出` : ''
-      return `- 《${manifest.title}》 id=${manifest.id} type=${manifest.type} units=${manifest.structure.length}\n${rows.join('\n')}${more}`
+      const more = leaves.length > maxUnits ? `\n  …另有 ${leaves.length - maxUnits} 个单元未列出` : ''
+      return `- 《${manifest.title}》 id=${manifest.id} type=${manifest.type} units=${leaves.length}\n${rows.join('\n')}${more}`
     })
     .join('\n\n')
 }
@@ -174,7 +176,7 @@ export function planPrompt(input: {
       '输出一个 JSON 对象：',
       '{"steps":[{"kind":"unit|paper-pass","target":"<material>:<unit>","coverage":"read|skim|skip","level":2,"why":"一句话说明为什么排在这里或为什么不读"}]}',
       `kind 只能是 ${allowedKinds.join('/')}。`,
-      'unit 与 paper-pass 的 target 必须逐字复制目录里的 <material>:<unit>；不要输出其他类型的步骤。',
+      'unit 与 paper-pass 的 target 必须逐字复制目录里的 <material>:<unit>；目录只列最末一级的节，父节只作目录索引，不要拿父节当步骤。',
       '步骤按学习顺序排列，4–12 步；why 必须具体对应该目标，不要空话。',
       '先补前置，再到核心。不要选与目标无关的单元。',
       'level 是「这一节要到多深」：1 了解（知道是什么）、2 会用（能照着用）、3 能讲（能独立推导/解释）、4 创新（能改造或提出新做法）。按交付物选，不要一律 2 或 3；skip 的节也要给 level，它只是被裁掉了。',

@@ -239,6 +239,35 @@ export const VISUALS_CSS = `/* ---------- goal visuals: route spines and mastery
 
 [data-dsh-study] .study-reader2-body { display: block; }
 
+/* ---------- section paging arrows ---------- */
+/*
+  Fixed to the viewport so the arrows sit where the eye looks in both modes;
+  the horizontal insets follow the measured reading area because the reader
+  lives in a host panel whose width changes with the layout.
+*/
+[data-dsh-study] .study-turn-btn {
+  position: fixed;
+  top: calc(50% - 22px);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 44px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--s-text);
+  background: color-mix(in srgb, var(--s-surface) 84%, transparent);
+  border: 1px solid var(--s-border);
+  border-radius: 4px;
+  box-shadow: var(--s-shadow-md);
+  backdrop-filter: blur(6px);
+}
+[data-dsh-study] .study-turn-btn.is-prev { left: var(--study-turn-left, 2px); }
+[data-dsh-study] .study-turn-btn.is-next { right: var(--study-turn-right, 2px); }
+[data-dsh-study] .study-turn-btn:hover:not(:disabled) { background: var(--s-surface); }
+[data-dsh-study] .study-turn-btn:disabled { opacity: 0.3; cursor: default; }
+
 /* The column is the horizontal scroller: zooming past fit-width keeps the left
    edge reachable; max-content + min-width 100% centres the page while it
    still fits. Without it, a wider page would overflow both sides and the left

@@ -1,40 +1,32 @@
 /**
- * Re-close section page ranges for materials imported before the shared-page rule.
+ * Re-apply the current unit-structure rules to materials already on disk.
  *
- * A unit used to end on "the page before the next heading", which cut a section
- * off whenever the next one started halfway down a page: 1.1 stopped at p6 even
- * though p7 still carried its last paragraph above the 1.2 heading. A PDF page
- * cannot be split, so the importer now ends a unit on the page the next one
- * starts on — and this script applies the same rule to a library already on disk.
+ * Rules that have changed after import: a unit now spans its own subtree, a
+ * boundary page stays shared unless the next heading opens that page (nothing
+ * but a page number or a running head above it), and a start is only taken
+ * from a line that matches the outline title as a whole. Re-importing would
+ * mint new ids, so this script rebuilds the structure from the stored PDF and
+ * copies the ranges onto the existing units.
  *
  * Usage:
  *   node scripts/reclose-ranges.mjs           # dry run: print what would change
  *   node scripts/reclose-ranges.mjs --write   # back up the manifests, then write
  *
- * Only `structure[].pageEnd` is touched: unit ids, notes, quizzes and progress
- * are left alone, and the Host reads manifests per request, so no restart is
- * needed. Backups land in `<study>/tmp/reclose-<timestamp>/`.
+ * Only `structure[].pageStart/pageEnd` is touched: unit ids, notes, quizzes and
+ * progress are left alone, and the Host reads manifests per request, so no
+ * restart is needed. A material whose units no longer match the PDF outline
+ * (edited by hand with study_structure_set) is skipped. Backups land in
+ * `<study>/tmp/reclose-<timestamp>/`.
  */
 import { copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { resolveDataRoot } from '../src/core/paths.ts'
-import { closeRanges } from '../src/host/structure.ts'
+import { extractPdf } from '../src/host/pdf.ts'
+import { buildStructure } from '../src/host/structure.ts'
 
 const write = process.argv.includes('--write')
 const root = resolveDataRoot(process.env.STUDY_ROOT)
 const materialsDir = join(root, 'materials')
-
-/** Read one material's page slices, dropping the `<!-- page N -->` marker. */
-async function pagesOf(materialDir) {
-  const entries = await readdir(join(materialDir, 'pages')).catch(() => [])
-  const pages = []
-  for (const entry of entries) {
-    if (!/^p\d{4}\.txt$/.test(entry)) continue
-    const raw = await readFile(join(materialDir, 'pages', entry), 'utf8')
-    pages.push({ page: Number(entry.slice(1, 5)), text: raw.replace(/^<!-- page \d+ -->\n/, '') })
-  }
-  return pages
-}
 
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 const backupDir = join(root, 'tmp', `reclose-${stamp}`)
@@ -53,22 +45,61 @@ for (const id of materialIds) {
   } catch {
     continue
   }
-  const sections = manifest.structure.filter(node => node.kind !== 'pass')
-  if (sections.length === 0) continue
-  const before = new Map(sections.map(node => [node.uid, node.pageEnd]))
-  closeRanges(sections, await pagesOf(dir), manifest.source.pages, { chapters: manifest.type === 'book' })
-  const changed = sections.filter(node => before.get(node.uid) !== node.pageEnd)
-  if (changed.length === 0) {
-    console.log(`${id}: already closed`)
+  if (manifest.structure.some(node => node.kind === 'pass')) {
+    console.log(`${id}: has legacy pass units; skipped`)
     continue
   }
-  console.log(`${id}: ${changed.length}/${sections.length} sections gain the page they were cut on`)
-  for (const node of changed.slice(0, 5)) {
-    console.log(`  ${node.title.slice(0, 40)}  p${node.pageStart}-${before.get(node.uid)} → p${node.pageStart}-${node.pageEnd}`)
+  const sections = manifest.structure.filter(node => node.kind !== 'pass')
+  if (sections.length === 0) continue
+  let rebuilt
+  try {
+    const bytes = await readFile(join(dir, manifest.source.path))
+    const extraction = await extractPdf(new Uint8Array(bytes))
+    rebuilt = buildStructure({
+      type: manifest.type,
+      numPages: extraction.numPages,
+      outline: extraction.outline,
+      pages: extraction.pages,
+    })
+  } catch (error) {
+    console.log(`${id}: cannot read the stored PDF (${error.message}); skipped`)
+    continue
+  }
+  // Only an added intro unit is safe to insert: it is new to both the manifest
+  // and the rebuilt structure. A missing unit means the outline or the manifest
+  // changed by hand, and that needs a re-import, not a range write.
+  const current = new Map(sections.map(node => [node.uid, node]))
+  const dropped = sections.filter(node => !rebuilt.some(fresh => fresh.uid === node.uid))
+  const added = rebuilt.filter(node => !current.has(node.uid))
+  if (dropped.length > 0 || added.some(node => node.intro !== true)) {
+    console.log(`${id}: units differ from the PDF outline (edited by hand?); skipped`)
+    continue
+  }
+  const before = new Map(sections.map(node => [node.uid, `${node.pageStart}-${node.pageEnd}`]))
+  const changed = rebuilt.filter(node => before.get(node.uid) !== `${node.pageStart}-${node.pageEnd}`)
+  if (changed.length === 0 && added.length === 0) {
+    console.log(`${id}: ranges already current`)
+    continue
+  }
+  const inserted = added.length === 0 ? '' : `; 新增 ${added.length} 个序言单元`
+  console.log(`${id}: ${changed.length}/${rebuilt.length} sections change page range${inserted}`)
+  for (const node of changed.slice(0, 8)) {
+    console.log(`  ${node.title.slice(0, 46)}  p${before.get(node.uid)} → p${node.pageStart}-${node.pageEnd}`)
   }
   if (!write) continue
   await mkdir(backupDir, { recursive: true })
   await copyFile(file, join(backupDir, `${id}.json`))
+  // Rebuild in reading order: existing units keep their object (and progress),
+  // the intro units are new, so units[] gets one record for each.
+  const unitByUid = new Map((manifest.units ?? []).map(unit => [unit.uid, unit]))
+  manifest.structure = rebuilt.map(fresh => {
+    const node = current.get(fresh.uid)
+    if (node === undefined) return { ...fresh }
+    node.pageStart = fresh.pageStart
+    node.pageEnd = fresh.pageEnd
+    return node
+  })
+  manifest.units = rebuilt.map(fresh => unitByUid.get(fresh.uid) ?? { uid: fresh.uid, status: 'new', concepts: [] })
   manifest.updatedAt = new Date().toISOString()
   const temp = `${file}.tmp-${process.pid}`
   await writeFile(temp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')

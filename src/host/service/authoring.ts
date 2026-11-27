@@ -6,7 +6,7 @@
  */
 import { validateBlocks } from '../../core/blocks.ts'
 import { assertConceptId } from '../../core/ids.ts'
-import { structureNodeOf, writeManifest } from '../../core/library.ts'
+import { isLeafUnit, structureNodeOf, writeManifest } from '../../core/library.ts'
 import { upsertConcept } from '../../core/concepts.ts'
 import { questionFingerprint, recordEvidence } from '../../core/knowledge.ts'
 import { gradeQuizItem } from '../../core/quiz.ts'
@@ -29,6 +29,9 @@ export async function writeUnit(svc: StudyService,
   ): Promise<WriteUnitResult> {
   const manifest = await svc.manifest(materialId)
   const node = structureNodeOf(manifest, unitId)
+  if (!isLeafUnit(manifest.structure, unitId)) {
+    throw new StudyError('invalid', `父节只作目录索引，精读稿写在最末一级的节上：${unitId}`)
+  }
   for (const concept of input.concepts) assertConceptId(concept.id)
   const validation = validateNotes({
     markdown: input.notes,

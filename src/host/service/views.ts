@@ -6,7 +6,7 @@
  * a plan step or a TOC row can change without scrolling through the service.
  */
 import { splitUnitKey, unitKey } from '../../core/ids.ts'
-import { unitMetaOf } from '../../core/library.ts'
+import { isLeafUnit, unitMetaOf } from '../../core/library.ts'
 import { coverageOf } from '../../core/planGate.ts'
 import { dueUnits } from '../../core/progress.ts'
 import type {
@@ -103,20 +103,29 @@ export function stepView(
 export function planTargets(
   manifests: readonly MaterialManifest[],
   concepts: ReadonlyArray<{ id: string }>,
-): { hasUnit(key: string): boolean; hasConcept(id: string): boolean; hasMaterial(id: string): boolean } {
+): {
+  hasUnit(key: string): boolean
+  isLeafUnit(key: string): boolean
+  hasConcept(id: string): boolean
+  hasMaterial(id: string): boolean
+} {
   const conceptIds = new Set(concepts.map(concept => concept.id))
+  /** The material and node a `<material>:<unit>` key names, when both exist. */
+  const nodeOf = (key: string): { manifest: MaterialManifest; node: StructureNode } | null => {
+    try {
+      const { materialId, unitId } = splitUnitKey(key)
+      const manifest = manifests.find(candidate => candidate.id === materialId)
+      const node = manifest?.structure.find(candidate => candidate.uid === unitId)
+      return manifest !== undefined && node !== undefined ? { manifest, node } : null
+    } catch {
+      return null
+    }
+  }
   return {
-    hasUnit: key => {
-      let materialId: string
-      let unitId: string
-      try {
-        const parts = splitUnitKey(key)
-        materialId = parts.materialId
-        unitId = parts.unitId
-      } catch {
-        return false
-      }
-      return manifests.some(manifest => manifest.id === materialId && manifest.structure.some(node => node.uid === unitId))
+    hasUnit: key => nodeOf(key) !== null,
+    isLeafUnit: key => {
+      const found = nodeOf(key)
+      return found !== null && isLeafUnit(found.manifest.structure, found.node.uid)
     },
     hasConcept: id => conceptIds.has(id),
     hasMaterial: id => manifests.some(manifest => manifest.id === id),
@@ -169,6 +178,7 @@ export function rowOf(
     uid: node.uid,
     title: node.title,
     kind: node.kind,
+    level: node.level ?? 2,
     ...(node.pass === undefined ? {} : { pass: node.pass }),
     pageStart: node.pageStart,
     pageEnd: node.pageEnd,

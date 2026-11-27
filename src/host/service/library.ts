@@ -11,7 +11,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { assertSegment, unitKey } from '../../core/ids.ts'
 import { deleteInsight, insightCard, listInsights, readInsight, writeInsight } from '../../core/insights.ts'
-import { listManifests, readManifest, structureNodeOf, writeManifest } from '../../core/library.ts'
+import { isLeafUnit, listManifests, readManifest, structureNodeOf, writeManifest } from '../../core/library.ts'
 import { writeConcept } from '../../core/concepts.ts'
 import { dueUnits, emptyProgress, markLearned, readProgress, unmarkLearned } from '../../core/progress.ts'
 import { listConcepts } from '../../core/concepts.ts'
@@ -40,7 +40,9 @@ export async function materialState(svc: StudyService, materialId: string): Prom
     const key = unitKey(materialId, node.uid)
     return rowOf(materialId, node, manifest, progress, dueKeys.has(key))
   })
-  const next = toc.find(row => row.state === 'new')?.uid
+  // Only a leaf is a reading step; a chapter row is an index entry pointing at
+  // the first section under it.
+  const next = toc.find(row => row.state === 'new' && isLeafUnit(manifest.structure, row.uid))?.uid
   return {
     material: cardOf(manifest, progress, svc.today()),
     toc,
@@ -106,6 +108,11 @@ export async function unit(svc: StudyService, materialId: string, unitId: string
 export async function unitMaterial(svc: StudyService, materialId: string, unitId: string, maxChars = 12_000): Promise<UnitMaterial> {
   const manifest = await svc.manifest(materialId)
   const node = structureNodeOf(manifest, unitId)
+  // A parent covers its whole subtree; reading material for a note only makes
+  // sense on the deepest section.
+  if (!isLeafUnit(manifest.structure, unitId)) {
+    throw new StudyError('invalid', `父节只作目录索引，请选最末一级的节：${unitId}`)
+  }
   const original = await svc.readPages(materialId, node.pageStart, node.pageEnd)
   const meta = await readJson<UnitMetaFile | null>(svc.paths.unitMetaFile(materialId, unitId), null)
   const joined = original.pages.map(page => `[p${page.page}]\n${page.text}`).join('\n\n')

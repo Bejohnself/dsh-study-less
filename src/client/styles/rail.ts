@@ -121,6 +121,11 @@ export const RAIL_CSS = `/* ---------- the small question window ---------- */
 }
 [data-dsh-study] .study-drawer-row:hover { background: var(--s-surface-2); }
 [data-dsh-study] .study-drawer-row.is-on { background: var(--s-primary-soft); }
+/* The drawer is a tree in reading order: a chapter title sits flush and set
+   heavier, its sections step in, so the subtree a row covers is visible. */
+[data-dsh-study] .study-drawer-row[data-level='1'] { margin-top: 6px; }
+[data-dsh-study] .study-drawer-row[data-level='1'] .study-drawer-title { font-weight: 600; }
+[data-dsh-study] .study-drawer-row[data-level='3'] .study-drawer-title { font-size: 12px; color: var(--s-faint); }
 [data-dsh-study] .study-drawer-title { font-size: 13px; color: var(--s-text); min-width: 0; }
 [data-dsh-study] .study-drawer-meta { margin-left: auto; font-size: 11px; color: var(--s-faint); }
 

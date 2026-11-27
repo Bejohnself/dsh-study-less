@@ -76,6 +76,8 @@ export async function listPlans(paths: LibraryPaths): Promise<PlanRecord[]> {
 export interface PlanTargets {
   /** Whether `<material>:<unit>` resolves to a real unit. */
   hasUnit(key: string): boolean
+  /** Whether the unit is a leaf; a parent is an index row, not a reading step. */
+  isLeafUnit(key: string): boolean
   /** Whether a concept id exists. */
   hasConcept(id: string): boolean
   /** Whether a material exists. */
@@ -105,7 +107,11 @@ export function validatePlan(plan: PlanRecord, targets: PlanTargets): string[] {
         issues.push(`${label} 的 target 不是 <material>:<unit>：${step.target}`)
         continue
       }
-      if (!targets.hasUnit(step.target)) issues.push(`${label} 指向不存在的单元：${step.target}`)
+      if (!targets.hasUnit(step.target)) {
+        issues.push(`${label} 指向不存在的单元：${step.target}`)
+      } else if (!targets.isLeafUnit(step.target)) {
+        issues.push(`${label} 指向的是父节，路线只能落在末级节：${step.target}`)
+      }
     } else if (step.kind === 'drill') {
       if (step.concepts === undefined || step.concepts.length === 0) {
         issues.push(`${label} 没有概念`)

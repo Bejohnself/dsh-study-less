@@ -49,14 +49,30 @@ function titleFromPath(filePath: string): string {
   return basename(filePath, extname(filePath)).replace(/[_]+/g, ' ').trim() || 'Untitled'
 }
 
+/**
+ * A paper's own opening section: Abstract, or an Introduction that carries at
+ * most one section number ("1 Introduction").
+ *
+ * Matching the bare words classified textbooks as papers: Bellman's Vol. 1 has
+ * "1.1.Introduction" as a chapter's first section, which is two numbers deep.
+ */
+const PAPER_OPENING = /^(?:\d+ )?(?:abstract|introduction|摘要|引言)$/
+
+/** One title in comparable shape: "1.1.Introduction" -> "1 1 introduction". */
+function titleShape(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, ' ')
+    .trim()
+}
+
 /** Guess whether a PDF is a paper by shape rather than by user input. */
 export function inferType(
   outlineTitles: readonly string[],
   firstPageText: string,
 ): MaterialType {
-  const lowered = outlineTitles.map(title => title.toLowerCase())
   const hasPaperShape =
-    lowered.some(title => title.includes('abstract') || title.includes('introduction')) ||
+    outlineTitles.some(title => PAPER_OPENING.test(titleShape(title))) ||
     /arxiv|abstract|\bdoi\b/i.test(firstPageText.slice(0, 4000))
   return hasPaperShape ? 'paper' : 'book'
 }

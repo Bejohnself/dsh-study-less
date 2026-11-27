@@ -16,6 +16,7 @@ import {api, errorText, post, waitForJob} from '../../api.ts'
 import {promptKindLabel} from '../../labels.ts'
 import {TINT_PREF, ZOOM_MAX, ZOOM_MIN, ZOOM_STEPS, tintOf, tintVisible} from './chrome.tsx'
 import {anchorAt, anchorDelta, readingLine, type PageBox, type ReadingAnchor} from './scrollAnchor.ts'
+import {usePaging} from './usePaging.ts'
 
 /** Everything the reading screen receives from its page. */
 export interface UnitReaderProps {
@@ -60,6 +61,10 @@ export function useUnitReader(props: UnitReaderProps) {
   const [activePage, setActivePage] = useState<number | null>(null)
   const [activeParaIndex, setActiveParaIndex] = useState<number | null>(null)
   const [full, setFull] = useState(false)
+  // Paging reads the dialog and fullscreen flags, so it is wired after them.
+  const {rootRef, previous, next} = usePaging({
+    toc, uid, onSelectUnit, ask, tocOpen, full, ready: unit !== null,
+  })
   // 1 = fit the column. Only the ladder values are reachable, so the readout and
   // the buttons never disagree about which stop comes next.
   const [zoom, setZoom] = useState(1)
@@ -685,6 +690,7 @@ export function useUnitReader(props: UnitReaderProps) {
     thinkTimer,
     lastBlockId,
     suppressClick,
+    rootRef,
     columnRef,
     pageElements,
     layoutRef,
@@ -707,6 +713,8 @@ export function useUnitReader(props: UnitReaderProps) {
     openAsk,
     pages,
     page,
+    previous,
+    next,
     blocks,
     activePara,
     activeBlock,

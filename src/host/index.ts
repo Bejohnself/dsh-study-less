@@ -57,7 +57,7 @@ export const STUDY_GUIDANCE = [
   '论文学习：新导入的论文和书一样按目录小节切单元，不再生成 p1/p2/p3 三遍法；阅读时先讲清 5C，再抓方法与假设，最后做可复现性与批判。论文主张要挂页码/图表证据。',
   '页面内生成：用户在知止里新建目标/点生成时，Host 会用已配置的文本引擎直接编排路径、写精读、出题（study_generate 返回 jobId，用 study_jobs 查进度），不再默认把 prompt 发进聊天。未配置引擎时才回退到对话。',
   '自编书、洞察、概念浏览页已冻结：路由与工具都不再注册，数据保留但默认不可达。',
-  '目标学习：用户说「我想搞懂 X / 读懂这篇」时，先 study_library + study_concept 摸清家底与掌握度，再用 study_plan_create 或 study_generate(action=plan) 排出节级路线（只有 unit/paper-pass），每步写 why，并用 mastery 写知识点图景；不要凭空列不存在的单元。',
+  '目标学习：用户说「我想搞懂 X / 读懂这篇」时，先 study_library + study_concept 摸清家底与掌握度，再用 study_plan_create 或 study_generate(action=plan) 排出节级路线（只有 unit/paper-pass，且只用最末一级的节，父节只是目录索引），每步写 why，并用 mastery 写知识点图景；不要凭空列不存在的单元。',
   '复习：会话开始时 study_today 或 study_due，逐项「先让我复述→指出偏差→给最小对照例子→study_review(rating)」，不要一次把答案倒完。',
   '未经用户明确同意，不要一次性生成整本书；先做 1 节样例让用户确认风格，再批量。用户提到「知止 / 今日 / 目标 / 复习到期 / 笔记」即指本插件。',
 ].join('\n')

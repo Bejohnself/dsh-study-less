@@ -58,6 +58,22 @@ export function unitMetaOf(manifest: MaterialManifest, unitId: string): UnitMeta
   return manifest.units.find(candidate => candidate.uid === unitId)
 }
 
+/**
+ * Whether a unit sits at the deepest level of its branch.
+ *
+ * Only leaf units are read and cut into a route: a parent is an index row, its
+ * page range covers the subtree so the reader can label it, and clicking it
+ * opens the first leaf under it. Structure is in reading order, so a parent is
+ * followed by a deeper node.
+ */
+export function isLeafUnit(structure: readonly StructureNode[], unitId: string): boolean {
+  const index = structure.findIndex(node => node.uid === unitId)
+  if (index < 0) return false
+  const node = structure[index]!
+  const after = structure[index + 1]
+  return after === undefined || (after.level ?? 2) <= (node.level ?? 2)
+}
+
 /** The human label of a material. */
 export function materialLabel(manifest: MaterialManifest): string {
   return manifest.subtitle === undefined ? manifest.title : `${manifest.title}（${manifest.subtitle}）`

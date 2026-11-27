@@ -52,6 +52,14 @@ export interface StructureNode {
   level?: number
   /** Reading pass number for paper passes. */
   pass?: number
+  /**
+   * True for a unit the importer made up, not an outline heading.
+   *
+   * A parent's own introduction has no heading of its own, so it becomes a
+   * 序言/Intro unit under that parent; the flag lets sorters and exports tell
+   * it apart from a real section without reading the title.
+   */
+  intro?: boolean
   /** First page, 1-based, inclusive. */
   pageStart: number
   /** Last page, 1-based, inclusive. */

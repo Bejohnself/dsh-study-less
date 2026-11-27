@@ -13,6 +13,50 @@ export function isDone(row: TocRow): boolean {
   return row.state === 'learned' || row.state === 'reviewing'
 }
 
+/**
+ * The first leaf under a TOC row.
+ *
+ * A parent row is an index entry: it labels the subtree, and opening it means
+ * opening the first section it covers, not its own (subtree-wide) range.
+ */
+export function firstLeafUnder(toc: readonly TocRow[], index: number): TocRow {
+  let row = toc[index]!
+  let cursor = index
+  for (;;) {
+    const next = toc[cursor + 1]
+    if (next === undefined || next.level <= row.level) return row
+    cursor += 1
+    row = next
+  }
+}
+
+/** Whether a TOC row has no children under it. */
+function isLeafRow(toc: readonly TocRow[], index: number): boolean {
+  const row = toc[index]!
+  const after = toc[index + 1]
+  return after === undefined || after.level <= row.level
+}
+
+/**
+ * The previous or next readable unit in reading order.
+ *
+ * A parent is an index row, not a reading stop, so paging skips it and lands on
+ * the leaf after it — a chapter's own 序言/Intro is a leaf and is included.
+ */
+export function neighbourLeaf(toc: readonly TocRow[], uid: string, direction: -1 | 1): TocRow | undefined {
+  const index = toc.findIndex(row => row.uid === uid)
+  if (index < 0) return undefined
+  for (let cursor = index + direction; cursor >= 0 && cursor < toc.length; cursor += direction) {
+    if (isLeafRow(toc, cursor)) return toc[cursor]
+  }
+  return undefined
+}
+
+/** The unit the reader opens by default: the first leaf of the material. */
+export function firstLeafUid(toc: readonly TocRow[]): string | undefined {
+  return toc.length === 0 ? undefined : firstLeafUnder(toc, 0).uid
+}
+
 /** Display label of a concept occurrence role. */
 export const ROLE_LABEL: Record<string, string> = {
   definition: '定义',

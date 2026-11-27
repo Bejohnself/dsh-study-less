@@ -55,9 +55,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
 
   const [targetRetention, setTargetRetention] = useState('0.9')
   const [maxIntervalDays, setMaxIntervalDays] = useState('365')
-  const [dailyNewUnits, setDailyNewUnits] = useState('0')
   const [autoQuiz, setAutoQuiz] = useState(true)
-  const [verifyNotes, setVerifyNotes] = useState(false)
   const [priceCurrency, setPriceCurrency] = useState<'USD' | 'CNY'>('USD')
   const [inputPrice, setInputPrice] = useState('0')
   const [cacheInputPrice, setCacheInputPrice] = useState('0')
@@ -96,9 +94,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
         setQuickActions((value.study.quickActions ?? []).map(action => ({ ...action })))
         setTargetRetention(String(value.study.targetRetention))
         setMaxIntervalDays(String(value.study.maxIntervalDays))
-        setDailyNewUnits(String(value.study.dailyNewUnits))
         setAutoQuiz(value.study.autoQuiz)
-        setVerifyNotes(value.study.verifyNotes)
         setPriceCurrency(value.study.pricing?.currency === 'CNY' ? 'CNY' : 'USD')
         setInputPrice(String(value.study.pricing?.inputPerMillion ?? 0))
         setCacheInputPrice(String(value.study.pricing?.cacheInputPerMillion ?? 0))
@@ -167,9 +163,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
       study: {
         targetRetention: Number(targetRetention),
         maxIntervalDays: Number(maxIntervalDays),
-        dailyNewUnits: Number(dailyNewUnits),
         autoQuiz,
-        verifyNotes,
         quickActions: actions,
         pricing: {
           currency: priceCurrency,
@@ -361,7 +355,9 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
 
         <section className="study-settings-section">
           <h3>可选能力</h3>
-          <p className="study-muted">图片/动画/嵌入在后续阶段接入；这里先保存配置，不会影响文本生成。</p>
+          <p className="study-muted">
+            图片与动画只有配置位，生成链路不会调用；嵌入有引擎实现和后端连通性测试，但界面没有入口，也没有建索引，同样不参与生成。下面的配置只保存，不影响文本生成。
+          </p>
           {(['image', 'animation', 'embedding'] as const).map(key => (
             <div key={key} className="study-engine-card">
               <label className="study-inline-check">
@@ -370,7 +366,7 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
                   checked={caps[key].enabled}
                   onChange={event => setCaps(previous => ({ ...previous, [key]: { ...previous[key], enabled: event.target.checked } }))}
                 />
-                {key === 'image' ? '图片生成' : key === 'animation' ? '动画生成' : '嵌入 / 语义索引'}
+                {key === 'image' ? '图片生成（未接入）' : key === 'animation' ? '动画生成（未接入）' : '嵌入 / 语义索引（仅引擎，未建索引）'}
               </label>
               {caps[key].enabled ? (
                 <div className="study-row">
@@ -479,19 +475,11 @@ export function SettingsDialog({ onClose, onSaved }: { onClose: () => void; onSa
               <label className="study-field-label">最大间隔（天）</label>
               <input className="study-input" type="number" value={maxIntervalDays} onChange={event => setMaxIntervalDays(event.target.value)} />
             </div>
-            <div className="study-field">
-              <label className="study-field-label">每日新学上限（0=不限，预留）</label>
-              <input className="study-input" type="number" min="0" value={dailyNewUnits} onChange={event => setDailyNewUnits(event.target.value)} />
-            </div>
           </div>
           <div className="study-settings-toggles">
             <label className="study-inline-check">
               <input type="checkbox" checked={autoQuiz} onChange={event => setAutoQuiz(event.target.checked)} />
               生成导读后自动出题
-            </label>
-            <label className="study-inline-check">
-              <input type="checkbox" checked={verifyNotes} onChange={event => setVerifyNotes(event.target.checked)} />
-              写完后做一次独立校验（后续阶段）
             </label>
           </div>
         </section>

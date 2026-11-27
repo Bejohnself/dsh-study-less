@@ -33,6 +33,35 @@ const created = await service.createPlan({
   })),
 })
 const pid = created.plan.id
+
+// 页面在编排过程中每 3 秒重读计划，并按 generation.jobId 轮询任务。写步骤这一步
+// 不能顺手把生成状态写成 done 并丢掉 jobId，否则轮询停住、「正在补第 k/n 节」一直挂着。
+await service.setPlanGeneration(pid, { status: 'running', mode: 'inline', jobId: 'job-demo' })
+const rewritten = await service.updatePlan(pid, {
+  replaceSteps: sections.map(section => ({
+    kind: 'unit',
+    target: mid + ':' + section.uid,
+    why: '论文这一节的推导依赖它',
+    coverage: 'read',
+  })),
+})
+assert.equal(rewritten.plan.generation?.jobId, 'job-demo', 'writing steps must keep the job the client polls')
+assert.equal(rewritten.plan.generation?.status, 'running', 'the job writes its own terminal state')
+console.log('generation survives a step write:', rewritten.plan.generation?.jobId)
+await service.setPlanGeneration(pid, { status: 'done', mode: 'inline', jobId: 'job-demo' })
+
+// 交给对话编排时没有任务可轮询：步骤写进来就是这次编排的终点。
+await service.setPlanGeneration(pid, { status: 'queued', mode: 'chat' })
+const chatWritten = await service.updatePlan(pid, {
+  replaceSteps: sections.map(section => ({
+    kind: 'unit',
+    target: mid + ':' + section.uid,
+    why: '论文这一节的推导依赖它',
+    coverage: 'read',
+  })),
+})
+assert.equal(chatWritten.plan.generation?.status, 'done', 'a chat route is finished by its steps')
+assert.equal(chatWritten.plan.generation?.mode, 'chat')
 // One goal at a time: a second creation is refused while this one is open.
 await assert.rejects(
   () => service.createPlan({ goal: '第二个目标', deliverable: '随便交点什么', deadline: '2026-12-20', steps: [] }),

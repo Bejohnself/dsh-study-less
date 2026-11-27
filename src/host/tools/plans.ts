@@ -24,7 +24,7 @@ export function plansTools({ service, extras }: ToolContext): StudyToolDefinitio
   tools.push({
     name: 'study_plan_create',
     description:
-      '创建一条跨资料学习路径。步骤只能是 unit/paper-pass（target=<material>:<unit>），每个步骤必须写 why。Host 会校验目标是否存在，不存在会返回 issues。做“针对性学习”时：先 study_library + study_concept 看清家底，再按「前置→核心」排节，并给每节写一个档位（level 1–4）。知识点属于节本身，目标不另列；建完用 study_generate action=concepts 给各节补知识点。目标的交付物与期限是结案必需项，建的时候就要写。',
+      '创建一条跨资料学习路径。步骤只能是 unit/paper-pass（target=<material>:<unit>，且只用最末一级的节——父节只是目录索引），每个步骤必须写 why。Host 会校验目标存在且是末级节，不合格会返回 issues。做“针对性学习”时：先 study_library + study_concept 看清家底，再按「前置→核心」排节，并给每节写一个档位（level 1–4）。知识点属于节本身，目标不另列；建完用 study_generate action=concepts 给各节补知识点。目标的交付物与期限是结案必需项，建的时候就要写。',
     parameters: objectSchema({
       goal: { type: 'string', description: '要达成的学习目标' },
       deliverable: { type: 'string', description: '这次要交出什么；缺少交付物不能结案' },

@@ -26,7 +26,7 @@ import {
   tintVisible,
 } from './reader/chrome.tsx'
 import {EmptyState, InlineMarkdown, JobBanner, Toast} from './ui.tsx'
-import {promptKindLabel} from '../labels.ts'
+import {firstLeafUnder, promptKindLabel} from '../labels.ts'
 import {useUnitReader, type UnitReaderProps} from './reader/useUnitReader.ts'
 
 /** The reading surface: props in, markup out. State lives in `useUnitReader`. */
@@ -123,6 +123,9 @@ export function UnitReader(props: UnitReaderProps): ReactElement {
     setThinking,
     columnWidth,
     setColumnWidth,
+    rootRef,
+    previous,
+    next,
     mid,
     uid,
     planId,
@@ -136,7 +139,7 @@ export function UnitReader(props: UnitReaderProps): ReactElement {
   if (unit === null) return <div className="study-empty">正在载入…</div>
 
   return (
-    <div className={full ? 'study-reader2 is-full' : 'study-reader2'}>
+    <div ref={rootRef} className={full ? 'study-reader2 is-full' : 'study-reader2'}>
       {/* Fullscreen keeps only what reading needs: the page, and the actions that
           act on it. */}
       {full ? (
@@ -215,6 +218,35 @@ export function UnitReader(props: UnitReaderProps): ReactElement {
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Section paging: one stop per readable unit, pinned to the edges of the
+          reading area in both modes. The insets come from the measured bounds. */}
+      <div className="study-turn">
+        <button
+          type="button"
+          className="study-turn-btn is-prev"
+          onClick={() => {
+            if (previous !== undefined) onSelectUnit(previous.uid)
+          }}
+          disabled={previous === undefined}
+          aria-label="上一节"
+          title="上一节（←）"
+        >
+          ‹
+        </button>
+        <button
+          type="button"
+          className="study-turn-btn is-next"
+          onClick={() => {
+            if (next !== undefined) onSelectUnit(next.uid)
+          }}
+          disabled={next === undefined}
+          aria-label="下一节"
+          title="下一节（→）"
+        >
+          ›
+        </button>
       </div>
 
       <div className="study-reader2-body">
@@ -432,16 +464,18 @@ export function UnitReader(props: UnitReaderProps): ReactElement {
               </button>
             </div>
             <nav className="study-drawer-list" ref={tocListRef}>
-              {toc.map(row => (
+              {toc.map((row, index) => (
                 <button
                   key={row.uid}
                   ref={row.uid === uid ? currentTocRef : null}
                   type="button"
                   aria-current={row.uid === uid ? 'page' : undefined}
                   className={row.uid === uid ? 'study-drawer-row is-on' : 'study-drawer-row'}
+                  data-level={row.level}
+                  style={{ paddingLeft: `${String(9 + (row.level - 1) * 14)}px` }}
                   onClick={() => {
                     setTocOpen(false)
-                    onSelectUnit(row.uid)
+                    onSelectUnit(firstLeafUnder(toc, index).uid)
                   }}
                 >
                   <span className="study-drawer-title">{row.title}</span>

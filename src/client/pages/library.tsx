@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { MaterialCard, MaterialStateView, TocRow } from '../../core/views.ts'
 import { api, errorText, post } from '../api.ts'
-import { typeLabel } from '../labels.ts'
+import { firstLeafUid, firstLeafUnder, typeLabel } from '../labels.ts'
 import { BookCover } from '../components/cover.tsx'
 import { UnitReader } from '../components/reader.tsx'
 import { EmptyState, Toast } from '../components/ui.tsx'
@@ -218,7 +218,12 @@ export function MaterialPage({
   const reload = useCallback(async () => {
     const value = await api<MaterialStateView>(`/material?mid=${encodeURIComponent(mid)}`)
     setState(value)
-    setCurrent(previous => previous ?? value.next ?? value.toc[0]?.uid ?? null)
+    setCurrent(previous => {
+      // A parent row is an index entry, so land on the first section under it.
+      const start = previous === null ? -1 : value.toc.findIndex(row => row.uid === previous)
+      if (start >= 0) return firstLeafUnder(value.toc, start).uid
+      return value.next ?? firstLeafUid(value.toc) ?? null
+    })
   }, [mid])
 
   useEffect(() => {
